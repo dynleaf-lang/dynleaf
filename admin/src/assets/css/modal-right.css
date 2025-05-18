@@ -1,0 +1,48 @@
+/* Right-aligned modal styles */
+.modal-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin: 0;
+  height: 100%;
+  width: 600px;
+  max-width: 100%;
+  transform: translateX(100%);
+  transition: transform 0.3s ease-out;
+}
+
+.modal.show .modal-right {
+  transform: translateX(0);
+}
+
+.modal-backdrop {
+  opacity: 0.5;
+}
+
+/* Animation for sliding from right */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.right-modal.show .modal-right {
+  animation: slideInRight 0.3s forwards;
+}
+
+/* Additional styling for right modal content */
+.right-modal .card {
+  border-radius: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: -5px 0px 15px rgba(0, 0, 0, 0.1);
+}
+
+.right-modal .card-header {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+
