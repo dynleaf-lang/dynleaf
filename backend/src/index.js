@@ -4,7 +4,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 
-const userRoutes = require('./routes/userRoutes'); 
+const userRoutes = require('./routes/userRoutes');  
 const categoryRoutes = require('./routes/categoryRoutes'); 
 const menuRoutes = require('./routes/menuRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');

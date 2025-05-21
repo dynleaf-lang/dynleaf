@@ -10,7 +10,8 @@ const CategorySchema = new mongoose.Schema({
     branchId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Branch',
-        required: true,
+        // Making branchId optional
+        required: false,
     },
 
     categoryId: {

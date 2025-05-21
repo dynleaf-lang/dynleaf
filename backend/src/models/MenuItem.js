@@ -6,6 +6,11 @@ const MenuItemSchema = new mongoose.Schema({
         ref: 'Restaurant',
         required: true,
     },
+    branchId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Branch',
+        // Not required, as items can be available at all branches
+    },
     itemId: {
         type: String,
         required: true,

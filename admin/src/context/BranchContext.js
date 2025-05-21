@@ -4,14 +4,23 @@ import { AuthContext } from './AuthContext';
 
 export const BranchContext = createContext();
 
+// Configure axios with base URL from environment variables
+axios.defaults.baseURL = process.env.API_BASE_URL || 'http://localhost:5001';
+
+// Helper function to ensure ID is a string
+const ensureIdString = (id) => {
+    if (!id) return '';
+    return typeof id === 'object' && id.toString ? id.toString() : String(id);
+};
+
 export const BranchProvider = ({ children }) => {
     const [branches, setBranches] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const { token } = useContext(AuthContext);
     
-    const API_URL = process.env.REACT_APP_BASE_API_URL || 'http://localhost:5001/api';
-
+    // We'll use axios's baseURL instead, which is already configured in AuthContext
+    
     const fetchBranches = async () => {
         setLoading(true);
         setError(null);
@@ -22,7 +31,7 @@ export const BranchProvider = ({ children }) => {
                     Authorization: `Bearer ${token}`
                 }
             };
-            const response = await axios.get(`${API_URL}/branches`, config);
+            const response = await axios.get('/api/branches', config);
             setBranches(response.data);
         } catch (err) {
             console.error('Error fetching branches:', err);
@@ -36,18 +45,68 @@ export const BranchProvider = ({ children }) => {
         setLoading(true);
         setError(null);
         try {
+            if (!restaurantId) {
+                console.error('Restaurant ID is missing');
+                setError('Restaurant ID is required');
+                setLoading(false);
+                return [];
+            }
+            
+            // Ensure restaurant ID is a string
+            const restaurantIdStr = ensureIdString(restaurantId);
+            
             const config = {
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
-                }
+                },
+                // Add timeout to prevent hanging requests
+                timeout: 10000
             };
-            const response = await axios.get(`${API_URL}/branches/restaurant/${restaurantId}`, config);
-            setBranches(response.data);
-            return response.data;
+            
+            console.log(`Fetching branches for restaurant: ${restaurantIdStr}`);
+            
+            try {
+                const response = await axios.get(`/api/branches/restaurant/${restaurantIdStr}`, config);
+                console.log('Branches fetched successfully:', response.data);
+                setBranches(response.data);
+                return response.data;
+            } catch (axiosError) {
+                // Handle axios specific errors
+                if (axiosError.code === 'ECONNABORTED') {
+                    console.error('Request timeout');
+                    setError('Request timed out. Please try again.');
+                    return [];
+                }
+                throw axiosError; // Re-throw to be caught by outer catch
+            }
         } catch (err) {
             console.error('Error fetching branches for restaurant:', err);
-            setError(err.response?.data?.message || 'Failed to fetch branches');
+            
+            // Enhanced error logging
+            if (err.response) {
+                console.error('Response status:', err.response.status);
+                console.error('Response data:', err.response.data);
+                
+                // Handle specific error cases with more user-friendly messages
+                if (err.response.status === 403) {
+                    setError('You do not have permission to view branches for this restaurant');
+                } else if (err.response.status === 404) {
+                    setError('Restaurant not found');
+                } else {
+                    setError(`Error (${err.response.status}): ${err.response.data?.message || 'Failed to fetch branches'}`);
+                }
+            } else if (err.request) {
+                // The request was made but no response was received
+                console.error('No response received:', err.request);
+                setError('Server did not respond. Please check your connection.');
+            } else {
+                // Something else caused the error
+                console.error('Error message:', err.message);
+                setError('Failed to fetch branches: ' + err.message);
+            }
+            
+            // Return empty array instead of throwing
             return [];
         } finally {
             setLoading(false);
@@ -64,7 +123,7 @@ export const BranchProvider = ({ children }) => {
                     Authorization: `Bearer ${token}`
                 }
             };
-            const response = await axios.get(`${API_URL}/branches/${id}`, config);
+            const response = await axios.get(`/api/branches/${id}`, config);
             return response.data;
         } catch (err) {
             console.error('Error fetching branch:', err);
@@ -85,7 +144,7 @@ export const BranchProvider = ({ children }) => {
                     Authorization: `Bearer ${token}`
                 }
             };
-            const response = await axios.post(`${API_URL}/branches`, branchData, config);
+            const response = await axios.post('/api/branches', branchData, config);
             setBranches([...branches, response.data]);
             return response.data;
         } catch (err) {
@@ -107,7 +166,7 @@ export const BranchProvider = ({ children }) => {
                     Authorization: `Bearer ${token}`
                 }
             };
-            const response = await axios.put(`${API_URL}/branches/${id}`, branchData, config);
+            const response = await axios.put(`/api/branches/${id}`, branchData, config);
             setBranches(branches.map(branch => 
                 branch._id === id ? response.data : branch
             ));
@@ -130,7 +189,7 @@ export const BranchProvider = ({ children }) => {
                     Authorization: `Bearer ${token}`
                 }
             };
-            await axios.delete(`${API_URL}/branches/${id}`, config);
+            await axios.delete(`/api/branches/${id}`, config);
             setBranches(branches.filter(branch => branch._id !== id));
             return true;
         } catch (err) {

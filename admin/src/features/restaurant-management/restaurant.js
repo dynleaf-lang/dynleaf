@@ -29,11 +29,15 @@ import {
 import Header from "components/Headers/Header.js";
 import { useContext, useState, useEffect } from "react";
 import { RestaurantContext } from "../../context/RestaurantContext";
+import { AuthContext } from "../../context/AuthContext"; // Import AuthContext
+import { useNavigate } from "react-router-dom"; // Import useNavigate
 
 const RestaurantManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
   const { restaurants, loading, error, fetchRestaurants, createRestaurant, updateRestaurant, deleteRestaurant } = useContext(RestaurantContext);
+  const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin function
+  const navigate = useNavigate(); // Initialize useNavigate hook
   
   // Form state
   const [formData, setFormData] = useState({
@@ -43,6 +47,11 @@ const RestaurantManagement = () => {
     email: '',
     openingHours: ''
   });
+
+  // Navigate to branches view for a specific restaurant
+  const handleRestaurantClick = (restaurantId) => {
+    navigate(`/admin/branches/${restaurantId}`);
+  };
 
   // Fetch restaurants when component mounts
   useEffect(() => {
@@ -86,7 +95,11 @@ const RestaurantManagement = () => {
   };
   
   // Function to handle saving a restaurant
-  const handleSaveRestaurant = async () => {
+  const handleSaveRestaurant = async () => { 
+    if (!formData.name || !formData.address || !formData.phone || !formData.email || !formData.openingHours) {
+      alert("Please fill in all fields.");
+      return;
+    }
     try {
       if (currentEditItem) {
         // Update existing restaurant
@@ -102,6 +115,27 @@ const RestaurantManagement = () => {
     }
   };
 
+  // Only Super_Admin should be able to access this page
+  if (!isSuperAdmin()) {
+    return (
+      <Container className="mt-5">
+        <Row className="justify-content-center">
+          <div className="col-lg-6">
+            <Card className="shadow border-0">
+              <CardHeader className="bg-transparent">
+                <h3 className="text-center">Access Denied</h3>
+              </CardHeader>
+              <div className="card-body text-center">
+                <p>You do not have permission to view this page.</p>
+                <p>Only users with the Super_Admin role can access Restaurant Management.</p>
+              </div>
+            </Card>
+          </div>
+        </Row>
+      </Container>
+    );
+  }
+
   return (
     <>
       <Header />
@@ -115,6 +149,7 @@ const RestaurantManagement = () => {
                  <h3 className="mb-0">Restaurants</h3>
                  </div>
                 <div className="text-right d-inline-block">
+                
                   <Button color="primary" onClick={() => {
                     setCurrentEditItem(null);
                     setModalOpen(true);
@@ -150,7 +185,9 @@ const RestaurantManagement = () => {
                   ) : restaurants && restaurants.length > 0 ? restaurants.map((restaurant) => (
                     <tr key={restaurant._id}>
                       <td>
-                        <span className="mb-0 text-sm font-weight-bold">
+                        <span className="mb-0 text-sm font-weight-bold text-primary" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleRestaurantClick(restaurant._id)}>
                           {restaurant.name}
                         </span>
                       </td>

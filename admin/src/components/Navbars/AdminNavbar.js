@@ -1,4 +1,3 @@
-
 import { Link } from "react-router-dom";
 // reactstrap components
 import {
@@ -18,14 +17,35 @@ import {
   Media,
 } from "reactstrap";
 
-import { useContext } from "react";
+import { useContext, useState, useEffect } from "react";
 import { AuthContext } from "../../context/AuthContext";
+import { RestaurantContext } from "../../context/RestaurantContext";
+import { BranchContext } from "../../context/BranchContext";
 import { useNavigate } from "react-router-dom"; 
+
 
 
 const AdminNavbar = (props) => {
   const { logout, user } = useContext(AuthContext);
-  const navigate = useNavigate();
+  const { restaurants } = useContext(RestaurantContext);
+  const { branches } = useContext(BranchContext);
+  const [restaurantName, setRestaurantName] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const navigate = useNavigate(); 
+  
+ 
+  // Find restaurant and branch names when component mounts or dependencies change
+  useEffect(() => {
+    if (user && user.restaurantId && restaurants && restaurants.length > 0) {
+      const restaurant = restaurants.find(r => r._id === user.restaurantId);
+      setRestaurantName(restaurant ? restaurant.name : "");
+    }
+    
+    if (user && user.branchId && branches && branches.length > 0) {
+      const branch = branches.find(b => b._id === user.branchId);
+      setBranchName(branch ? branch.name : "");
+    }
+  }, [user, restaurants, branches]);
 
   const handleLogout = () => {
     logout();
@@ -73,7 +93,12 @@ const AdminNavbar = (props) => {
               </DropdownToggle>
               <DropdownMenu className="dropdown-menu-arrow" right>
                 <DropdownItem className="noti-title" header tag="div">
-                  <h6 className="text-overflow m-0">Welcome!</h6>
+                  <h6 className="text-overflow m-0">
+                   
+                    {restaurantName && branchName && (
+                      <span> {restaurantName} - ({branchName})</span>
+                    )}
+                  </h6>
                 </DropdownItem>
                 <DropdownItem to="/admin/user-profile" tag={Link}>
                   <i className="ni ni-single-02" />

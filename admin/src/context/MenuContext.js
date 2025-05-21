@@ -2,49 +2,86 @@ import React, { createContext, useState, useEffect, useCallback, useContext } fr
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
 
-const API_BASE_URL = process.env.REACT_APP_BASE_API_URL || 'http://localhost:5001/api/menus'; // Base URL for all menu-related endpoints
-const UPLOAD_URL = '/api/upload'; // URL for image uploads
+// Use consistent API URL with the environment variable or fallback
+const BASE_URL = process.env.API_BASE_URL || 'http://localhost:5001/api'; 
 
-// Default restaurant ID - must be a valid MongoDB ObjectId in your database
-const DEFAULT_RESTAURANT_ID = "64daff7c9ea2549d0bd95571"; 
+const MENU_ENDPOINT = `${BASE_URL}/menus`;
+const UPLOAD_ENDPOINT = `${BASE_URL}/upload`;
+
+// Updated default restaurant ID based on your other files
+const DEFAULT_RESTAURANT_ID = "64daff7c9ea2549d0bd95571";
 
 const MenuContext = createContext();
 
 const MenuProvider = ({ children }) => {
     const [menuItems, setMenuItems] = useState([]);
     const [loading, setLoading] = useState(true);
-    const { token } = useContext(AuthContext);
+    const [error, setError] = useState(null);
+    const { token, user, isSuperAdmin } = useContext(AuthContext);
 
-    useEffect(() => {
-        const fetchMenuItems = async () => {
-            try {
-                const response = await axios.get(API_BASE_URL);
-                setMenuItems(response.data);
-            } catch (error) {
-                console.error('Error fetching menu items:', error);
-            } finally {
-                setLoading(false);
+    // Function to fetch all menu items with optional restaurant and branch filters
+    const fetchMenuItems = async (filters = {}) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                params: {}
+            } : { params: {} };
+            
+            // Add restaurant filter if provided
+            if (filters.restaurantId) {
+                config.params.restaurantId = filters.restaurantId;
             }
-        };
+            
+            // Add branch filter if provided
+            if (filters.branchId) {
+                config.params.branchId = filters.branchId;
+            }
+            
+            const response = await axios.get(MENU_ENDPOINT, config); 
+            
+            // The backend now filters based on user's restaurant and branch if specified
+            setMenuItems(Array.isArray(response.data) ? response.data : []);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching menu items:', error);
+            setError(error.response?.data?.message || error.message);
+            setMenuItems([]);
+            return [];
+        } finally {
+            setLoading(false);
+        }
+    };
 
-        fetchMenuItems();
-    }, []);
+    // Fetch menu items when the component mounts or token changes
+    useEffect(() => {
+        if (token) {
+            fetchMenuItems();
+        }
+    }, [token]);
 
-    // New function to handle image uploads
+    // Upload image function
     const uploadImage = async (imageFile) => {
         try {
-            // Create form data for the file upload
             const formData = new FormData();
             formData.append('image', imageFile);
 
-            // Upload the image
-            const response = await axios.post(UPLOAD_URL, formData, {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {
                 headers: {
                     'Content-Type': 'multipart/form-data'
                 }
-            });
-
-            // Return the response, which should include the image URL
+            };
+            
+            const response = await axios.post(UPLOAD_ENDPOINT, formData, config);
             return { success: true, data: response.data };
         } catch (error) {
             console.error('Error uploading image:', error);
@@ -57,13 +94,25 @@ const MenuProvider = ({ children }) => {
 
     const addMenuItem = async (newItem) => {
         try {
-            // Ensure restaurantId is always included
+            // For non-Super_Admin users, the backend will automatically
+            // use their restaurantId, so we don't need to explicitly set it here
             const itemWithRestaurant = {
-                ...newItem,
-                restaurantId: newItem.restaurantId || DEFAULT_RESTAURANT_ID
+                ...newItem
             };
             
-            const response = await axios.post(API_BASE_URL, itemWithRestaurant);
+            // If user is Super_Admin, ensure restaurantId is set
+            if (isSuperAdmin() && !itemWithRestaurant.restaurantId) {
+                itemWithRestaurant.restaurantId = DEFAULT_RESTAURANT_ID;
+            }
+            
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.post(MENU_ENDPOINT, itemWithRestaurant, config);
             setMenuItems((prevItems) => [...prevItems, response.data]);
             return { success: true, data: response.data };
         } catch (error) {
@@ -74,7 +123,14 @@ const MenuProvider = ({ children }) => {
 
     const updateMenuItem = async (id, updatedItem) => {
         try {
-            const response = await axios.put(`${API_BASE_URL}/${id}`, updatedItem);
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.put(`${MENU_ENDPOINT}/${id}`, updatedItem, config);
             setMenuItems((prevItems) =>
                 prevItems.map((item) => (item._id === id ? response.data : item))
             );
@@ -90,8 +146,15 @@ const MenuProvider = ({ children }) => {
             // First, get the menu item to retrieve its image URL
             const menuItem = menuItems.find(item => item._id === id);
             
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
             // Delete the menu item from the server
-            await axios.delete(`${API_BASE_URL}/${id}`);
+            await axios.delete(`${MENU_ENDPOINT}/${id}`, config);
             
             // Delete the image if it exists and is stored on our server
             if (menuItem && menuItem.imageUrl && menuItem.imageUrl.includes('/uploads/')) {
@@ -100,7 +163,7 @@ const MenuProvider = ({ children }) => {
                     const filename = menuItem.imageUrl.split('/uploads/').pop();
                     if (filename) {
                         // Call the API to delete the image file
-                        await axios.delete(`${UPLOAD_URL}/${filename}`);
+                        await axios.delete(`${UPLOAD_ENDPOINT}/${filename}`, config);
                     }
                 } catch (imageError) {
                     console.error('Error deleting image file:', imageError);
@@ -117,22 +180,41 @@ const MenuProvider = ({ children }) => {
         }
     };
 
+    // Get menu items for a specific branch
+    const getMenuItemsByBranch = async (branchId, restaurantId = null) => {
+        if (!token) return [];
+        
+        try {
+            const filters = {};
+            if (branchId) filters.branchId = branchId;
+            if (restaurantId) filters.restaurantId = restaurantId;
+            
+            return await fetchMenuItems(filters);
+        } catch (error) {
+            console.error('Error fetching menu items by branch:', error);
+            return [];
+        }
+    };
+
     const contextValue = {
         menuItems,
         loading,
+        error,
+        fetchMenuItems,
+        getMenuItemsByBranch,
         addMenuItem,
         updateMenuItem,
         deleteMenuItem,
         uploadImage,
-        DEFAULT_RESTAURANT_ID, // Export the default restaurant ID for component use
+        DEFAULT_RESTAURANT_ID
     };
 
     return (
         <MenuContext.Provider value={contextValue}>
-            {loading ? <div>Loading...</div> : children}
+            {children}
         </MenuContext.Provider>
     );
-}
+};
 
 export { MenuContext, MenuProvider };
 export default MenuProvider;

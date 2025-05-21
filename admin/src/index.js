@@ -6,6 +6,7 @@ import { MenuProvider } from "./context/MenuContext";
 import { CategoryProvider } from "./context/CategoryContext";
 import { RestaurantProvider } from "./context/RestaurantContext";
 import { BranchProvider } from "./context/BranchContext";
+import { UserProvider } from "./context/UserContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 import "assets/plugins/nucleo/css/nucleo.css";
@@ -20,25 +21,27 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 
 root.render( 
   <AuthProvider>
-    <RestaurantProvider>
-      <BranchProvider>
-        <CategoryProvider>
-          <MenuProvider>
-            <BrowserRouter>
-              <Routes>
-                <Route path="/admin/*" element={
-                  <ProtectedRoute>
-                    <AdminLayout />
-                  </ProtectedRoute>
-                } />
-                <Route path="/auth/*" element={<AuthLayout />} />
-                <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
-                <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
-              </Routes>
-            </BrowserRouter>
-          </MenuProvider>
-        </CategoryProvider>
-      </BranchProvider>
-    </RestaurantProvider>
+    <UserProvider>
+      <RestaurantProvider>
+        <BranchProvider>
+          <CategoryProvider>
+            <MenuProvider>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/admin/*" element={
+                    <ProtectedRoute>
+                      <AdminLayout />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/auth/*" element={<AuthLayout />} />
+                  <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
+                  <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
+                </Routes>
+              </BrowserRouter>
+            </MenuProvider>
+          </CategoryProvider>
+        </BranchProvider>
+      </RestaurantProvider>
+    </UserProvider>
   </AuthProvider>
 );

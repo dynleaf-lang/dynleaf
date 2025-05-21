@@ -4,40 +4,140 @@ const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
+const { authenticateJWT, authorizeAdmin } = require('../middleware/authMiddleware');
 
 dotenv.config();
-const JWT_SECRET = process.env.JWT_SECRET
-const JWT_EXPIRATION = process.env.JWT_EXPIRATION || '1h';
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-for-dev-only';
+const JWT_EXPIRATION = process.env.JWT_EXPIRATION || '24h'; // Increased to 24h from 1h
 const JWT_ISSUER = process.env.JWT_ISSUER || 'your-issuer';
-const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'your-audience';   
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'your-audience';
 
-// Middleware to check if the user is authenticated
-const authenticateJWT = (req, res, next) => {
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ message: 'Token not provided' });
-    // Verify the token
+// Get user profile - Fixed version that combines both approaches
+router.get('/profile', authenticateJWT, async (req, res) => {
     try {
-        jwt.verify(token, JWT_SECRET, { issuer: JWT_ISSUER, audience: JWT_AUDIENCE }, (err, user) => {
-            if (err) return res.status(403).json({ message: 'Token is not valid' });
-            req.user = user;
-            next();
+        // Make sure we're using the right property from the JWT payload
+        const userId = req.user.id;
+        
+        if (!userId) {
+            console.error('User ID not found in JWT payload:', req.user);
+            return res.status(400).json({ 
+                message: 'Invalid user data in token',
+                tokenPayload: req.user // For debugging
+            });
+        }
+        
+        const user = await User.findById(userId).select('-password');
+        
+        if (!user) {
+            console.error(`User with ID ${userId} not found in database`);
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        // Return both full user object from DB and basic token info
+        res.status(200).json({ 
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                restaurantId: user.restaurantId || null,
+                branchId: user.branchId || null
+            }
         });
     } catch (error) {
-        return res.status(500).json({ message: 'Internal server error' });
+        console.error('Error fetching user profile:', error);
+        res.status(500).json({ 
+            message: 'Failed to retrieve user profile', 
+            error: error.message 
+        });
     }
-};
+});
 
-// Middleware to check if the user is an admin
-const authorizeAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Access denied' });
+// Get all users 
+router.get('/all', authenticateJWT, authorizeAdmin, async (req, res) => {
+    try {
+        // Query the database to get all users
+        const users = await User.find().select('-password');
+        res.status(200).json(users);
+    } catch (error) { 
+        console.error('Error fetching all users:', error);
+        res.status(500).json({ message: error.message });
     }
-    next();
-};
+});
+
+// Get user by ID
+router.get('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Update user by ID
+router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
+    try {
+        const { name, email, password, role, restaurantId, branchId } = req.body;
+        
+        // Build update object
+        const updateData = { name, email, role };
+        
+        // If restaurantId is provided
+        if (restaurantId) {
+            updateData.restaurantId = restaurantId;
+        }
+
+        // If branchId is provided
+        if (branchId) {
+            updateData.branchId = branchId;
+        }
+        
+        // If password is provided, hash it
+        if (password) {
+            updateData.password = await bcrypt.hash(password, 10);
+        }
+        
+        // Find and update the user
+        const updatedUser = await User.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true }
+        ).select('-password');
+        
+        if (!updatedUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        res.status(200).json(updatedUser);
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Delete user by ID
+router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
+    try {
+        const deletedUser = await User.findByIdAndDelete(req.params.id);
+        
+        if (!deletedUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        res.status(200).json({ message: 'User deleted successfully', id: req.params.id });
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
 
 // Register a new user
 router.post('/register', async (req, res) => {
-    const { name, email, password, role, restaurantId } = req.body;
+    const { name, email, password, role, restaurantId, branchId } = req.body;
     try {
         console.log('Registration attempt:', { name, email, role }); // Log registration attempts
         
@@ -61,12 +161,22 @@ router.post('/register', async (req, res) => {
         if (restaurantId) {
             userData.restaurantId = restaurantId;
         }
+
+        // Add branchId if provided
+        if (branchId) {
+            userData.branchId = branchId;
+        } 
         
         const newUser = new User(userData);
         await newUser.save();
         
         // Generate token for auto-login after registration
-        const token = jwt.sign({ id: newUser._id, role: newUser.role }, JWT_SECRET, { 
+        const token = jwt.sign({ 
+            id: newUser._id, 
+            role: newUser.role,
+            restaurantId: newUser.restaurantId || null,
+            branchId: newUser.branchId || null
+        }, JWT_SECRET, { 
             expiresIn: JWT_EXPIRATION, 
             issuer: JWT_ISSUER, 
             audience: JWT_AUDIENCE 
@@ -108,29 +218,33 @@ router.post('/login', async (req, res) => {
         if (!isPasswordValid) {
             return res.status(400).json({ message: 'Invalid credentials' });
         }
-        const token = jwt.sign({ id: existingUser._id, role: existingUser.role }, JWT_SECRET, { expiresIn: JWT_EXPIRATION, issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
-        res.status(200).json({ token, user: { id: existingUser._id, name: existingUser.name, email: existingUser.email, role: existingUser.role } });
+        
+        // Include restaurantId and branchId in the JWT token payload
+        const token = jwt.sign({ 
+            id: existingUser._id, 
+            role: existingUser.role,
+            restaurantId: existingUser.restaurantId || null,
+            branchId: existingUser.branchId || null
+        }, JWT_SECRET, { 
+            expiresIn: JWT_EXPIRATION, 
+            issuer: JWT_ISSUER, 
+            audience: JWT_AUDIENCE 
+        });
+        
+        res.status(200).json({ 
+            token, 
+            user: { 
+                id: existingUser._id, 
+                name: existingUser.name, 
+                email: existingUser.email, 
+                role: existingUser.role,
+                restaurantId: existingUser.restaurantId || null,
+                branchId: existingUser.branchId || null
+            } 
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
-});
-
-// Get user profile
-router.get('/profile', authenticateJWT, async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-        res.status(200).json({ user });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Protected route example
-router.get('/profile', authenticateJWT, (req, res) => {
-    res.json({ message: 'Protected profile data', user: req.user });
 });
 
 // Admin route example

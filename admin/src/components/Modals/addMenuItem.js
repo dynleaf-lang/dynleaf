@@ -24,11 +24,17 @@ import "../../assets/css/modal-right.css"; // Import the custom modal CSS
 import { handleTagsChange, handleTagKeyDown, removeTag } from "../Utils/handleTagsChange"; // Import the utility functions for handling tags
 import { MenuContext } from "../../context/MenuContext";
 import { CategoryContext } from "../../context/CategoryContext";
+import { AuthContext } from "../../context/AuthContext";
+import { RestaurantContext } from "../../context/RestaurantContext";
+import { BranchContext } from "../../context/BranchContext";
 
 const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
-    // Get the default restaurant ID from MenuContext
+    // Get the default restaurant ID and user context
     const { addMenuItem, updateMenuItem, DEFAULT_RESTAURANT_ID, uploadImage } = useContext(MenuContext);
     const { categories, loading: categoriesLoading } = useContext(CategoryContext);
+    const { user, isSuperAdmin } = useContext(AuthContext);
+    const { restaurants, fetchRestaurants, loading: restaurantsLoading } = useContext(RestaurantContext);
+    const { fetchBranchesByRestaurant } = useContext(BranchContext);
 
     // Determine if we're in edit mode
     const isEditMode = !!editItem;
@@ -44,8 +50,13 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         featured: false,
         isActive: true,
         imageFile: null,
-        restaurantId: DEFAULT_RESTAURANT_ID // Ensure restaurantId is always included
+        restaurantId: user?.restaurantId || "",
+        branchId: user?.branchId || "" // Add branchId to the state
     });
+    
+    // Add state for branches
+    const [branches, setBranches] = useState([]);
+    const [loadingBranches, setLoadingBranches] = useState(false);
     
     // Add state for success message
     const [showSuccessAlert, setShowSuccessAlert] = useState(false);
@@ -57,6 +68,42 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     // Reference to the tags input field
     const tagsInputRef = useRef(null);
 
+    // Find restaurant name by ID
+    const getRestaurantName = (id) => {
+        if (!id) return 'No Restaurant Selected';
+        const restaurant = restaurants.find(r => r._id === id);
+        return restaurant ? restaurant.name : 'Unknown Restaurant';
+    };
+
+    // Fetch restaurants when the modal opens
+    useEffect(() => {
+        if (isOpen) {
+            fetchRestaurants();
+        }
+    }, [isOpen, fetchRestaurants]);
+
+    // Load branches when restaurant changes
+    useEffect(() => {
+        const loadBranches = async () => {
+            if (menuItem.restaurantId) {
+                setLoadingBranches(true);
+                try {
+                    const branchData = await fetchBranchesByRestaurant(menuItem.restaurantId);
+                    setBranches(branchData);
+                } catch (error) {
+                    console.error("Error loading branches:", error);
+                    setBranches([]);
+                } finally {
+                    setLoadingBranches(false);
+                }
+            } else {
+                setBranches([]);
+            }
+        };
+        
+        loadBranches();
+    }, [menuItem.restaurantId, fetchBranchesByRestaurant]);
+
     // Load item data when in edit mode
     useEffect(() => {
         if (editItem) {
@@ -66,10 +113,23 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 tags: Array.isArray(editItem.tags) ? editItem.tags : (editItem.tags ? [editItem.tags] : []),
                 // Set imageFile to null initially
                 imageFile: null,
-                // Ensure restaurantId is set
-                restaurantId: editItem.restaurantId || DEFAULT_RESTAURANT_ID
+                // Keep existing restaurantId and branchId
+                restaurantId: editItem.restaurantId,
+                branchId: editItem.branchId || ""
             });
         } else {
+            // Determine the appropriate restaurantId based on user role
+            let restaurantId = "";
+            
+            // For non-Super_Admin users, use their assigned restaurant
+            if (user && !isSuperAdmin() && user.restaurantId) {
+                restaurantId = user.restaurantId;
+            } 
+            // For Super_Admin without an edit item, use the default
+            else if (isSuperAdmin()) {
+                restaurantId = DEFAULT_RESTAURANT_ID;
+            }
+            
             // Reset form when not in edit mode
             setMenuItem({
                 name: "",
@@ -82,15 +142,42 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 featured: false,
                 isActive: true,
                 imageFile: null,
-                restaurantId: DEFAULT_RESTAURANT_ID
+                restaurantId: restaurantId,
+                branchId: ""
             });
         }
-    }, [editItem, DEFAULT_RESTAURANT_ID]);
+    }, [editItem, DEFAULT_RESTAURANT_ID, user, isSuperAdmin]);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         if (type === "checkbox") {
             setMenuItem({ ...menuItem, [name]: checked });
+        } else if (name === "restaurantId") {
+            // When restaurant changes, reset branch selection and trigger branch loading
+            setMenuItem({ 
+                ...menuItem, 
+                [name]: value,
+                branchId: "" 
+            });
+            
+            // If a valid restaurant is selected, explicitly load its branches
+            if (value) {
+                setLoadingBranches(true);
+                fetchBranchesByRestaurant(value)
+                    .then(branchData => {
+                        setBranches(branchData || []);
+                    })
+                    .catch(error => {
+                        console.error("Error loading branches:", error);
+                        setBranches([]);
+                    })
+                    .finally(() => {
+                        setLoadingBranches(false);
+                    });
+            } else {
+                // Clear branches when no restaurant is selected
+                setBranches([]);
+            }
         } else {
             setMenuItem({ ...menuItem, [name]: value });
         }
@@ -158,13 +245,27 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             return;
         }
         
+        // Determine the appropriate restaurantId for the item
+        let restaurantId = menuItem.restaurantId;
+        
+        // For non-Super_Admin users, always use their assigned restaurant
+        if (user && !isSuperAdmin() && user.restaurantId) {
+            restaurantId = user.restaurantId;
+        }
+        // For Super_Admin without a restaurant specified, use the default
+        else if (isSuperAdmin() && !restaurantId) {
+            restaurantId = DEFAULT_RESTAURANT_ID;
+        }
+        
         // Clone menuItem to send to parent
         const itemToSave = {
             ...menuItem,
             price: parsedPrice, // Ensure price is a number
-            restaurantId: menuItem.restaurantId || DEFAULT_RESTAURANT_ID, // Ensure restaurantId is included
+            restaurantId: restaurantId, // Use the determined restaurantId
             // Make sure categoryId is never an empty string
-            categoryId: menuItem.categoryId || undefined
+            categoryId: menuItem.categoryId || undefined,
+            // Include branchId only if it's set
+            branchId: menuItem.branchId || undefined
         };
         
         try {
@@ -219,6 +320,14 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             
             // Reset form state if adding a new item, keep state if editing
             if (!isEditMode) {
+                // Determine the appropriate restaurantId for the next item
+                let nextRestaurantId = "";
+                if (user && !isSuperAdmin() && user.restaurantId) {
+                    nextRestaurantId = user.restaurantId;
+                } else if (isSuperAdmin()) {
+                    nextRestaurantId = DEFAULT_RESTAURANT_ID;
+                }
+                
                 setMenuItem({
                     name: "",
                     price: "",
@@ -230,7 +339,8 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                     featured: false,
                     isActive: true,
                     imageFile: null,
-                    restaurantId: DEFAULT_RESTAURANT_ID
+                    restaurantId: nextRestaurantId,
+                    branchId: ""
                 });
             }
             
@@ -341,6 +451,69 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                     </CardHeader>
                     <CardBody style={modalStyles.cardBody}>
                         <Form onSubmit={handleFormSubmit}>
+                            {/* Restaurant selection - only visible to Super_Admin */}
+                            {isSuperAdmin() ? (
+                                <FormGroup>
+                                    <Label for="restaurantId">Restaurant</Label>
+                                    <Input
+                                        type="select"
+                                        name="restaurantId"
+                                        id="restaurantId"
+                                        value={menuItem.restaurantId}
+                                        onChange={handleChange}
+                                        disabled={restaurantsLoading}
+                                    >
+                                        <option value="">Select a restaurant</option>
+                                        {restaurantsLoading ? (
+                                            <option disabled>Loading restaurants...</option>
+                                        ) : restaurants && restaurants.length > 0 ? (
+                                            restaurants.map(restaurant => (
+                                                <option key={restaurant._id} value={restaurant._id}>
+                                                    {restaurant.name}
+                                                </option>
+                                            ))
+                                        ) : (
+                                            <option disabled>No restaurants available</option>
+                                        )}
+                                    </Input>
+                                </FormGroup>
+                            ) : (
+                                <input type="hidden" name="restaurantId" value={user?.restaurantId || ''} />
+                            )}
+
+                            {/* Branch selection - appears only for Super_Admin or if the user already has a branch assignment */}
+                            {isSuperAdmin() && menuItem.restaurantId ? (
+                                <FormGroup>
+                                    <Label for="branchId">Branch (Optional)</Label>
+                                    <Input
+                                        type="select"
+                                        name="branchId"
+                                        id="branchId"
+                                        value={menuItem.branchId}
+                                        onChange={handleChange}
+                                        disabled={loadingBranches}
+                                    >
+                                        <option value="">All Branches</option>
+                                        {loadingBranches ? (
+                                            <option disabled>Loading branches...</option>
+                                        ) : branches.length > 0 ? (
+                                            branches.map(branch => (
+                                                <option key={branch._id} value={branch._id}>
+                                                    {branch.name}
+                                                </option>
+                                            ))
+                                        ) : (
+                                            <option disabled>No branches available</option>
+                                        )}
+                                    </Input>
+                                    <small className="form-text text-muted">
+                                        Select a specific branch or leave blank for all branches
+                                    </small>
+                                </FormGroup>
+                            ) : (
+                                <input type="hidden" name="branchId" value={user?.branchId || ''} />
+                            )}
+
                             <Row>
                                 <Col md="6">
                                     <FormGroup>

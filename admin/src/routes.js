@@ -7,6 +7,7 @@ import MenuItem from "features/menu-management/menuItem.js";
 import Restaurant from "features/restaurant-management/restaurant.js";
 import Branch from "features/branch-management/branch.js";
 import Category from "features/category-management/category.js";
+import UserManagement from "features/user-management/user.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -19,18 +20,37 @@ var routes = [
     layout: "/admin",
   },
   {
+    path: "/users",
+    name: "User Management",
+    icon: "ni ni-circle-08 text-red",
+    component: <UserManagement />,
+    layout: "/admin",
+    roles: ["Super_Admin"], // Only Super_Admin can see this route
+  },
+  {
     path: "/restaurants",
     name: "Restaurants",
     icon: "ni ni-building text-blue",
     component: <Restaurant />,
     layout: "/admin",
+    roles: ["Super_Admin"], // Only Super_Admin can see this route
   },
   {
     path: "/branches",
     name: "Branches",
     icon: "ni ni-shop text-orange",
     component: <Branch />,
-    layout: "/admin",
+    layout: "/admin", 
+    roles: ["Super_Admin"], // Only Super_Admin can see this route
+  },
+  {
+    path: "/branches/:restaurantId",
+    name: "Restaurant Branches",
+    icon: "ni ni-shop text-orange",
+    component: <Branch />,
+    layout: "/admin", 
+    roles: ["Super_Admin"], // Only Super_Admin can see this route
+    hidden: true, // Hide from sidebar
   },
   {
     path: "/categories",
@@ -38,6 +58,7 @@ var routes = [
     icon: "ni ni-tag text-yellow",
     component: <Category />,
     layout: "/admin",
+    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"], 
   },
   {
     path: "/menu-items",
@@ -45,6 +66,7 @@ var routes = [
     icon: "ni ni-box-2 text-green",
     component: <MenuItem />,
     layout: "/admin",
+    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"], 
   },
   {
     path: "/icons",

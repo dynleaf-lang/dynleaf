@@ -37,25 +37,25 @@ import {
 } from "reactstrap";
 
 const Login = () => {
-  const [email, setEmail] = useState("");
+  // Initialize email with the remembered value if it exists
+  const [email, setEmail] = useState(localStorage.getItem("rememberedEmail") || "");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(!!localStorage.getItem("rememberedEmail"));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
 
   const { login, isAuthenticated } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Comment out the auto-redirect temporarily to debug the issue
-  /*
+  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated()) {
       const from = location.state?.from?.pathname || "/admin/index";
       navigate(from, { replace: true });
     }
   }, [isAuthenticated, navigate, location]);
-  */
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -74,9 +74,13 @@ const Login = () => {
       if (!result.success) {
         setError("Invalid email or password");
       } else {
-        // Navigate to the page the user was trying to access, or dashboard as default
-        const from = location.state?.from?.pathname || "/admin/index";
-        navigate(from, { replace: true });
+        setLoginSuccess(true);
+        // Show success message briefly before redirecting
+        setTimeout(() => {
+          // Navigate to the page the user was trying to access, or dashboard as default
+          const from = location.state?.from?.pathname || "/admin/index";
+          navigate(from, { replace: true });
+        }, 500);
       }
     } catch (err) {
       setError("An error occurred during login. Please try again.");
@@ -95,6 +99,7 @@ const Login = () => {
               <small>Welcome to Food ordering system</small>
             </div>
             {error && <Alert color="danger">{error}</Alert>}
+            {loginSuccess && <Alert color="success">Login successful! Redirecting...</Alert>}
             <Form role="form" onSubmit={handleSubmit}>
               <FormGroup className="mb-3">
                 <InputGroup className="input-group-alternative">
@@ -106,7 +111,7 @@ const Login = () => {
                   <Input
                     placeholder="Email"
                     type="email"
-                    autoComplete="new-email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -123,7 +128,7 @@ const Login = () => {
                   <Input
                     placeholder="Password"
                     type="password"
-                    autoComplete="new-password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -134,7 +139,7 @@ const Login = () => {
                 <input
                   className="custom-control-input"
                   id="customCheckLogin"
-                  type="checkbox"
+                  type="checkbox" 
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                 />

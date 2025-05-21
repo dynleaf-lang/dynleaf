@@ -1,9 +1,11 @@
- 
 /*eslint-disable*/
-import { useState } from "react";
+import { useState, useContext, useEffect } from "react";
 import { NavLink as NavLinkRRD, Link } from "react-router-dom";
 // nodejs library to set properties for components
 import { PropTypes } from "prop-types";
+import { AuthContext } from "../../context/AuthContext";
+import { RestaurantContext } from "../../context/RestaurantContext";
+import { BranchContext } from "../../context/BranchContext";
 
 // reactstrap components
 import {
@@ -40,6 +42,25 @@ var ps;
 
 const Sidebar = (props) => {
   const [collapseOpen, setCollapseOpen] = useState();
+  const { user } = useContext(AuthContext);
+  const { restaurants } = useContext(RestaurantContext);
+  const { branches } = useContext(BranchContext);
+  const [restaurantName, setRestaurantName] = useState("");
+  const [branchName, setBranchName] = useState("");
+  
+  // Find restaurant and branch names when component mounts or dependencies change
+  useEffect(() => {
+    if (user && user.restaurantId && restaurants && restaurants.length > 0) {
+      const restaurant = restaurants.find(r => r._id === user.restaurantId);
+      setRestaurantName(restaurant ? restaurant.name : "");
+    }
+    
+    if (user && user.branchId && branches && branches.length > 0) {
+      const branch = branches.find(b => b._id === user.branchId);
+      setBranchName(branch ? branch.name : "");
+    }
+  }, [user, restaurants, branches]);
+  
   // verifies if routeName is the one active (in browser input)
   const activeRoute = (routeName) => {
     return props.location.pathname.indexOf(routeName) > -1 ? "active" : "";
@@ -52,9 +73,28 @@ const Sidebar = (props) => {
   const closeCollapse = () => {
     setCollapseOpen(false);
   };
+  
+  // Filter routes based on user role
+  const filterRoutesByRole = (routes) => {
+    if (!user) return [];
+    
+    return routes.filter(route => {
+      // If the route doesn't specify roles, allow access to everyone
+      if (!route.roles) {
+        return true;
+      }
+      
+      // Check if user's role is in the allowed roles for the route
+      return route.roles.includes(user.role);
+    });
+  };
+  
   // creates the links that appear in the left menu / Sidebar
   const createLinks = (routes) => {
-    return routes.map((prop, key) => {
+    // Filter routes by user role before creating links
+    const filteredRoutes = filterRoutesByRole(routes).filter(route => !route.hidden);
+    
+    return filteredRoutes.map((prop, key) => {
       return (
         <NavItem key={key}>
           <NavLink
@@ -215,6 +255,24 @@ const Sidebar = (props) => {
           <Nav navbar>{createLinks(routes)}</Nav>
           {/* Divider */}
           <hr className="my-3" />
+          {/* User's Restaurant and Branch Info */}
+          {(restaurantName || branchName) && (
+            <div className="pl-3 pr-3 mb-3">
+              <h6 className="navbar-heading text-muted">Assigned Location</h6>
+              {restaurantName && (
+                <div className="d-flex align-items-center mb-2">
+                  <i className="ni ni-building text-primary mr-2"></i>
+                  <span className="text-sm font-weight-bold">{restaurantName}</span>
+                </div>
+              )}
+              {branchName && (
+                <div className="d-flex align-items-center">
+                  <i className="ni ni-pin-3 text-info mr-2"></i>
+                  <span className="text-sm">{branchName}</span>
+                </div>
+              )}
+            </div>
+          )}
           {/* Heading */}
           <h6 className="navbar-heading text-muted">Documentation</h6>
           {/* Navigation */}

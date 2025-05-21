@@ -6,6 +6,11 @@ const userSchema = new mongoose.Schema({
         ref: 'Restaurant', 
         required: false,
     },
+    branchId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Branch', 
+        required: false,
+    },
     name: {
         type: String,
         required: true,

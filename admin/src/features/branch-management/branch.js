@@ -30,22 +30,52 @@ import Header from "components/Headers/Header.js";
 import { useContext, useState, useEffect } from "react";
 import { BranchContext } from "../../context/BranchContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
+import { AuthContext } from "../../context/AuthContext";
+import { useParams, useNavigate } from "react-router-dom";
 
 const BranchManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
-  const { branches, loading, error, createBranch, updateBranch, deleteBranch } = useContext(BranchContext);
+  const { branches, loading, error, fetchBranches, fetchBranchesByRestaurant, createBranch, updateBranch, deleteBranch } = useContext(BranchContext);
   const { restaurants, fetchRestaurants } = useContext(RestaurantContext);
+  const { restaurantId } = useParams(); // Get restaurant ID from URL params
+  const navigate = useNavigate(); // For navigation
   
+const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin function
+   
+
   // Form state
   const [formData, setFormData] = useState({
-    restaurantId: '',
+    restaurantId: restaurantId || '',
     name: '',
     address: '',
     phone: '',
     email: '',
     openingHours: ''
   });
+  
+  // Current restaurant name
+  const [currentRestaurantName, setCurrentRestaurantName] = useState('');
+
+  // Fetch branches for specific restaurant or all branches
+  useEffect(() => {
+    const loadBranches = async () => {
+      if (restaurantId) {
+        await fetchBranchesByRestaurant(restaurantId);
+        // Find the restaurant name for display
+        const restaurant = restaurants.find(r => r._id === restaurantId);
+        if (restaurant) {
+          setCurrentRestaurantName(restaurant.name);
+        }
+      } else {
+        fetchBranches();
+      }
+    };
+    
+    if (restaurants.length > 0) {
+      loadBranches();
+    }
+  }, [restaurantId, restaurants]);
 
   // Fetch restaurants when component mounts
   useEffect(() => {
@@ -58,7 +88,7 @@ const BranchManagement = () => {
     setCurrentEditItem(null);
     // Reset form data
     setFormData({
-      restaurantId: '',
+      restaurantId: restaurantId || '',
       name: '',
       address: '',
       phone: '',
@@ -68,8 +98,14 @@ const BranchManagement = () => {
   };
   
   // Function to handle editing a branch
-  const handleEditBranch = (branch) => {
+  const handleEditBranch = async (branch) => {
     setCurrentEditItem(branch);
+    
+    // Make sure we have restaurants data before proceeding
+    if (restaurants.length === 0) {
+      await fetchRestaurants();
+    }
+    
     setFormData({
       restaurantId: branch.restaurantId || '',
       name: branch.name || '',
@@ -92,6 +128,11 @@ const BranchManagement = () => {
   
   // Function to handle saving a branch
   const handleSaveBranch = async () => {
+    // Validate form data
+    if (!formData.name || !formData.address || !formData.phone || !formData.email || !formData.openingHours) {  
+      alert("Please fill in all fields.");
+      return;
+    }
     if (currentEditItem) {
       // Update existing branch
       await updateBranch(currentEditItem._id, formData);
@@ -105,9 +146,48 @@ const BranchManagement = () => {
 
   // Find restaurant name by ID
   const getRestaurantName = (id) => {
+    if (!id) return 'No Restaurant Assigned';
+    
+    // If we're still loading restaurants, show a loading indicator
+    if (loading) {
+      return 'Loading restaurant data...';
+    }
+    
     const restaurant = restaurants.find(r => r._id === id);
-    return restaurant ? restaurant.name : 'Unknown Restaurant';
+    if (restaurant) {
+      return restaurant.name;
+    } else {
+      console.warn(`Restaurant with ID ${id} not found in the restaurant list of ${restaurants.length} restaurants`);
+      
+      // If restaurants array is empty, it's probably still loading
+      if (restaurants.length === 0) {
+        return 'Loading restaurant data...';
+      }
+       
+      return id.name || 'Unknown Restaurant';
+    }
   };
+
+    // Only Super_Admin should be able to access this page
+    if (!isSuperAdmin()) {
+      return (
+        <Container className="mt-5">
+          <Row className="justify-content-center">
+            <div className="col-lg-6">
+              <Card className="shadow border-0">
+                <CardHeader className="bg-transparent">
+                  <h3 className="text-center">Access Denied</h3>
+                </CardHeader>
+                <div className="card-body text-center">
+                  <p>You do not have permission to view this page.</p>
+                  <p>Only users with the Super_Admin role can access Restaurant Management.</p>
+                </div>
+              </Card>
+            </div>
+          </Row>
+        </Container>
+      );
+    }
 
   return (
     <>
@@ -119,7 +199,17 @@ const BranchManagement = () => {
               <Card className="shadow">
                 <CardHeader className="border-0 d-flex justify-content-between">
                  <div className="d-inline-block">
-                 <h3 className="mb-0">Branches</h3>
+                   {restaurantId && currentRestaurantName ? (
+                     <div>
+                       <h3 className="mb-0">Branches for {currentRestaurantName}</h3>
+                       
+                       <Button color="link" onClick={() => navigate('/admin/restaurants')}> 
+                          <i className="fas fa-arrow-left mr-2"></i> Back to Restaurants
+                        </Button>
+                     </div>
+                   ) : (
+                     <h3 className="mb-0">All Branches</h3>
+                   )}
                  </div>
                 <div className="text-right d-inline-block">
                   <Button color="primary" onClick={() => {
@@ -267,21 +357,33 @@ const BranchManagement = () => {
           <Form>
             <FormGroup>
               <Label for="restaurantId">Restaurant</Label>
-              <Input
-                type="select"
-                name="restaurantId"
-                id="restaurantId"
-                value={formData.restaurantId}
-                onChange={handleInputChange}
-                required
-              >
-                <option value="">Select Restaurant</option>
-                {restaurants.map(restaurant => (
-                  <option key={restaurant._id} value={restaurant._id}>
-                    {restaurant.name}
-                  </option>
-                ))}
-              </Input>
+              {currentEditItem ? (
+                <Input
+                  type="text"
+                  name="restaurantDisplayOnly"
+                  id="restaurantDisplayOnly"  
+                  // Display the restaurant name instead of the ID
+                  value={getRestaurantName(currentEditItem.restaurantId)}
+                  disabled
+                  className="bg-light"
+                />
+              ) : (
+                <Input
+                  type="select"
+                  name="restaurantId"
+                  id="restaurantId"
+                  value={formData.restaurantId}
+                  onChange={handleInputChange}
+                  required
+                >
+                  <option value="">Select Restaurant</option>
+                  {restaurants.map(restaurant => (
+                    <option key={restaurant._id} value={restaurant._id}>
+                      {restaurant.name}
+                    </option>
+                  ))}
+                </Input>
+              )}
             </FormGroup>
             <FormGroup>
               <Label for="name">Branch Name</Label>

@@ -23,124 +23,326 @@ import {
   Form,
   FormGroup,
   Label,
-  Input
+  Input,
+  Alert,
+  CustomInput
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useCallback, useRef } from "react";
 import { CategoryContext } from "../../context/CategoryContext";
-import { RestaurantContext } from "../../context/RestaurantContext";
+import { RestaurantContext } from "../../context/RestaurantContext";  
 import { BranchContext } from "../../context/BranchContext";
+import { AuthContext } from "../../context/AuthContext";  
+import { handleTagsChange, handleTagKeyDown, removeTag } from "../../components/Utils/handleTagsChange"; // Import tag utilities
 
 const CategoryManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
-  const { categories, loading, error, addCategory, updateCategory, deleteCategory } = useContext(CategoryContext);
+  const { categories, loading, error, fetchCategories, createCategory, updateCategory, deleteCategory, uploadImage } = useContext(CategoryContext);
   const { restaurants, fetchRestaurants } = useContext(RestaurantContext);
   const { fetchBranchesByRestaurant } = useContext(BranchContext);
+  const { isSuperAdmin, user } = useContext(AuthContext);   
+  
+  // Reference to the tags input field
+  const tagsInputRef = useRef(null);
+   
+  // State for restaurant filter (only for super admin)
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
   
   // Form state
   const [formData, setFormData] = useState({
-    restaurantId: '', 
-    branchId: '',
+    restaurantId: user && user.restaurantId ? user.restaurantId : '', 
+    branchId: user && user.branchId ? user.branchId : '',
     name: '',
     description: '',
     imageUrl: '',
-    tags: '',
+    imageFile: null,
+    tags: [],
     isActive: true
+  });
+  
+  // State for upload status
+  const [uploadStatus, setUploadStatus] = useState({
+    loading: false,
+    error: null,
+    success: false
   });
   
   // State to store branches for selected restaurant
   const [restaurantBranches, setRestaurantBranches] = useState([]);
+  
+  // State to store categories with matched user data
+  const [categoriesWithUsers, setCategoriesWithUsers] = useState([]);
 
-  // Fetch restaurants when component mounts
+  // Fetch restaurants and users when component mounts
   useEffect(() => {
-    fetchRestaurants();
+    fetchRestaurants(); 
   }, []);
 
+  // Fetch categories when component mounts or user changes
+  useEffect(() => {
+    if (user) {
+      console.log("Initial fetch of categories for user:", user.role);
+      fetchCategories();
+    }
+  }, [user, fetchCategories]);
+
+  // Match categories with users based on restaurantId
+  useEffect(() => {
+    console.log("Categories data:", categories);
+    console.log("User data:", user);
+    
+    // Set categories directly without the user filtering logic
+    setCategoriesWithUsers(categories || []);
+    
+    // Only fetch on initial component mount if categories are empty
+    // We don't want to call fetchCategories within this useEffect as it creates an infinite loop
+  }, [categories, user]);
+
+  // Filter categories based on user role and selected restaurant
+  const filteredCategories = categoriesWithUsers ? categoriesWithUsers.filter(category => {
+    console.log("Filtering category:", category.name, 
+                "Category restaurantId:", category.restaurantId,
+                "Selected restaurantId:", selectedRestaurantId,
+                "User restaurantId:", user?.restaurantId);
+    
+    // For super admin, show all categories or filter by selected restaurant
+    if (isSuperAdmin()) {
+      if (selectedRestaurantId) {
+        // Compare as strings to handle different types (ObjectId vs String)
+        return String(category.restaurantId) === String(selectedRestaurantId);
+      }
+      return true; // Show all if no restaurant is selected
+    }
+    
+    // For regular users, only show categories from their restaurant (compare as strings)
+    return user && user.restaurantId ? 
+      String(category.restaurantId) === String(user.restaurantId) : 
+      false;
+  }) : [];
+
+ 
   // Function to handle modal close
   const handleCloseModal = () => {
     setModalOpen(false);
     setCurrentEditItem(null);
     // Reset form data
     setFormData({
-      restaurantId: '', 
-      branchId: '',
+      restaurantId: user && user.restaurantId ? user.restaurantId : '',
+      branchId: user && user.branchId ? user.branchId : '',
       name: '',
       description: '',
       imageUrl: '',
-      tags: '',
+      imageFile: null,
+      tags: [],
       isActive: true
     });
     setRestaurantBranches([]);
+    setUploadStatus({
+      loading: false,
+      error: null,
+      success: false
+    });
   };
   
-  // Function to handle editing a category
-  const handleEditCategory = (category) => {
+  // Function to handle editing a category - memoized to prevent unnecessary re-renders
+  const handleEditCategory = useCallback((category) => {
     setCurrentEditItem(category);
     setFormData({
-      restaurantId: category.restaurantId || '', 
+      restaurantId: category.restaurantId || '',
       branchId: category.branchId || '',
       name: category.name || '',
       description: category.description || '',
       imageUrl: category.imageUrl || '',
-      tags: category.tags ? category.tags.join(', ') : '',
+      imageFile: null,
+      tags: Array.isArray(category.tags) ? category.tags : (category.tags ? [category.tags] : []),
       isActive: category.isActive !== undefined ? category.isActive : true
     });
-    setModalOpen(true);
+    
+    // Load branches for this restaurant
     if (category.restaurantId) {
-      fetchBranchesByRestaurant(category.restaurantId).then(branches => {
-        setRestaurantBranches(branches);
-      });
+      fetchBranchesByRestaurant(category.restaurantId)
+        .then(branches => setRestaurantBranches(branches || []));
     }
-  };
+    
+    setModalOpen(true);
+  }, [fetchBranchesByRestaurant]);
 
   // Handle input change
   const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === 'checkbox' ? checked : value
-    });
-    if (name === 'restaurantId') {
-      fetchBranchesByRestaurant(value).then(branches => {
-        setRestaurantBranches(branches);
-        setFormData({
-          ...formData,
-          branchId: '',
-          [name]: value
-        });
+    const { name, value } = e.target;
+    
+    if (name === 'restaurantId' && value) {
+      // When restaurant changes, reset branch and fetch new branches
+      setFormData({
+        ...formData,
+        restaurantId: value,
+        branchId: ''  // Reset branch selection
+      });
+      
+      // Fetch branches for the selected restaurant
+      fetchBranchesByRestaurant(value)
+        .then(branches => setRestaurantBranches(branches || []));
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value
       });
     }
   };
- 
   
-
+  // Handle checkbox change
+  const handleCheckboxChange = (e) => {
+    const { name, checked } = e.target;
+    setFormData({
+      ...formData,
+      [name]: checked
+    });
+  };
+  
+  // Handle file input change
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Update form with file and create temporary preview URL
+      setFormData({
+        ...formData,
+        imageFile: file,
+        imageUrl: URL.createObjectURL(file) // Create temporary preview URL
+      });
+      
+      // Set upload status to loading
+      setUploadStatus({
+        loading: true,
+        error: null,
+        success: false
+      });
+      
+      // Upload the image to server
+      uploadImage(file)
+        .then(response => {
+          if (response.success && response.data && response.data.file) {
+            // Update with the real server URL once upload completes
+            setFormData(prevData => ({
+              ...prevData,
+              imageUrl: response.data.file.url
+            }));
+            
+            // Update upload status to success
+            setUploadStatus({
+              loading: false,
+              error: null,
+              success: true
+            });
+          } else {
+            // Handle upload failure
+            setUploadStatus({
+              loading: false,
+              error: response.error || "Image upload failed. Please try again.",
+              success: false
+            });
+          }
+        })
+        .catch(error => {
+          console.error("Error uploading image:", error);
+          setUploadStatus({
+            loading: false,
+            error: "Image upload failed. Please try again.",
+            success: false
+          });
+        });
+    }
+  };
+  
+  // Handle tags input change
+  const handleTagsInputChange = (e) => {
+    const result = handleTagsChange(e, formData, setFormData);
+    if (result.shouldClearInput) {
+      e.target.value = '';
+    }
+  };
+  
+  // Handle tag key down events
+  const handleTagsKeyDown = (e) => {
+    const result = handleTagKeyDown(e, formData, setFormData);
+    if (result.shouldClearInput) {
+      e.target.value = '';
+    }
+  };
+  
+  // Handle remove tag
+  const handleRemoveTag = (tag) => {
+    removeTag(tag, formData, setFormData);
+    // Focus back on the input after removing a tag
+    if (tagsInputRef.current) {
+      tagsInputRef.current.focus();
+    }
+  };
   
   // Function to handle saving a category
   const handleSaveCategory = async () => {
-    // Process the tags from comma-separated string to array
-    const processedFormData = {
-      ...formData,
-      tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '')
-    };
-    
-    if (currentEditItem) {
-      // Update existing category
-      await updateCategory(currentEditItem._id, processedFormData);
-    } else {
-      // Create new category
-      await addCategory(processedFormData);
+    // Validate form data
+    if (!formData.name) {  
+      alert("Please fill in the category name.");
+      return;
     }
     
-    handleCloseModal();
+    // Ensure a restaurant is selected
+    if (!formData.restaurantId) {
+      alert("Please select a restaurant.");
+      return;
+    }
+    
+    try {
+      let result;
+      
+      if (currentEditItem) {
+        // Update existing category
+        result = await updateCategory(currentEditItem._id, formData);
+      } else {
+        // Create new category
+        result = await createCategory(formData);
+      }
+      
+      // Check if operation was successful
+      if (!result.success) {
+        alert(result.error || "Failed to save category. Please try again.");
+        return;
+      }
+      
+      handleCloseModal();
+      // Refresh categories list
+      fetchCategories();
+    } catch (err) {
+      console.error("Error saving category:", err);
+      alert("Failed to save category. Please try again.");
+    }
   };
 
-  // Find restaurant name by ID
-  const getRestaurantName = (id) => {
+  // Find restaurant name by ID - memoized to prevent unnecessary re-renders
+  const getRestaurantName = useCallback((id) => {
     const restaurant = restaurants.find(r => r._id === id);
     return restaurant ? restaurant.name : 'Unknown Restaurant';
-  };
+  }, [restaurants]);
+
+  // Effect to load branches when a restaurant is selected or when a category is being edited
+  useEffect(() => {
+    // If we're in edit mode with a restaurant ID, or if we have a selected restaurant ID
+    if ((currentEditItem && currentEditItem.restaurantId) || 
+        (!currentEditItem && formData.restaurantId)) {
+      const restaurantToLoad = currentEditItem ? currentEditItem.restaurantId : formData.restaurantId;
+      
+      fetchBranchesByRestaurant(restaurantToLoad)
+        .then(branches => setRestaurantBranches(branches || []));
+    }
+    
+    // If user is not super admin and has a restaurant ID, load its branches automatically
+    if (!isSuperAdmin() && user && user.restaurantId && !currentEditItem) {
+      fetchBranchesByRestaurant(user.restaurantId)
+        .then(branches => setRestaurantBranches(branches || []));
+    }
+  }, [currentEditItem, formData.restaurantId, user]);
 
   return (
     <>
@@ -151,115 +353,201 @@ const CategoryManagement = () => {
             <div className="col">
               <Card className="shadow">
                 <CardHeader className="border-0 d-flex justify-content-between">
-                 <div className="d-inline-block">
-                 <h3 className="mb-0">Categories</h3>
-                 </div>
-                <div className="text-right d-inline-block">
-                  <Button color="primary" onClick={() => {
-                    setCurrentEditItem(null);
-                    setModalOpen(true);
-                  }}>
-                    <i className="fas fa-plus mr-2"></i> Add New Category
-                  </Button>
-                </div>
+                  <div className="d-inline-block">
+                    <h3 className="mb-0">Categories</h3>
+                  </div>
+                  <div className="text-right d-inline-block">
+                    {/* Restaurant filter only for Super Admin */}
+                    {isSuperAdmin() && (
+                      <FormGroup className="d-inline-block mr-3">
+                        <Input
+                          type="select"
+                          name="restaurantFilter"
+                          id="restaurantFilter"
+                          value={selectedRestaurantId}
+                          onChange={(e) => setSelectedRestaurantId(e.target.value)}
+                        >
+                          <option value="">All Restaurants</option>
+                          {restaurants && restaurants.map(restaurant => (
+                            <option key={restaurant._id} value={restaurant._id}>
+                              {restaurant.name}
+                            </option>
+                          ))}
+                        </Input>
+                      </FormGroup>
+                    )}
+                    <Button 
+                      color="info" 
+                      size="sm" 
+                      className="mr-2"
+                      onClick={() => fetchCategories()}
+                      disabled={loading}
+                    >
+                      <i className="fas fa-sync-alt mr-1"></i> 
+                      {loading ? 'Refreshing...' : 'Refresh'}
+                    </Button>
+                    <Button 
+                      color="primary" 
+                      size="sm"
+                      onClick={() => setModalOpen(true)}
+                    >
+                      <i className="fas fa-plus mr-1"></i> 
+                      Add New
+                    </Button>
+                  </div>
                 </CardHeader>
+                
+                {error && (
+                  <Alert color="danger" className="m-3">
+                    <i className="fas fa-exclamation-triangle mr-2"></i>
+                    Error: {error}
+                    <Button 
+                      color="link" 
+                      className="alert-link ml-2" 
+                      size="sm"
+                      onClick={() => fetchCategories()}
+                    >
+                      Try Again
+                    </Button>
+                  </Alert>
+                )}
+                
+                {!user?.restaurantId && !isSuperAdmin() && (
+                  <Alert color="warning" className="m-3">
+                    <i className="fas fa-exclamation-circle mr-2"></i>
+                    <strong>Restaurant Not Assigned:</strong> Your account does not have a restaurant assigned. 
+                    Please contact an administrator to assign a restaurant to your account before managing categories.
+                  </Alert>
+                )}
+
                 <Table className="align-items-center table-flush" responsive>
-                <thead className="thead-light">
-                  <tr> 
-                    <th scope="col">Name</th> 
-                    <th scope="col">Description</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
+                  <thead className="thead-light">
                     <tr>
-                      <td colSpan="6" className="text-center py-4">
-                        <p className="font-italic text-muted mb-0">Loading categories...</p>
-                      </td>
+                      <th scope="col">Name</th>
+                      <th scope="col">Description</th> 
+                      <th scope="col">Status</th>
+                      <th scope="col">Actions</th>
                     </tr>
-                  ) : error ? (
-                    <tr>
-                      <td colSpan="6" className="text-center py-4">
-                        <p className="text-danger mb-0">Error loading categories: {error}</p>
-                      </td>
-                    </tr>
-                  ) : categories.length > 0 ? categories.map((category) => (
-                    <tr key={category._id}> 
-                      <td>
-                        <Media className="align-items-center">
-                          {category.imageUrl && (
-                            <a className="avatar rounded-circle mr-3">
-                              <img
-                                alt={category.name}
-                                src={category.imageUrl}
-                                onError={(e) => {
-                                  e.target.onerror = null;
-                                  e.target.src = require("../../assets/img/theme/sketch.jpg");
-                                }}
-                              />
-                            </a>
-                          )}
-                          <Media>
-                            <span className="mb-0 text-sm font-weight-bold">
-                              {category.name}
-                            </span>
-                          </Media>
-                        </Media>
-                      </td> 
-                      <td>{category.description}</td>
-                      <td>
-                        <Badge color={category.isActive ? "success" : "warning"} className="badge-dot mr-4">
-                          <i className={category.isActive ? "bg-success" : "bg-warning"} />
-                          {category.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="text-right">
-                        <UncontrolledDropdown>
-                          <DropdownToggle
-                            className="btn-icon-only text-light"
-                            href="#"
-                            role="button"
-                            size="sm"
-                            color=""
-                            onClick={(e) => e.preventDefault()}
-                          >
-                            <i className="fas fa-ellipsis-v" />
-                          </DropdownToggle>
-                          <DropdownMenu className="dropdown-menu-arrow" right>
-                            <DropdownItem
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                handleEditCategory(category);
-                              }}
-                            >
-                              <i className="fas fa-edit text-primary mr-2"></i> Edit
-                            </DropdownItem>
-                            <DropdownItem  
-                              onClick={() => {
-                                if (window.confirm("Are you sure you want to delete this category?")) {
-                                  deleteCategory(category._id);
-                                }
-                              }}
-                            >
-                              <i className="fas fa-trash text-danger mr-2"></i> Delete
-                            </DropdownItem>
-                          </DropdownMenu>
-                        </UncontrolledDropdown>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr>
-                      <td colSpan="6" className="text-center py-4">
-                        <p className="font-italic text-muted mb-0">No categories available</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan="5" className="text-center py-4">
+                          <i className="fas fa-spinner fa-spin mr-2"></i>
+                          <span className="font-italic text-muted mb-0">Loading categories...</span>
+                        </td>
+                      </tr>
+                    ) : !filteredCategories || filteredCategories.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="text-center py-4">
+                          <p className="font-italic text-muted mb-0">No categories available</p>
+                          <small className="text-muted d-block mt-2">
+                            {!error ? "Add a new category to get started." : "There was an error fetching categories. Please try refreshing."}
+                          </small>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCategories.map((category) => (
+                        <tr key={category._id}>
+                          <td>
+                            <Media className="align-items-center">
+                              {category.imageUrl && (
+                                <a
+                                  className="avatar rounded-circle mr-3"
+                                  href="#"
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <img
+                                    alt={category.name}
+                                    src={category.imageUrl}
+                                    onError={(e) => {
+                                      e.target.onerror = null;
+                                      e.target.src = require("../../assets/img/theme/sketch.jpg");
+                                    }}
+                                  />
+                                </a>
+                              )}
+                              <Media>
+                                <span className="mb-0 text-sm font-weight-bold">
+                                  {category.name}
+                                </span>
+                                {/* Display tags as badges */}
+                                <div className="ml-2">
+                                  {category.tags && category.tags.length > 0 && 
+                                    category.tags.map((tag, index) => (
+                                      <Badge key={index} color="info" pill className="mr-1">
+                                        {tag}
+                                      </Badge>
+                                    ))
+                                  }
+                                </div>
+                              </Media>
+                            </Media>
+                          </td>
+                          <td>
+                            {category.description ? (
+                              category.description.length > 50 ? 
+                                `${category.description.substring(0, 50)}...` : 
+                                category.description
+                            ) : (
+                              <span className="text-muted">No description</span>
+                            )}
+                          </td> 
+                          <td>
+                            <Badge color={category.isActive ? "success" : "warning"} className="badge-dot mr-4">
+                              <i className={category.isActive ? "bg-success" : "bg-warning"} />
+                              {category.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </td>
+                          <td className="text-right">
+                            <UncontrolledDropdown>
+                              <DropdownToggle
+                                className="btn-icon-only text-light"
+                                href="#"
+                                role="button"
+                                size="sm"
+                                color=""
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <i className="fas fa-ellipsis-v" />
+                              </DropdownToggle>
+                              <DropdownMenu className="dropdown-menu-arrow" right>
+                                <DropdownItem
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleEditCategory(category);
+                                  }}
+                                >
+                                  <i className="fas fa-edit text-primary mr-2"></i> Edit
+                                </DropdownItem>
+                                <DropdownItem  
+                                  onClick={async () => {
+                                    if (window.confirm("Are you sure you want to delete this category?")) {
+                                      const result = await deleteCategory(category._id);
+                                      if (!result.success) {
+                                        alert(result.error || "Failed to delete category. Please try again.");
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <i className="fas fa-trash text-danger mr-2"></i> Delete
+                                </DropdownItem>
+                                <DropdownItem
+                                  href="#"
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <i className="fas fa-eye text-info mr-2"></i> View Details
+                                </DropdownItem>
+                                </DropdownMenu>
+                            </UncontrolledDropdown>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
                 </Table>
-                {categories.length > 0 && (
+                {filteredCategories && filteredCategories.length > 0 && (
                 <CardFooter className="py-4">
                   <nav aria-label="...">
                     <Pagination
@@ -302,54 +590,77 @@ const CategoryManagement = () => {
           </Row>
       </Container>
       
-      {/* Category Modal (for both Add and Edit) */}
+      {/* Category Modal */}
       <Modal isOpen={modalOpen} toggle={handleCloseModal}>
         <ModalHeader toggle={handleCloseModal}>
-          {currentEditItem ? 'Edit Category' : 'Add New Category'}
+          {currentEditItem ? `Edit Category: ${currentEditItem.name}` : 'Add New Category'}
         </ModalHeader>
         <ModalBody>
           <Form>
-            <FormGroup>
-              <Label for="restaurantId">Restaurant</Label>
-              <Input
-                type="select"
-                name="restaurantId"
-                id="restaurantId"
-                value={formData.restaurantId}
-                onChange={handleInputChange}
-                required
-              >
-                <option value="">Select Restaurant</option>
-                {restaurants.map(restaurant => (
-                  <option key={restaurant._id} value={restaurant._id}>
-                    {restaurant.name}
-                  </option>
-                ))}
-              </Input>
-            </FormGroup>  
-          
-          <FormGroup>
-            <Label for="branchId">Branch</Label>
-            <Input
-              type="select"
-              name="branchId"
-              id="branchId"
-              value={formData.branchId}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="">Select Branch</option>
-              {restaurantBranches.map(branch => (
-                <option key={branch._id} value={branch._id}>
-                  {branch.name}
-                </option>
-              ))}
-            </Input>
-          </FormGroup>
+            {/* Restaurant selection - only visible to Super_Admin */}
+            {isSuperAdmin() ? (
+              <FormGroup>
+                <Label for="restaurantId">Restaurant</Label>
+                <Input
+                  type="select"
+                  name="restaurantId"
+                  id="restaurantId"
+                  value={formData.restaurantId}
+                  onChange={handleInputChange}
+                  required
+                >
+                  <option value="">Select Restaurant</option>
+                  {restaurants.map(restaurant => (
+                    <option key={restaurant._id} value={restaurant._id}>
+                      {restaurant.name}
+                    </option>
+                  ))}
+                </Input>
+              </FormGroup>
+            ) : (
+              /* Hidden input for non-Super_Admin to maintain the value */
+              <Input 
+                type="hidden" 
+                name="restaurantId" 
+                value={user?.restaurantId || ''} 
+              />
+            )}
 
+            {/* Branch selection - only visible to Super_Admin */}
+            {isSuperAdmin() && formData.restaurantId && (
+              <FormGroup>
+                <Label for="branchId">Branch (Optional)</Label>
+                <Input
+                  type="select"
+                  name="branchId"
+                  id="branchId"
+                  value={formData.branchId}
+                  onChange={handleInputChange}
+                >
+                  <option value="">All Branches</option>
+                  {restaurantBranches.map(branch => (
+                    <option key={branch._id} value={branch._id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </Input>
+                <small className="form-text text-muted">
+                  Leave empty to make this category available to all branches
+                </small>
+              </FormGroup>
+            )}
+            
+            {/* Hidden input for non-Super_Admin to maintain branch value */}
+            {!isSuperAdmin() && (
+              <Input 
+                type="hidden" 
+                name="branchId" 
+                value={user?.branchId || ''} 
+              />
+            )}
 
             <FormGroup>
-              <Label for="name">Name</Label>
+              <Label for="name">Category Name*</Label>
               <Input
                 type="text"
                 name="name"
@@ -369,18 +680,96 @@ const CategoryManagement = () => {
                 placeholder="Category Description"
                 value={formData.description}
                 onChange={handleInputChange}
+                rows="3"
               />
             </FormGroup>
             <FormGroup>
-              <Label for="imageUrl">Image URL</Label>
-              <Input
-                type="text"
-                name="imageUrl"
-                id="imageUrl"
-                placeholder="Image URL for the category"
-                value={formData.imageUrl}
-                onChange={handleInputChange}
+              <Label for="image">Image</Label>
+              <CustomInput
+                type="file"
+                name="image"
+                id="image"
+                onChange={handleFileChange}
+                accept="image/*"
+                label={formData.imageFile ? formData.imageFile.name : "Choose an image"}
               />
+              {uploadStatus.loading && (
+                <div className="mt-2">
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  <span className="font-italic text-muted">Uploading image...</span>
+                </div>
+              )}
+              {uploadStatus.error && (
+                <Alert color="danger" className="mt-2">
+                  <i className="fas fa-exclamation-triangle mr-2"></i>
+                  {uploadStatus.error}
+                </Alert>
+              )}
+              {uploadStatus.success && (
+                <Alert color="success" className="mt-2">
+                  <i className="fas fa-check-circle mr-2"></i>
+                  Image uploaded successfully!
+                </Alert>
+              )}
+              {formData.imageUrl && (
+                <div className="mt-2 position-relative" style={{ display: 'inline-block' }}>
+                  <img 
+                    src={formData.imageUrl} 
+                    alt="Category preview" 
+                    style={{ 
+                      maxWidth: '100%', 
+                      maxHeight: '200px',
+                      borderRadius: '4px'
+                    }} 
+                  />
+                  <button
+                    type="button"
+                    className="close"
+                    aria-label="Remove image"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        imageUrl: "",
+                        imageFile: null
+                      });
+                      
+                      // If it's a blob URL, revoke it to free up memory
+                      if (formData.imageUrl && formData.imageUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(formData.imageUrl);
+                      }
+                      
+                      setUploadStatus({
+                        loading: false,
+                        error: null,
+                        success: false
+                      });
+                    }}
+                    style={{ 
+                      position: 'absolute', 
+                      top: '5px', 
+                      right: '5px', 
+                      background: 'white', 
+                      borderRadius: '50%', 
+                      width: '24px', 
+                      height: '24px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}
+                  >
+                    <span aria-hidden="true" style={{ color: '#dc3545' }}>&times;</span>
+                  </button>
+                </div>
+              )}
+              {!formData.imageFile && !formData.imageUrl && (
+                <div className="mt-2">
+                  <small className="text-muted">
+                    Recommended image size: 500x500 pixels. Max file size: 2MB.
+                  </small>
+                </div>
+              )}
             </FormGroup>
             <FormGroup>
               <Label for="tags">Tags</Label>
@@ -388,11 +777,27 @@ const CategoryManagement = () => {
                 type="text"
                 name="tags"
                 id="tags"
-                placeholder="Comma-separated tags (e.g. popular, spicy)"
-                value={formData.tags}
-                onChange={handleInputChange}
+                placeholder="Type and press Enter or comma to add tags"
+                onChange={handleTagsInputChange}
+                onKeyDown={handleTagsKeyDown}
+                innerRef={tagsInputRef}
               />
-              <small className="form-text text-muted">Enter tags separated by commas</small>
+              <small className="form-text text-muted">Press Enter or type comma to add a tag</small>
+              {formData.tags.length > 0 && (
+                <div className="mt-2">
+                  {formData.tags.map((tag, index) => (
+                    <Badge 
+                      key={index} 
+                      color="info" 
+                      className="mr-1 mb-1"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => handleRemoveTag(tag)}
+                    >
+                      {tag} <span className="ml-1">&times;</span>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </FormGroup>
             <FormGroup check>
               <Label check>
@@ -400,7 +805,7 @@ const CategoryManagement = () => {
                   type="checkbox"
                   name="isActive"
                   checked={formData.isActive}
-                  onChange={handleInputChange}
+                  onChange={handleCheckboxChange}
                 />{' '}
                 Active
               </Label>
@@ -408,10 +813,8 @@ const CategoryManagement = () => {
           </Form>
         </ModalBody>
         <ModalFooter>
-          <Button color="secondary" onClick={handleCloseModal}>Cancel</Button>{' '}
-          <Button color="primary" onClick={handleSaveCategory}>
-            {currentEditItem ? 'Update' : 'Save'}
-          </Button>
+          <Button color="secondary" onClick={handleCloseModal}>Cancel</Button>
+          <Button color="primary" onClick={handleSaveCategory}>Save</Button>
         </ModalFooter>
       </Modal>
     </>
