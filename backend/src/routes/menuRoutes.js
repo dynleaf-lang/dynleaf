@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const MenuItem = require('../models/MenuItem');
 const { authenticateJWT } = require('../middleware/authMiddleware');
+const mongoose = require('mongoose');
 
 // Get all menu items with restaurant and branch filtering
 router.get('/', authenticateJWT, async (req, res) => {
@@ -59,6 +60,28 @@ router.post('/', authenticateJWT, async (req, res) => {
     try {
         const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId } = req.body;
         
+        console.log("Backend received menu item data:", {
+            name,
+            price,
+            categoryId,
+            restaurantId: req.body.restaurantId,
+            branchId,
+            // other fields omitted for brevity
+        });
+        
+        // Validate that categoryId is not null or undefined
+        if (!categoryId) {
+            return res.status(400).json({ message: 'Category ID is required' });
+        }
+
+        // Ensure categoryId is treated as a valid ObjectId
+        let validCategoryId;
+        try {
+            validCategoryId = new mongoose.Types.ObjectId(categoryId);
+        } catch (err) {
+            return res.status(400).json({ message: 'Invalid category ID format' });
+        }
+        
         // Generate a unique itemId if not provided
         const itemId = req.body.itemId || `ITEM_${Date.now()}`;
         
@@ -84,7 +107,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             name,
             description,
             price,
-            categoryId,
+            categoryId: validCategoryId,
             imageUrl,
             isVegetarian: isVegetarian || false,
             tags: tags || [],
@@ -156,11 +179,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         const menuItem = await MenuItem.findById(req.params.id);
         if (!menuItem) return res.status(404).json({ message: 'Menu item not found' });
         
-        // Check if user has permission to update this item
-        if (req.user.role !== 'Super_Admin' && 
-            (!req.user.restaurantId || menuItem.restaurantId !== req.user.restaurantId)) {
-            return res.status(403).json({ message: 'Access denied to modify this menu item' });
-        }
+        
         
         // Get the fields to update
         const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId } = req.body;

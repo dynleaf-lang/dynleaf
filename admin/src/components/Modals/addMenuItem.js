@@ -1,5 +1,5 @@
 // reactstrap components
-import React, { useState, useRef, useContext, useEffect } from "react";
+import React, { useState, useRef, useContext, useEffect, useCallback } from "react";
 import {
     Button,
     Card,
@@ -31,13 +31,16 @@ import { BranchContext } from "../../context/BranchContext";
 const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     // Get the default restaurant ID and user context
     const { addMenuItem, updateMenuItem, DEFAULT_RESTAURANT_ID, uploadImage } = useContext(MenuContext);
-    const { categories, loading: categoriesLoading } = useContext(CategoryContext);
+    const { categories, loading: categoriesLoading, filterCategories } = useContext(CategoryContext);
     const { user, isSuperAdmin } = useContext(AuthContext);
     const { restaurants, fetchRestaurants, loading: restaurantsLoading } = useContext(RestaurantContext);
     const { fetchBranchesByRestaurant } = useContext(BranchContext);
 
     // Determine if we're in edit mode
     const isEditMode = !!editItem;
+    
+    // State for filtered categories
+    const [filteredCategories, setFilteredCategories] = useState([]);
 
     const [menuItem, setMenuItem] = useState({
         name: "",
@@ -54,6 +57,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         branchId: user?.branchId || "" // Add branchId to the state
     });
     
+
     // Add state for branches
     const [branches, setBranches] = useState([]);
     const [loadingBranches, setLoadingBranches] = useState(false);
@@ -64,7 +68,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     // Add state for error message
     const [showErrorAlert, setShowErrorAlert] = useState(false);
     const [errorMessage, setErrorMessage] = useState("");
-    
+
     // Reference to the tags input field
     const tagsInputRef = useRef(null);
 
@@ -75,34 +79,106 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         return restaurant ? restaurant.name : 'Unknown Restaurant';
     };
 
-    // Fetch restaurants when the modal opens
+    // Fetch restaurants and categories when the modal opens
     useEffect(() => {
         if (isOpen) {
             fetchRestaurants();
-        }
-    }, [isOpen, fetchRestaurants]);
-
-    // Load branches when restaurant changes
-    useEffect(() => {
-        const loadBranches = async () => {
-            if (menuItem.restaurantId) {
-                setLoadingBranches(true);
-                try {
-                    const branchData = await fetchBranchesByRestaurant(menuItem.restaurantId);
-                    setBranches(branchData);
-                } catch (error) {
-                    console.error("Error loading branches:", error);
-                    setBranches([]);
-                } finally {
-                    setLoadingBranches(false);
+            
+            // Ensure categories are loaded, especially important for edit mode
+            // Force categories refresh on modal open
+            filterCategories().then(() => {
+                console.log("Categories loaded for modal, count:", categories.length);
+                
+                // If we're in edit mode and have categories loaded, make sure we set the category
+                if (isEditMode && editItem && editItem.categoryId) {
+                    console.log("Edit mode, setting categoryId:", editItem.categoryId);
+                    
+                    // Force update the categoryId in the form data to ensure it's set
+                    setMenuItem(prev => ({
+                        ...prev,
+                        categoryId: editItem.categoryId
+                    }));
                 }
-            } else {
-                setBranches([]);
-            }
-        };
+            });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]); // Only depend on isOpen
+
+    // Load branches when restaurant changes - optimize with useCallback and debounce
+    const loadBranches = useCallback(async (restaurantId) => {
+        if (!restaurantId) {
+            setBranches([]);
+            return;
+        }
         
-        loadBranches();
-    }, [menuItem.restaurantId, fetchBranchesByRestaurant]);
+        setLoadingBranches(true);
+        try {
+            // Use a local variable to track if this request is still relevant
+            const requestId = Date.now();
+            loadBranches.lastRequestId = requestId;
+            
+            const branchData = await fetchBranchesByRestaurant(restaurantId);
+            
+            // Only update state if this is still the most recent request
+            if (loadBranches.lastRequestId === requestId) {
+                setBranches(branchData || []);
+            }
+        } catch (error) {
+            console.error("Error loading branches:", error);
+            setBranches([]);
+        } finally {
+            setLoadingBranches(false);
+        }
+    }, [fetchBranchesByRestaurant]);
+
+    // Add a function to fetch a single category by ID when needed
+    const fetchCategoryById = useCallback(async (categoryId) => {
+        if (!categoryId) return null;
+        
+        try {
+            console.log("Attempting to fetch specific category by ID:", categoryId);
+            
+            // First check if it's already in our loaded categories
+            const existingCategory = categories.find(c => String(c._id) === String(categoryId));
+            if (existingCategory) {
+                console.log("Category found in existing categories:", existingCategory.name);
+                return existingCategory;
+            }
+            
+            // If we're here, we need to make a dedicated API call for this specific category
+            // We can reuse the filterCategories function but it will fetch all categories
+            const refreshedCategories = await filterCategories();
+            
+            // Now check again in the refreshed categories list
+            const foundCategory = refreshedCategories.find(c => String(c._id) === String(categoryId));
+            
+            if (foundCategory) {
+                console.log("Category found after refresh:", foundCategory.name);
+                return foundCategory;
+            } else {
+                console.log("Category still not found after refresh");
+                return null;
+            }
+        } catch (error) {
+            console.error("Error fetching category by ID:", error);
+            return null;
+        }
+    }, [categories, filterCategories]);
+
+    // Use the memoized loadBranches function with a useEffect to prevent excessive calls
+    useEffect(() => {
+        // Skip initial render or when the modal is closed
+        if (!isOpen || !menuItem.restaurantId) {
+            return;
+        }
+        
+        // Add debounce to prevent multiple rapid calls
+        const timerId = setTimeout(() => {
+            loadBranches(menuItem.restaurantId);
+        }, 300);
+        
+        return () => clearTimeout(timerId);
+    }, [menuItem.restaurantId, loadBranches, isOpen]);
 
     // Load item data when in edit mode
     useEffect(() => {
@@ -146,7 +222,8 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 branchId: ""
             });
         }
-    }, [editItem, DEFAULT_RESTAURANT_ID, user, isSuperAdmin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editItem, DEFAULT_RESTAURANT_ID, user]); // Remove isSuperAdmin which is a function
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -229,6 +306,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         // Clear any previous alerts
         setShowSuccessAlert(false);
         setShowErrorAlert(false);
+         
         
         // Validate required fields
         if (!menuItem.name || !menuItem.price || !menuItem.categoryId) {
@@ -257,16 +335,16 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             restaurantId = DEFAULT_RESTAURANT_ID;
         }
         
-        // Clone menuItem to send to parent
+        // Clone menuItem to send to parent - ensure categoryId is kept
         const itemToSave = {
             ...menuItem,
             price: parsedPrice, // Ensure price is a number
             restaurantId: restaurantId, // Use the determined restaurantId
-            // Make sure categoryId is never an empty string
-            categoryId: menuItem.categoryId || undefined,
-            // Include branchId only if it's set
+            categoryId: menuItem.categoryId, // Always include the category ID - don't override to undefined
             branchId: menuItem.branchId || undefined
         };
+        
+        console.log("Form submission - itemToSave:", itemToSave);
         
         try {
             // Handle image upload if there's an image file
@@ -297,6 +375,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             if (isEditMode) {
                 // Update existing item
                 result = await updateMenuItem(editItem._id, itemToSave);
+                console.log("Update API response:", result);
                 
                 if (!result.success) {
                     throw new Error(result.error?.message || "Failed to update menu item");
@@ -304,6 +383,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             } else {
                 // Add new item
                 result = await addMenuItem(itemToSave);
+                console.log("Add API response:", result);
                 
                 if (!result.success) {
                     throw new Error(result.error?.message || "Failed to add menu item");
@@ -381,6 +461,157 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             overflowY: 'auto'
         }
     };
+
+    // Effect to filter categories when restaurant or branch changes
+    useEffect(() => {
+        // Skip if not open yet or no categories available
+        if (!isOpen || !categories.length) return;
+        
+        // Filter categories based on selected restaurant and branch
+        if (menuItem.restaurantId) {
+            // If we're in edit mode and have a categoryId, first check if the category exists in the categories array
+            if (isEditMode && menuItem.categoryId) {
+                // Make sure the current category is included in filtered results
+                const currentCategory = categories.find(cat => String(cat._id) === String(menuItem.categoryId));
+                
+                // If we have the category but it doesn't match the current restaurant/branch filter,
+                // temporarily include it anyway so it appears in the dropdown
+                if (currentCategory && String(currentCategory.restaurantId) !== String(menuItem.restaurantId)) {
+                    const filtered = [
+                        currentCategory,
+                        ...categories.filter(category => {
+                            // Normal filtering logic
+                            const restaurantMatch = String(category.restaurantId) === String(menuItem.restaurantId);
+                            
+                            if (menuItem.branchId) {
+                                return restaurantMatch && 
+                                     (!category.branchId || String(category.branchId) === String(menuItem.branchId));
+                            }
+                            
+                            return restaurantMatch;
+                        })
+                    ];
+                    
+                    setFilteredCategories(filtered);
+                    return;
+                }
+            }
+            
+            // Standard filtering logic
+            const filtered = categories.filter(category => {
+                // Match by restaurant - convert both to strings for consistent comparison
+                const restaurantMatch = String(category.restaurantId) === String(menuItem.restaurantId);
+                
+                // If branch is selected, match categories that either:
+                // 1. Have the same branch ID 
+                // 2. Have no branch ID specified (meaning they're available to all branches)
+                if (menuItem.branchId) {
+                    return restaurantMatch && 
+                           (!category.branchId || String(category.branchId) === String(menuItem.branchId));
+                }
+                
+                // If no branch selected, just match by restaurant
+                return restaurantMatch;
+            });
+            
+            setFilteredCategories(filtered);
+            
+            // In edit mode, never reset the category selection
+            if (isEditMode) {
+                return;
+            }
+            
+            // Only for add mode: if current selection is not in filtered list and we have options, reset selection
+            if (menuItem.categoryId && filtered.length > 0 && 
+                !filtered.some(category => String(category._id) === String(menuItem.categoryId))) {
+                setMenuItem(prev => ({
+                    ...prev,
+                    categoryId: "" // Reset category selection
+                }));
+            }
+        } else {
+            // If no restaurant selected, use all categories
+            setFilteredCategories(categories);
+        }
+    }, [isOpen, categories, menuItem.restaurantId, menuItem.branchId, menuItem.categoryId, isEditMode]);
+
+    // Special effect specifically for handling edit mode and category selection
+    useEffect(() => {
+        // Only run when in edit mode and the modal is open
+        if (!isEditMode || !isOpen || !editItem) {
+            return;
+        }
+
+        console.log("Edit mode effect triggered with item:", editItem);
+        
+        // Check if we have a categoryId in the edit item
+        if (!editItem.categoryId) {
+            console.log("Warning: Edit item doesn't have a categoryId");
+            return;
+        }
+
+        console.log("Looking for category with ID:", editItem.categoryId);
+
+        // Make sure categories are loaded
+        if (categories && categories.length > 0) {
+            // First try to find the category object
+            const categoryObj = categories.find(c => String(c._id) === String(editItem.categoryId));
+            console.log("Found category object:", categoryObj);
+            
+            // Always ensure the categoryId is set, even if we can't find the category object
+            setMenuItem(prev => {
+                // Only update if the categoryId has changed
+                if (prev.categoryId !== editItem.categoryId) {
+                    return {
+                        ...prev,
+                        categoryId: editItem.categoryId
+                    };
+                }
+                return prev;
+            });
+
+            // Update filtered categories to include this category if it exists
+            if (categoryObj) {
+                // Make sure this category appears in filtered categories
+                setFilteredCategories(prevFiltered => {
+                    // Check if the category is already in the filtered list
+                    const alreadyIncluded = prevFiltered.some(c => String(c._id) === String(categoryObj._id));
+                    
+                    if (!alreadyIncluded) {
+                        console.log("Adding category to filtered list:", categoryObj.name);
+                        return [categoryObj, ...prevFiltered];
+                    }
+                    
+                    return prevFiltered;
+                });
+            } else {
+                console.log("Category not found in categories list. Will use ID directly.");
+                
+                // Try to fetch the specific category by ID
+                fetchCategoryById(editItem.categoryId).then(fetchedCategory => {
+                    if (fetchedCategory) {
+                        console.log("Successfully fetched category by ID:", fetchedCategory.name);
+                        // Add this category to the filtered list
+                        setFilteredCategories(prevFiltered => {
+                            const alreadyIncluded = prevFiltered.some(c => String(c._id) === String(fetchedCategory._id));
+                            if (!alreadyIncluded) {
+                                return [fetchedCategory, ...prevFiltered];
+                            }
+                            return prevFiltered;
+                        });
+                    } else {
+                        console.log("Could not find category with ID:", editItem.categoryId);
+                        // Let's fetch all categories to make sure we have the latest data
+                        filterCategories();
+                    }
+                });
+            }
+        } else {
+            console.log("Categories not yet loaded. Will try again when they are.");
+            // Ensure categories are loaded
+            filterCategories();
+        }
+    }, [isEditMode, isOpen, editItem, categories, filterCategories, fetchCategoryById]);
 
     return (
         <>
@@ -484,7 +715,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                             {/* Branch selection - appears only for Super_Admin or if the user already has a branch assignment */}
                             {isSuperAdmin() && menuItem.restaurantId ? (
                                 <FormGroup>
-                                    <Label for="branchId">Branch (Optional)</Label>
+                                    <Label for="branchId">Branch</Label>
                                     <Input
                                         type="select"
                                         name="branchId"
@@ -513,6 +744,70 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                             ) : (
                                 <input type="hidden" name="branchId" value={user?.branchId || ''} />
                             )}
+
+                            
+<FormGroup>
+    <Label for="categoryId">Category*</Label>
+    <Input
+        type="select"
+        name="categoryId"
+        id="categoryId"
+        value={typeof menuItem.categoryId === 'object' ? menuItem.categoryId?._id : menuItem.categoryId || ""}
+        onChange={handleChange}
+        required
+    >
+        <option value="">Select a category</option>
+        {categoriesLoading ? (
+            <option disabled>Loading categories...</option>
+        ) : isEditMode && menuItem.categoryId ? (
+            // In edit mode, always include current category at the top
+            // This ensures it's displayed even if it doesn't match current filters
+            <>
+                {/* Display current category at the top if it exists in the categories array */}
+                {(() => {
+                    const categoryId = typeof menuItem.categoryId === 'object' ? menuItem.categoryId?._id : menuItem.categoryId;
+                    const currentCategory = categories.find(c => String(c._id) === String(categoryId));
+                    return currentCategory ? (
+                        <option key={`current-${currentCategory._id}`} value={currentCategory._id} style={{fontWeight: "bold"}}>
+                            {currentCategory.name} 
+                        </option>
+                    ) : (
+                        <option key={`unknown-${categoryId}`} value={categoryId} style={{fontWeight: "bold"}}>
+                            {typeof menuItem.categoryId === 'object' && menuItem.categoryId?.name 
+                                ? menuItem.categoryId.name 
+                                : `Category (ID: ${categoryId})`} 
+                        </option>
+                    );
+                })()}
+                
+                {/* Filter out the current category to avoid duplication */}
+                {filteredCategories
+                    .filter(c => String(c._id) !== String(typeof menuItem.categoryId === 'object' ? menuItem.categoryId?._id : menuItem.categoryId))
+                    .map(category => (
+                        <option key={category._id} value={category._id}>
+                            {category.name}
+                        </option>
+                    ))
+                }
+            </>
+        ) : filteredCategories && filteredCategories.length > 0 ? (
+            filteredCategories.map(category => (
+                <option key={category._id} value={category._id}>
+                    {category.name}
+                </option>
+            ))
+        ) : menuItem.restaurantId ? (
+            <option disabled>No categories available for this restaurant/branch</option>
+        ) : (
+            <option disabled>Please select a restaurant first</option>
+        )}
+    </Input>
+    <small className="form-text text-muted">
+        {menuItem.restaurantId ? 
+            `Showing categories for ${menuItem.branchId ? 'selected branch and common categories' : 'selected restaurant'}` : 
+            'Select a restaurant to see available categories'}
+    </small>
+</FormGroup>
 
                             <Row>
                                 <Col md="6">
@@ -552,38 +847,6 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                 </Col>
                             </Row>
 
-                            <FormGroup>
-                                <Label for="categoryId">Category*</Label>
-                                <Input
-                                    type="select"
-                                    name="categoryId"
-                                    id="categoryId"
-                                    value={menuItem.categoryId}
-                                    onChange={handleChange}
-                                    required
-                                >
-                                    <option value="">Select a category</option>
-                                    {categoriesLoading ? (
-                                        <option disabled>Loading categories...</option>
-                                    ) : categories && categories.length > 0 ? (
-                                        categories.map(category => (
-                                            <option key={category._id} value={category._id}>
-                                                {category.name}
-                                            </option>
-                                        ))
-                                    ) : (
-                                        <>
-                                            <option value="64db01d2b533d955dd861ef1">Appetizers</option>
-                                            <option value="64db01d2b533d955dd861ef2">Main Course</option>
-                                            <option value="64db01d2b533d955dd861ef3">Desserts</option>
-                                            <option value="64db01d2b533d955dd861ef4">Beverages</option>
-                                        </>
-                                    )}
-                                </Input>
-                                <small className="form-text text-muted">
-                                    Must select a valid category from the database
-                                </small>
-                            </FormGroup>
 
                             <FormGroup>
                                 <Label for="imageUpload">Item Image</Label>
@@ -601,7 +864,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                     {menuItem.imageUrl && (
                                         <div className="ml-3 position-relative" style={{ width: '60px', height: '60px' }}>
                                             <img 
-                                                src={menuItem.imageUrl} 
+                                                src={menuItem.imageUrl}
                                                 alt="Preview" 
                                                 style={{ 
                                                     width: '100%', 

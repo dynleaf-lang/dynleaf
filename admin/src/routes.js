@@ -37,7 +37,7 @@ var routes = [
   },
   {
     path: "/branches",
-    name: "Branches",
+    name: "All Branches",
     icon: "ni ni-shop text-orange",
     component: <Branch />,
     layout: "/admin", 

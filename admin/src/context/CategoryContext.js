@@ -5,22 +5,17 @@ import { AuthContext } from './AuthContext';
 // Use environment variable for API base URL
 axios.defaults.baseURL = process.env.API_BASE_URL || 'http://localhost:5001';
 
-
-
 const CategoryContext = createContext();
-
 
 const CategoryProvider = ({ children }) => {
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [filteredCategories, setFilteredCategories] = useState([]);
     const { token, user, isSuperAdmin } = useContext(AuthContext);
 
-     
-
-
-    // Function to fetch all categories - memoized with useCallback
-    const fetchCategories = useCallback(async () => {
+    // Declare fetchCategories first without the circular dependency
+    const fetchCategories = useCallback(async (restaurantId = null, branchId = null) => {
         setLoading(true);
         setError(null);
         try {
@@ -33,15 +28,105 @@ const CategoryProvider = ({ children }) => {
             
             // The backend now handles restaurant-based filtering automatically
             const response = await axios.get('/api/categories', config);
-            setCategories(response.data);
+            const fetchedCategories = response.data;
+            setCategories(fetchedCategories);
+            
+            // Apply immediate filtering if params provided
+            if (restaurantId || branchId) {
+                // Filter the categories directly instead of calling filterCategories
+                let filtered = [...fetchedCategories];
+                
+                if (restaurantId) {
+                    filtered = filtered.filter(category => 
+                        category.restaurantId && String(category.restaurantId) === String(restaurantId)
+                    );
+                }
+                
+                if (branchId) {
+                    filtered = filtered.filter(category => 
+                        !category.branchId || 
+                        String(category.branchId) === String(branchId)
+                    );
+                }
+                
+                setFilteredCategories(filtered);
+            } else {
+                setFilteredCategories(fetchedCategories);
+            }
+            
+            return fetchedCategories;
         } catch (error) {
             console.error('Error fetching categories:', error);
             setError(error.response?.data?.message || error.message);
             setCategories([]);
+            setFilteredCategories([]);
+            return [];
         } finally {
             setLoading(false);
         }
-    }, [token]); // Only recreate this function when token changes
+    }, [token]); // Remove filterCategories dependency
+     
+    // Now define filterCategories with access to fetchCategories
+    const filterCategories = useCallback((restaurantId = null, branchId = null) => {
+        // Return a promise to allow async/await usage with this function
+        return new Promise(async (resolve) => {
+            if (!categories.length) {
+                try {
+                    // If categories aren't loaded yet, fetch them first
+                    const fetchedCategories = await fetchCategories();
+                    
+                    // Apply filtering to the fetched categories
+                    let result = [...fetchedCategories];
+                    
+                    // Filter by restaurant if provided
+                    if (restaurantId) {
+                        result = result.filter(category => 
+                            category.restaurantId && String(category.restaurantId) === String(restaurantId)
+                        );
+                    }
+                    
+                    // Filter by branch if provided
+                    if (branchId) {
+                        result = result.filter(category => 
+                            !category.branchId || // Include categories without branch (shared across all branches)
+                            String(category.branchId) === String(branchId) // Or match the specific branch
+                        );
+                    }
+                    
+                    setFilteredCategories(result);
+                    resolve(result);
+                    return result;
+                } catch (error) {
+                    console.error("Error in filterCategories:", error);
+                    setFilteredCategories([]);
+                    resolve([]);
+                    return [];
+                }
+            } else {
+                // Categories are already loaded, just filter them
+                let result = [...categories];
+                
+                // Filter by restaurant if provided
+                if (restaurantId) {
+                    result = result.filter(category => 
+                        category.restaurantId && String(category.restaurantId) === String(restaurantId)
+                    );
+                }
+                
+                // Filter by branch if provided
+                if (branchId) {
+                    result = result.filter(category => 
+                        !category.branchId || // Include categories without branch (shared across all branches)
+                        String(category.branchId) === String(branchId) // Or match the specific branch
+                    );
+                }
+                
+                setFilteredCategories(result);
+                resolve(result);
+                return result;
+            }
+        });
+    }, [categories, fetchCategories]);
 
     // Function to upload an image for a category
     const uploadImage = useCallback(async (imageFile) => {
@@ -95,48 +180,25 @@ const CategoryProvider = ({ children }) => {
                 if (user.branchId) {
                     dataToSend.branchId = user.branchId;
                 }
-                
-                console.log('Using user assigned restaurant/branch:', {
-                    restaurantId: dataToSend.restaurantId,
-                    branchId: dataToSend.branchId || 'none'
-                });
             }
             
             // For Super_Admin, ensure they've selected a restaurant
             if (isSuperAdmin() && !dataToSend.restaurantId) {
-                return { 
-                    success: false, 
-                    error: 'Please select a restaurant before creating a category'
-                };
+                throw new Error('Please select a restaurant before creating a category');
             }
             
             // Ensure name is provided
             if (!dataToSend.name) {
-                return { 
-                    success: false, 
-                    error: 'Category name is required' 
-                };
+                throw new Error('Category name is required');
             }
-            
-            console.log('Sending category data:', dataToSend);
             
             const response = await axios.post('/api/categories', dataToSend, config);
-            console.log('Category creation response:', response.data);
             setCategories(prevCategories => [...prevCategories, response.data]);
-            return { success: true, data: response.data };
+            setFilteredCategories(prevFiltered => [...prevFiltered, response.data]);
+            return response.data;
         } catch (error) {
             console.error('Error creating category:', error);
-            
-            // Extract a user-friendly error message
-            let errorMessage = 'Failed to create category. Please try again.';
-            
-            if (error.response?.data?.message) {
-                errorMessage = error.response.data.message;
-            } else if (error.message) {
-                errorMessage = error.message;
-            }
-            
-            return { success: false, error: errorMessage };
+            throw error;
         }
     }, [token, user, isSuperAdmin]);
 
@@ -210,13 +272,15 @@ const CategoryProvider = ({ children }) => {
     return (
         <CategoryContext.Provider value={{
             categories,
+            filteredCategories,
             loading,
             error,
             fetchCategories,
             createCategory,
             updateCategory,
             deleteCategory,
-            uploadImage
+            uploadImage,
+            filterCategories
         }}>
             {children}
         </CategoryContext.Provider>

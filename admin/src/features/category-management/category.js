@@ -75,38 +75,26 @@ const CategoryManagement = () => {
   // State to store categories with matched user data
   const [categoriesWithUsers, setCategoriesWithUsers] = useState([]);
 
-  // Fetch restaurants and users when component mounts
+  // Fetch restaurants when component mounts - UPDATED: Added empty dependency array
   useEffect(() => {
-    fetchRestaurants(); 
-  }, []);
+    fetchRestaurants();
+  }, []); // Empty dependency array ensures this only runs once
 
-  // Fetch categories when component mounts or user changes
+  // Fetch categories when component mounts or user changes - UPDATED: Removed fetchCategories from deps
   useEffect(() => {
     if (user) {
-      console.log("Initial fetch of categories for user:", user.role);
       fetchCategories();
     }
-  }, [user, fetchCategories]);
+  }, [user]); // Removed fetchCategories from dependencies to avoid loop
 
-  // Match categories with users based on restaurantId
+  // Match categories with users based on restaurantId - UPDATED: Removed console.logs
   useEffect(() => {
-    console.log("Categories data:", categories);
-    console.log("User data:", user);
-    
-    // Set categories directly without the user filtering logic
+    // Set categories directly without filtering
     setCategoriesWithUsers(categories || []);
-    
-    // Only fetch on initial component mount if categories are empty
-    // We don't want to call fetchCategories within this useEffect as it creates an infinite loop
-  }, [categories, user]);
+  }, [categories]); // Only depend on categories
 
   // Filter categories based on user role and selected restaurant
   const filteredCategories = categoriesWithUsers ? categoriesWithUsers.filter(category => {
-    console.log("Filtering category:", category.name, 
-                "Category restaurantId:", category.restaurantId,
-                "Selected restaurantId:", selectedRestaurantId,
-                "User restaurantId:", user?.restaurantId);
-    
     // For super admin, show all categories or filter by selected restaurant
     if (isSuperAdmin()) {
       if (selectedRestaurantId) {
@@ -295,28 +283,23 @@ const CategoryManagement = () => {
     }
     
     try {
-      let result;
-      
       if (currentEditItem) {
         // Update existing category
-        result = await updateCategory(currentEditItem._id, formData);
+        const result = await updateCategory(currentEditItem._id, formData);
+        if (!result.success) {
+          throw new Error(result.error || "Failed to update category");
+        }
       } else {
         // Create new category
-        result = await createCategory(formData);
+        await createCategory(formData);
       }
       
-      // Check if operation was successful
-      if (!result.success) {
-        alert(result.error || "Failed to save category. Please try again.");
-        return;
-      }
-      
+      // Close modal and refresh categories list
       handleCloseModal();
-      // Refresh categories list
       fetchCategories();
     } catch (err) {
       console.error("Error saving category:", err);
-      alert("Failed to save category. Please try again.");
+      alert(err.message || "Failed to save category. Please try again.");
     }
   };
 
@@ -327,22 +310,16 @@ const CategoryManagement = () => {
   }, [restaurants]);
 
   // Effect to load branches when a restaurant is selected or when a category is being edited
+  // UPDATED: Optimized with proper dependency management and memoization
   useEffect(() => {
-    // If we're in edit mode with a restaurant ID, or if we have a selected restaurant ID
-    if ((currentEditItem && currentEditItem.restaurantId) || 
-        (!currentEditItem && formData.restaurantId)) {
-      const restaurantToLoad = currentEditItem ? currentEditItem.restaurantId : formData.restaurantId;
-      
-      fetchBranchesByRestaurant(restaurantToLoad)
-        .then(branches => setRestaurantBranches(branches || []));
-    }
+    // Only fetch branches when we actually need them and have a restaurant ID
+    const restaurantId = currentEditItem?.restaurantId || formData.restaurantId;
     
-    // If user is not super admin and has a restaurant ID, load its branches automatically
-    if (!isSuperAdmin() && user && user.restaurantId && !currentEditItem) {
-      fetchBranchesByRestaurant(user.restaurantId)
+    if (restaurantId) {
+      fetchBranchesByRestaurant(restaurantId)
         .then(branches => setRestaurantBranches(branches || []));
     }
-  }, [currentEditItem, formData.restaurantId, user]);
+  }, [currentEditItem?._id, formData.restaurantId]); // Reduced dependencies to only what's needed
 
   return (
     <>

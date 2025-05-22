@@ -26,36 +26,87 @@ import {
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
-import { useContext, useEffect } from "react";
+import { useContext, useEffect, useMemo, useCallback } from "react";
 import MenuItemModal from "components/Modals/addMenuItem.js";
 import { MenuContext } from "../../context/MenuContext";
 import { CategoryContext } from "../../context/CategoryContext";  
 import { AuthContext } from "../../context/AuthContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
+import { BranchContext } from "../../context/BranchContext";
 
 import { useState } from "react";
 
 const Tables = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
-  const { menuItems, loading, error, fetchMenuItems, deleteMenuItem } = useContext(MenuContext);
-  const { categories } = useContext(CategoryContext);
+  const { menuItems, loading, error, fetchMenuItems, deleteMenuItem } = useContext(MenuContext); 
+  const { categories, fetchCategories, loading: categoriesLoading } = useContext(CategoryContext);
   const { user, isSuperAdmin } = useContext(AuthContext);
   const { restaurants } = useContext(RestaurantContext);
+  const { branches } = useContext(BranchContext); 
   
   // State for restaurant filter (only for super admin)
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
+
+  // Store isSuperAdmin result to prevent calling function during render
+  const isUserSuperAdmin = useMemo(() => isSuperAdmin(), [isSuperAdmin]);
   
-  // Filter menu items based on user role and selected restaurant
-  const filteredMenuItems = menuItems && Array.isArray(menuItems) ? menuItems.filter(item => {
-    // For super admin, show all items or filter by selected restaurant
-    if (isSuperAdmin()) {
-      return selectedRestaurantId ? item.restaurantId === selectedRestaurantId : true;
+  // Memoize fetchMenuItems to prevent it changing on every render
+  const memoizedFetchMenuItems = useCallback(() => {
+    fetchMenuItems();
+  }, [fetchMenuItems]);
+  
+  // Add useEffect to fetch menu items and categories when component mounts
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      try {
+        console.log("Fetching menu items and categories...");
+        await fetchMenuItems();
+        await fetchCategories();
+        console.log("Categories loaded:", categories);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    };
+    
+    // Only fetch once when mounted
+    if (isMounted) {
+      fetchData();
     }
     
-    // For regular users, only show items from their restaurant
-    return user && user.restaurantId === item.restaurantId;
-  }) : [];
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
+  // Only run once on component mount, no dependencies
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Add effect to monitor categories and menu items
+  useEffect(() => {
+    // If we have menu items but no categories, fetch the categories
+    if (menuItems?.length > 0 && (!categories || categories.length === 0)) {
+      console.log("Menu items loaded but no categories - fetching categories now");
+      fetchCategories();
+    }
+  }, [menuItems, categories, fetchCategories]);
+
+  // Filter menu items based on user role and selected restaurant - memoize to prevent recalculations
+  const filteredMenuItems = useMemo(() => {
+    if (!menuItems || !Array.isArray(menuItems)) return [];
+    
+    return menuItems.filter(item => {
+      // For super admin, show all items or filter by selected restaurant
+      if (isUserSuperAdmin) {
+        return selectedRestaurantId ? item.restaurantId === selectedRestaurantId : true;
+      }
+      
+      // For regular users, only show items from their restaurant
+      return user && user.restaurantId === item.restaurantId;
+    });
+  }, [menuItems, selectedRestaurantId, isUserSuperAdmin, user]);
   
   // Function to handle modal close
   const handleCloseModal = () => {
@@ -67,6 +118,30 @@ const Tables = () => {
   const handleEditMenuItem = (menuItem) => {
     setCurrentEditItem(menuItem);
     setModalOpen(true);
+  };
+
+  // Improved get category name with populate support
+  const getCategoryNameById = (categoryId) => {
+    if (!categoryId) {
+      return "Unknown";
+    }
+    
+    // First check if the menu item has a populated categoryId (object with name)
+    if (typeof categoryId === 'object' && categoryId !== null && categoryId.name) {
+      return categoryId.name;
+    }
+    
+    if (!categories || categories.length === 0) {
+      return "Loading...";
+    }
+    
+    // Convert to string for consistent comparison
+    const categoryIdString = String(categoryId);
+    
+    // Find the category by ID
+    const category = categories.find(cat => String(cat._id) === categoryIdString);
+    
+    return category ? category.name : "Unknown";
   };
   
   // Function to handle adding or updating a menu item
@@ -90,8 +165,8 @@ const Tables = () => {
                  </div>
                 <div className="text-right d-inline-block">
                   {/* Restaurant filter for super admin */}
-                  {isSuperAdmin() && (
-                    <FormGroup className="d-inline-block mr-3">
+                  {isUserSuperAdmin && (
+                    <FormGroup className="d-inline-block mr-3 mb--1">
                       <Input
                         type="select"
                         name="restaurantFilter"
@@ -154,7 +229,8 @@ const Tables = () => {
                 <th scope="col">Name</th>
                 <th scope="col">Price</th>
                 <th scope="col">Category</th>
-                {isSuperAdmin() && <th scope="col">Restaurant</th>}
+                {isUserSuperAdmin && <th scope="col">Restaurant</th>} 
+                {isUserSuperAdmin && <th scope="col">Branch</th>} 
                 <th scope="col">Status</th>
                 <th scope="col">Actions</th>
               </tr>
@@ -162,14 +238,14 @@ const Tables = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={isSuperAdmin() ? "7" : "6"} className="text-center py-4">
+                  <td colSpan={isUserSuperAdmin ? "7" : "6"} className="text-center py-4">
                     <i className="fas fa-spinner fa-spin mr-2"></i>
                     <span className="font-italic text-muted mb-0">Loading menu items...</span>
                   </td>
                 </tr>
               ) : !filteredMenuItems || filteredMenuItems.length === 0 ? (
                 <tr>
-                  <td colSpan={isSuperAdmin() ? "7" : "6"} className="text-center py-4">
+                  <td colSpan={isUserSuperAdmin ? "7" : "6"} className="text-center py-4">
                     <p className="font-italic text-muted mb-0">No menu items available</p>
                     <small className="text-muted d-block mt-2">
                       {!error ? "Add a new menu item to get started." : "There was an error fetching menu items. Please try refreshing."}
@@ -219,14 +295,21 @@ const Tables = () => {
                       </Media>
                     </td>
                     <td>₹{parseFloat(menuItem.price).toFixed(2)}</td>
-                    <td>
-                      {categories && categories.find(category => category._id === menuItem.categoryId)?.name || "Uncategorized"}
+                    <td> 
+                      {getCategoryNameById(menuItem.categoryId) || "Unknown"}
                     </td>
-                    {isSuperAdmin() && (
+                    {isUserSuperAdmin && (
                       <td>
                         {restaurants && restaurants.find(restaurant => restaurant._id === menuItem.restaurantId)?.name || "Unknown"}
                       </td>
+                    )}  
+
+                    {isUserSuperAdmin && (
+                      <td>
+                        {branches && branches.find(branch => branch._id === menuItem.branchId)?.name || "Unknown"}
+                      </td>
                     )}
+                    
                     <td>
                       <Badge color={menuItem.isActive ? "success" : "warning"} className="badge-dot mr-4">
                         <i className={menuItem.isActive ? "bg-success" : "bg-warning"} />

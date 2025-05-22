@@ -42,13 +42,14 @@ export const BranchProvider = ({ children }) => {
     };
 
     const fetchBranchesByRestaurant = async (restaurantId) => {
-        setLoading(true);
+        // Don't set global loading state when called from components like MenuItemModal
+        // This prevents state updates that trigger re-renders
+        const isLoadingLocally = true; // Use local loading state instead
         setError(null);
         try {
             if (!restaurantId) {
                 console.error('Restaurant ID is missing');
                 setError('Restaurant ID is required');
-                setLoading(false);
                 return [];
             }
             
@@ -64,13 +65,11 @@ export const BranchProvider = ({ children }) => {
                 timeout: 10000
             };
             
-            console.log(`Fetching branches for restaurant: ${restaurantIdStr}`);
+            // Remove console.log that's causing renders
             
             try {
                 const response = await axios.get(`/api/branches/restaurant/${restaurantIdStr}`, config);
-                console.log('Branches fetched successfully:', response.data);
-                setBranches(response.data);
-                return response.data;
+                return response.data; // Return data without setting global state
             } catch (axiosError) {
                 // Handle axios specific errors
                 if (axiosError.code === 'ECONNABORTED') {

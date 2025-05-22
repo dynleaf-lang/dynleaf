@@ -60,9 +60,14 @@ const MenuProvider = ({ children }) => {
     // Fetch menu items when the component mounts or token changes
     useEffect(() => {
         if (token) {
-            fetchMenuItems();
+            // Only fetch menu items once when the token is available
+            const initializeMenuItems = async () => {
+                await fetchMenuItems();
+            };
+            initializeMenuItems();
         }
-    }, [token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token]); // Only depend on token changes, not fetchMenuItems which is a function
 
     // Upload image function
     const uploadImage = async (imageFile) => {
