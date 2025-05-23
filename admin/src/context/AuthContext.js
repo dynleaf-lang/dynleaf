@@ -136,22 +136,44 @@ const AuthProvider = ({ children }) => {
                     try {
                         const parsedUser = JSON.parse(storedUser);
                         
-                        // Ensure the critical fields are present for non-Super_Admin users
-                        if (parsedUser && parsedUser.role !== 'Super_Admin' && 
-                            (parsedUser.restaurantId === undefined || parsedUser.restaurantId === null)) {
+                        // Ensure the critical fields are present for all users
+                        if (parsedUser && (
+                            parsedUser.role !== 'Super_Admin' && 
+                            (!parsedUser.restaurantId || !parsedUser.branchId)
+                        )) {
                             // Try to get updated user info from server since we're missing critical data
-                            console.log('Missing restaurantId for non-Super_Admin user, fetching fresh data from server');
+                            console.log('Missing restaurant or branch ID, fetching fresh data from server');
                             const response = await axios.get('/api/users/profile', {
                                 headers: { 
                                     Authorization: `Bearer ${storedToken}`
                                 }
                             });
-                            const freshUserData = response.data.user || response.data;
+                            
+                            // Ensure the user data has all required properties
+                            const freshUserData = {
+                                ...response.data.user || response.data,
+                                restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
+                                branchId: response.data.user?.branchId || response.data?.branchId || null
+                            };
+                            
+                            console.log('Fresh user data from server:', {
+                                id: freshUserData.id,
+                                role: freshUserData.role,
+                                restaurantId: freshUserData.restaurantId,
+                                branchId: freshUserData.branchId
+                            });
+                            
                             localStorage.setItem('user', JSON.stringify(freshUserData));
                             setUser(freshUserData);
                         } else {
                             // User data has all the necessary fields
                             if (!user) {
+                                console.log('Setting user from localStorage:', {
+                                    id: parsedUser.id,
+                                    role: parsedUser.role,
+                                    restaurantId: parsedUser.restaurantId,
+                                    branchId: parsedUser.branchId
+                                });
                                 setUser(parsedUser);
                             }
                         }
@@ -163,7 +185,11 @@ const AuthProvider = ({ children }) => {
                                 Authorization: `Bearer ${storedToken}`
                             }
                         });
-                        const userData = response.data.user || response.data;
+                        const userData = {
+                            ...response.data.user || response.data,
+                            restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
+                            branchId: response.data.user?.branchId || response.data?.branchId || null
+                        };
                         localStorage.setItem('user', JSON.stringify(userData));
                         setUser(userData);
                     }
@@ -179,7 +205,11 @@ const AuthProvider = ({ children }) => {
                             Authorization: `Bearer ${storedToken}`
                         }
                     });
-                    const userData = response.data.user || response.data;
+                    const userData = {
+                        ...response.data.user || response.data,
+                        restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
+                        branchId: response.data.user?.branchId || response.data?.branchId || null
+                    };
                     localStorage.setItem('user', JSON.stringify(userData));
                     setUser(userData);
                 }

@@ -8,6 +8,7 @@ import Restaurant from "features/restaurant-management/restaurant.js";
 import Branch from "features/branch-management/branch.js";
 import Category from "features/category-management/category.js";
 import UserManagement from "features/user-management/user.js";
+import TableManagement from "features/table-management/table.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -67,6 +68,14 @@ var routes = [
     component: <MenuItem />,
     layout: "/admin",
     roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"], 
+  },
+  {
+    path: "/tables-management",
+    name: "Dining Tables",
+    icon: "ni ni-ungroup text-info",
+    component: <TableManagement />,
+    layout: "/admin",
+    roles: ["admin", "Super_Admin", "Branch_Manager"], // Only admin, Super_Admin, or branch_manager can see this route
   },
   {
     path: "/icons",

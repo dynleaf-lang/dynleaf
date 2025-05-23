@@ -7,6 +7,7 @@ import { CategoryProvider } from "./context/CategoryContext";
 import { RestaurantProvider } from "./context/RestaurantContext";
 import { BranchProvider } from "./context/BranchContext";
 import { UserProvider } from "./context/UserContext";
+import { TableProvider } from "./context/TableContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 import "assets/plugins/nucleo/css/nucleo.css";
@@ -26,18 +27,20 @@ root.render(
         <BranchProvider>
           <CategoryProvider>
             <MenuProvider>
-              <BrowserRouter>
-                <Routes>
-                  <Route path="/admin/*" element={
-                    <ProtectedRoute>
-                      <AdminLayout />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/auth/*" element={<AuthLayout />} />
-                  <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
-                  <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
-                </Routes>
-              </BrowserRouter>
+              <TableProvider>
+                <BrowserRouter>
+                  <Routes>
+                    <Route path="/admin/*" element={
+                      <ProtectedRoute>
+                        <AdminLayout />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/auth/*" element={<AuthLayout />} />
+                    <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
+                    <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
+                  </Routes>
+                </BrowserRouter>
+              </TableProvider>
             </MenuProvider>
           </CategoryProvider>
         </BranchProvider>
