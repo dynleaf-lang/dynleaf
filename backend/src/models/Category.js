@@ -14,6 +14,18 @@ const CategorySchema = new mongoose.Schema({
         required: false,
     },
 
+    parentCategory: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category',
+        required: false,
+        default: null,
+    },
+
+    level: {
+        type: Number,
+        default: 0, // 0 for root categories, 1 for first level children, etc.
+    },
+
     categoryId: {
         type: String,
         required: true,
@@ -46,5 +58,8 @@ const CategorySchema = new mongoose.Schema({
         default: Date.now,
     },
 });
+
+// Add index for faster lookup of child categories
+CategorySchema.index({ parentCategory: 1 });
 
 module.exports = mongoose.model('Category', CategorySchema);

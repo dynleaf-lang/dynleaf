@@ -65,7 +65,8 @@ router.get('/', authenticateJWT, async (req, res) => {
         }
         
         console.log('Final category query:', JSON.stringify(query));
-        const categories = await Category.find(query);
+        const categories = await Category.find(query)
+            .populate('parentCategory', 'name categoryId');
         console.log(`Found ${categories.length} categories`);
         
         res.json(categories);
@@ -78,7 +79,8 @@ router.get('/', authenticateJWT, async (req, res) => {
 // Get a single category by ID
 router.get('/:id', authenticateJWT, async (req, res) => {
     try {
-        const category = await Category.findById(req.params.id);
+        const category = await Category.findById(req.params.id)
+            .populate('parentCategory', 'name categoryId');
         
         // Check if category exists
         if (!category) return res.status(404).json({ message: 'Category not found' });
@@ -102,11 +104,59 @@ router.get('/:id', authenticateJWT, async (req, res) => {
     }
 });
 
+// Get all child categories for a parent category
+router.get('/children/:parentId', authenticateJWT, async (req, res) => {
+    try {
+        const parentId = req.params.parentId;
+        
+        // Apply user role-based filtering
+        let query = { parentCategory: parentId };
+        
+        // Non-Super_Admin users can only see categories from their restaurant
+        if (req.user.role !== 'Super_Admin') {
+            if (!req.user.restaurantId) {
+                return res.status(400).json({ 
+                    message: 'You must have a restaurant assigned to view categories',
+                    errorCode: 'NO_RESTAURANT_ASSIGNED'
+                });
+            }
+            
+            query.restaurantId = req.user.restaurantId;
+            
+            // If user has a branch assignment, further filter by that branch
+            if (req.user.branchId) {
+                query.$or = [
+                    { branchId: req.user.branchId },
+                    { branchId: { $exists: false } },
+                    { branchId: null }
+                ];
+            }
+        }
+        
+        const childCategories = await Category.find(query)
+            .populate('parentCategory', 'name categoryId');
+        
+        res.json(childCategories);
+    } catch (error) {
+        console.error('Error fetching child categories:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // Create a new category
 router.post('/', authenticateJWT, async (req, res) => {
     try {
         console.log("Category creation attempt with data:", req.body);
-        let { name, description, branchId, restaurantId, imageUrl, tags, isActive } = req.body;
+        let { 
+            name, 
+            description, 
+            branchId, 
+            restaurantId, 
+            parentCategory,
+            imageUrl, 
+            tags, 
+            isActive 
+        } = req.body;
         
         // For non-Super_Admin users, override the restaurantId with their assigned restaurant
         if (req.user.role !== 'Super_Admin') {
@@ -140,6 +190,49 @@ router.post('/', authenticateJWT, async (req, res) => {
         // Generate a unique categoryId
         const categoryId = `CAT_${Date.now()}`;
         
+        // Calculate the level of this category
+        let level = 0;
+        
+        // If this is a child category, validate the parent and get its level
+        if (parentCategory) {
+            try {
+                const parent = await Category.findById(parentCategory);
+                
+                if (!parent) {
+                    return res.status(400).json({ 
+                        message: 'Parent category not found', 
+                        errorCode: 'INVALID_PARENT_CATEGORY'
+                    });
+                }
+                
+                // Ensure the parent category belongs to the same restaurant
+                if (String(parent.restaurantId) !== String(restaurantId)) {
+                    return res.status(400).json({
+                        message: 'Parent category must belong to the same restaurant',
+                        errorCode: 'PARENT_RESTAURANT_MISMATCH'
+                    });
+                }
+                
+                // If branch is specified, ensure the parent is either from the same branch or branch-independent
+                if (branchId && parent.branchId && String(parent.branchId) !== String(branchId)) {
+                    return res.status(400).json({
+                        message: 'Parent category must belong to the same branch or be branch-independent',
+                        errorCode: 'PARENT_BRANCH_MISMATCH'
+                    });
+                }
+                
+                // Calculate this category's level based on parent's level
+                level = parent.level + 1;
+                
+            } catch (error) {
+                console.error("Error validating parent category:", error);
+                return res.status(400).json({ 
+                    message: 'Invalid parent category ID', 
+                    errorCode: 'INVALID_PARENT_ID'
+                });
+            }
+        }
+        
         const categoryData = {
             restaurantId: restaurantId,
             categoryId,
@@ -147,7 +240,9 @@ router.post('/', authenticateJWT, async (req, res) => {
             description,
             imageUrl,
             tags: tags || [],
-            isActive: isActive !== undefined ? isActive : true
+            isActive: isActive !== undefined ? isActive : true,
+            parentCategory: parentCategory || null,
+            level
         };
         
         // Only include branchId if it has a value
@@ -218,11 +313,81 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         }
         
         // Get the fields to update
-        let { name, description, branchId, imageUrl, tags, isActive } = req.body;
+        let { 
+            name, 
+            description, 
+            branchId, 
+            imageUrl, 
+            tags, 
+            isActive, 
+            parentCategory 
+        } = req.body;
         
         // For non-Super_Admin users, don't allow changing the branch
         if (req.user.role !== 'Super_Admin' && req.user.branchId) {
             branchId = req.user.branchId;
+        }
+        
+        // If trying to update the parent category, validate it
+        let level = category.level;
+        
+        if (parentCategory && String(parentCategory) !== String(category.parentCategory)) {
+            try {
+                // Check for circular reference (category can't be its own parent)
+                if (String(parentCategory) === String(category._id)) {
+                    return res.status(400).json({
+                        message: 'A category cannot be its own parent',
+                        errorCode: 'CIRCULAR_REFERENCE'
+                    });
+                }
+                
+                // Check if this category has children
+                const hasChildren = await Category.exists({ parentCategory: category._id });
+                
+                // If changing parent for a category with children, need to update all children's levels too
+                if (hasChildren) {
+                    // This would be complex, for now let's prevent changing parent for categories with children
+                    return res.status(400).json({
+                        message: 'Cannot change parent for a category that has child categories',
+                        errorCode: 'HAS_CHILDREN'
+                    });
+                }
+                
+                const parent = await Category.findById(parentCategory);
+                
+                if (!parent) {
+                    return res.status(400).json({ 
+                        message: 'Parent category not found', 
+                        errorCode: 'INVALID_PARENT_CATEGORY'
+                    });
+                }
+                
+                // Ensure the parent category belongs to the same restaurant
+                if (String(parent.restaurantId) !== String(category.restaurantId)) {
+                    return res.status(400).json({
+                        message: 'Parent category must belong to the same restaurant',
+                        errorCode: 'PARENT_RESTAURANT_MISMATCH'
+                    });
+                }
+                
+                // If branch is specified, ensure the parent is either from the same branch or branch-independent
+                if (branchId && parent.branchId && String(parent.branchId) !== String(branchId)) {
+                    return res.status(400).json({
+                        message: 'Parent category must belong to the same branch or be branch-independent',
+                        errorCode: 'PARENT_BRANCH_MISMATCH'
+                    });
+                }
+                
+                // Calculate this category's level based on parent's level
+                level = parent.level + 1;
+                
+            } catch (error) {
+                console.error("Error validating parent category:", error);
+                return res.status(400).json({ 
+                    message: 'Invalid parent category ID', 
+                    errorCode: 'INVALID_PARENT_ID'
+                });
+            }
         }
         
         console.log('Updating category with data:', { 
@@ -232,7 +397,9 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             branchId, 
             imageUrl, 
             tags, 
-            isActive 
+            isActive,
+            parentCategory,
+            level
         });
         
         // Update the category
@@ -242,7 +409,9 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             branchId,
             imageUrl,
             tags,
-            isActive
+            isActive,
+            parentCategory,
+            level
         }, { new: true });
         
         console.log('Category updated successfully:', updatedCategory._id);
@@ -281,12 +450,82 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
             }
         }
         
+        // Check if the category has any children
+        const hasChildren = await Category.exists({ parentCategory: category._id });
+        if (hasChildren) {
+            return res.status(400).json({ 
+                message: 'Cannot delete a category that has child categories. Delete the children first or reassign them.',
+                errorCode: 'HAS_CHILDREN'
+            });
+        }
+        
         console.log('Deleting category:', category._id);
         await Category.findByIdAndDelete(req.params.id);
         console.log('Category deleted successfully');
         res.json({ message: 'Category deleted' });
     } catch (error) {
         console.error('Error deleting category:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Get categories tree
+router.get('/tree/:restaurantId', authenticateJWT, async (req, res) => {
+    try {
+        const { restaurantId } = req.params;
+        const { branchId } = req.query;
+
+        // Permission check for non-Super_Admin users
+        if (req.user.role !== 'Super_Admin') {
+            if (String(req.user.restaurantId) !== String(restaurantId)) {
+                return res.status(403).json({ 
+                    message: 'Access denied. You can only view categories for your assigned restaurant.' 
+                });
+            }
+            
+            // If user has a branch assignment, enforce it
+            if (req.user.branchId && branchId && String(req.user.branchId) !== String(branchId)) {
+                return res.status(403).json({ 
+                    message: 'Access denied. You can only view categories for your assigned branch.' 
+                });
+            }
+        }
+
+        // Query to get all categories for the restaurant
+        const query = { restaurantId };
+        
+        // Add branch filtering if specified
+        if (branchId) {
+            query.$or = [
+                { branchId },
+                { branchId: { $exists: false } },
+                { branchId: null }
+            ];
+        }
+        
+        // Get all categories for the restaurant
+        const allCategories = await Category.find(query);
+        
+        // Function to build the tree structure
+        function buildCategoryTree(parentId = null) {
+            const children = allCategories.filter(cat => 
+                parentId === null 
+                    ? cat.parentCategory === null
+                    : cat.parentCategory && String(cat.parentCategory) === String(parentId)
+            );
+            
+            return children.map(child => ({
+                ...child.toObject(),
+                children: buildCategoryTree(child._id)
+            }));
+        }
+        
+        // Build the tree starting from root categories
+        const categoryTree = buildCategoryTree();
+        
+        res.json(categoryTree);
+    } catch (error) {
+        console.error('Error getting category tree:', error);
         res.status(500).json({ message: error.message });
     }
 });
