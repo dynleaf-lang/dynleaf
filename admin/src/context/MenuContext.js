@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from 'react';
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
 
@@ -18,11 +18,59 @@ const MenuProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const { token, user, isSuperAdmin } = useContext(AuthContext);
+    
+    // Keep track of the last filter to prevent unnecessary rerenders
+    const lastFilterRef = useRef({});
+    
+    // Compare if two filter objects are equal
+    const areFiltersEqual = (a, b) => {
+        if (!a || !b) return false;
+        
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        
+        // If _timestamp is included, treat filters as different to force refresh
+        if (a._timestamp || b._timestamp) return false;
+        
+        // Check if key counts match (ignoring _timestamp)
+        const filteredKeysA = keysA.filter(k => k !== '_timestamp');
+        const filteredKeysB = keysB.filter(k => k !== '_timestamp');
+        
+        if (filteredKeysA.length !== filteredKeysB.length) return false;
+        
+        // Compare each key value
+        return filteredKeysA.every(key => {
+            if (key === 'sortOrder' || key === 'sortBy') {
+                // Special handling for sorting parameters which might be undefined or have default values
+                const valueA = a[key] || (key === 'sortOrder' ? 'asc' : 'name');
+                const valueB = b[key] || (key === 'sortOrder' ? 'asc' : 'name');
+                return valueA === valueB;
+            }
+            
+            // Handle search differently - treat empty strings and undefined as equal
+            if (key === 'search') {
+                const searchA = a[key] || '';
+                const searchB = b[key] || '';
+                return searchA === searchB;
+            }
+            
+            return a[key] === b[key];
+        });
+    };
 
     // Function to fetch all menu items with optional restaurant and branch filters
-    const fetchMenuItems = async (filters = {}) => {
+    const fetchMenuItems = useCallback(async (filters = {}) => {
+        // Check if the filters are the same as last time - if so, don't refetch
+        if (areFiltersEqual(lastFilterRef.current, filters) && menuItems.length > 0) {
+            return menuItems;
+        }
+        
+        // Update last filter reference
+        lastFilterRef.current = {...filters};
+        
         setLoading(true);
         setError(null);
+        
         try {
             const config = token ? {
                 headers: {
@@ -42,11 +90,40 @@ const MenuProvider = ({ children }) => {
                 config.params.branchId = filters.branchId;
             }
             
+            // Add category filter if provided
+            if (filters.categoryId) {
+                config.params.categoryId = filters.categoryId;
+            }
+            
+            // Add search query if provided
+            if (filters.search) {
+                config.params.search = filters.search;
+            }
+            
+            // Add pagination parameters if provided
+            if (filters.page) {
+                config.params.page = filters.page;
+            }
+            
+            if (filters.limit) {
+                config.params.limit = filters.limit;
+            }
+            
+            // Add sorting parameters if provided
+            if (filters.sortBy) {
+                config.params.sortBy = filters.sortBy;
+                config.params.sortOrder = filters.sortOrder || 'asc';
+            }
+            
             const response = await axios.get(MENU_ENDPOINT, config); 
             
             // The backend now filters based on user's restaurant and branch if specified
-            setMenuItems(Array.isArray(response.data) ? response.data : []);
-            return response.data;
+            const responseData = Array.isArray(response.data) ? response.data : [];
+            
+            // Set menu items from response data
+            setMenuItems(responseData);
+            
+            return responseData;
         } catch (error) {
             console.error('Error fetching menu items:', error);
             setError(error.response?.data?.message || error.message);
@@ -55,19 +132,18 @@ const MenuProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token]); // Remove menuItems dependency to break circular updates
 
     // Fetch menu items when the component mounts or token changes
     useEffect(() => {
         if (token) {
             // Only fetch menu items once when the token is available
             const initializeMenuItems = async () => {
-                await fetchMenuItems();
+                await fetchMenuItems({});
             };
             initializeMenuItems();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [token]); // Only depend on token changes, not fetchMenuItems which is a function
+    }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Upload image function
     const uploadImage = async (imageFile) => {
@@ -93,6 +169,40 @@ const MenuProvider = ({ children }) => {
             return { 
                 success: false, 
                 error: error.response?.data?.message || error.message 
+            };
+        }
+    };
+
+    // Upload multiple images at once
+    const uploadMultipleImages = async (imageFiles) => {
+        try {
+            const uploadPromises = imageFiles.map(file => uploadImage(file));
+            const results = await Promise.allSettled(uploadPromises);
+            
+            const successful = results
+                .filter(result => result.status === 'fulfilled' && result.value.success)
+                .map(result => result.value.data);
+                
+            const failed = results
+                .filter(result => result.status === 'rejected' || !result.value.success)
+                .map(result => result.status === 'rejected' ? result.reason : result.value.error);
+                
+            return { 
+                success: failed.length === 0,
+                successful,
+                failed,
+                totalSuccess: successful.length,
+                totalFailed: failed.length
+            };
+        } catch (error) {
+            console.error('Error in bulk image upload:', error);
+            return { 
+                success: false, 
+                error: error.message,
+                successful: [],
+                failed: [error],
+                totalSuccess: 0,
+                totalFailed: 1
             };
         }
     };
@@ -125,6 +235,77 @@ const MenuProvider = ({ children }) => {
             return { success: false, error: error.response?.data || error.message };
         }
     };
+    
+    // Bulk add menu items from array
+    const bulkAddMenuItems = async (items) => {
+        try {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            // Ensure all items have restaurant ID if user is Super_Admin
+            const preparedItems = items.map(item => {
+                if (isSuperAdmin() && !item.restaurantId) {
+                    return {...item, restaurantId: DEFAULT_RESTAURANT_ID};
+                }
+                return item;
+            });
+            
+            const response = await axios.post(`${MENU_ENDPOINT}/bulk`, preparedItems, config);
+            
+            if (response.data.success) {
+                // Add all successfully created items to the state
+                setMenuItems(prevItems => [...prevItems, ...response.data.items]);
+            }
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error in bulk adding menu items:', error);
+            return { 
+                success: false, 
+                error: error.response?.data || error.message,
+                itemsAdded: 0
+            };
+        }
+    };
+
+    // Import menu items from Excel/CSV
+    const importMenuItems = async (file, options = {}) => {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Add import options
+            if (options.restaurantId) formData.append('restaurantId', options.restaurantId);
+            if (options.branchId) formData.append('branchId', options.branchId);
+            if (options.overwrite !== undefined) formData.append('overwrite', options.overwrite);
+            
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.post(`${MENU_ENDPOINT}/import`, formData, config);
+            
+            if (response.data.success) {
+                // Refresh menu items after import
+                await fetchMenuItems();
+            }
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error importing menu items:', error);
+            return { 
+                success: false, 
+                error: error.response?.data || error.message
+            };
+        }
+    };
 
     const updateMenuItem = async (id, updatedItem) => {
         try {
@@ -143,6 +324,43 @@ const MenuProvider = ({ children }) => {
         } catch (error) {
             console.error('Error updating menu item:', error);
             return { success: false, error: error.response?.data || error.message };
+        }
+    };
+    
+    // Bulk update menu items for a specific property
+    const bulkUpdateMenuItems = async (itemIds, updateData) => {
+        try {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.put(`${MENU_ENDPOINT}/bulk`, 
+                { itemIds, updateData }, 
+                config
+            );
+            
+            if (response.data.success) {
+                // Update the local state if the update was successful
+                setMenuItems(prevItems => {
+                    return prevItems.map(item => {
+                        if (itemIds.includes(item._id)) {
+                            return { ...item, ...updateData };
+                        }
+                        return item;
+                    });
+                });
+            }
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error in bulk updating menu items:', error);
+            return { 
+                success: false, 
+                error: error.response?.data || error.message 
+            };
         }
     };
 
@@ -184,6 +402,133 @@ const MenuProvider = ({ children }) => {
             return { success: false, error: error.response?.data || error.message };
         }
     };
+    
+    // Bulk delete menu items
+    const bulkDeleteMenuItems = async (itemIds) => {
+        try {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.post(`${MENU_ENDPOINT}/bulk-delete`, 
+                { itemIds }, 
+                config
+            );
+            
+            if (response.data.success) {
+                // Update local state to remove deleted items
+                setMenuItems(prevItems => 
+                    prevItems.filter(item => !itemIds.includes(item._id))
+                );
+            }
+            
+            return response.data;
+        } catch (error) {
+            console.error('Error in bulk deleting menu items:', error);
+            return { 
+                success: false, 
+                error: error.response?.data || error.message 
+            };
+        }
+    };
+
+    // Export menu items to Excel/CSV
+    const exportMenuItems = async (filters = {}, format = 'excel') => {
+        try {
+            const config = token ? {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                params: { ...filters, format },
+                responseType: 'blob'
+            } : {};
+            
+            // Log the export attempt
+            console.log(`Attempting to export menu items in ${format} format with filters:`, filters);
+            
+            const response = await axios.get(`${MENU_ENDPOINT}/export`, config);
+            
+            // Check if response data is a blob and has size
+            if (!response.data || response.data.size === 0) {
+                throw new Error('Received empty data from server');
+            }
+            
+            // Check if the response is an error message disguised as a blob
+            // This could happen if the server returns an error with the wrong content type
+            if (response.data.type === 'application/json') {
+                const reader = new FileReader();
+                const errorPromise = new Promise((resolve, reject) => {
+                    reader.onload = () => {
+                        try {
+                            const errorJSON = JSON.parse(reader.result);
+                            reject(new Error(errorJSON.message || 'Export failed'));
+                        } catch (e) {
+                            reject(new Error('Unknown error during export'));
+                        }
+                    };
+                    reader.onerror = () => reject(new Error('Failed to read error response'));
+                });
+                reader.readAsText(response.data);
+                await errorPromise;
+                return; // This will never be reached due to the reject above
+            }
+            
+            // Create a download link and trigger it
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            const extension = format === 'csv' ? 'csv' : 'xlsx';
+            link.setAttribute('download', `menu-items-${new Date().toISOString().slice(0,10)}.${extension}`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up the object URL
+            setTimeout(() => {
+                window.URL.revokeObjectURL(url);
+            }, 100);
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Error exporting menu items:', error);
+            
+            // Handle axios error response that might contain error details
+            if (error.response) {
+                // Try to extract a readable error message if available
+                const errorData = error.response.data;
+                
+                if (errorData instanceof Blob) {
+                    try {
+                        // Try to read the blob as text and parse it if it contains JSON
+                        const text = await errorData.text();
+                        try {
+                            const json = JSON.parse(text);
+                            return { success: false, error: json.message || 'Export failed' };
+                        } catch (e) {
+                            return { success: false, error: text || 'Export failed' };
+                        }
+                    } catch (e) {
+                        return { success: false, error: 'Unable to process server response' };
+                    }
+                } else if (errorData && (errorData.message || errorData.error)) {
+                    return { success: false, error: errorData.message || errorData.error };
+                }
+                
+                return { 
+                    success: false, 
+                    error: `Server error: ${error.response.status} ${error.response.statusText}` 
+                };
+            }
+            
+            return { 
+                success: false, 
+                error: error.message || 'Failed to export menu items' 
+            };
+        }
+    };
 
     // Get menu items for a specific branch
     const getMenuItemsByBranch = async (branchId, restaurantId = null) => {
@@ -201,7 +546,8 @@ const MenuProvider = ({ children }) => {
         }
     };
 
-    const contextValue = {
+    // Use a stable reference to the context value to prevent unnecessary rerenders
+    const contextValue = React.useMemo(() => ({
         menuItems,
         loading,
         error,
@@ -211,8 +557,30 @@ const MenuProvider = ({ children }) => {
         updateMenuItem,
         deleteMenuItem,
         uploadImage,
+        uploadMultipleImages,
+        bulkAddMenuItems,
+        bulkUpdateMenuItems,
+        bulkDeleteMenuItems,
+        importMenuItems,
+        exportMenuItems,
         DEFAULT_RESTAURANT_ID
-    };
+    }), [
+        menuItems, 
+        loading, 
+        error, 
+        fetchMenuItems, 
+        addMenuItem, 
+        updateMenuItem, 
+        deleteMenuItem, 
+        uploadImage, 
+        uploadMultipleImages, 
+        bulkAddMenuItems, 
+        bulkUpdateMenuItems,
+        bulkDeleteMenuItems,
+        importMenuItems,
+        exportMenuItems,
+        getMenuItemsByBranch
+    ]);
 
     return (
         <MenuContext.Provider value={contextValue}>

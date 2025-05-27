@@ -79,6 +79,17 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         return restaurant ? restaurant.name : 'Unknown Restaurant';
     };
 
+    // Get parent category name by ID
+    const getParentCategoryName = (parentId) => {
+        if (!parentId) return '';
+        
+        // Handle both object reference and ID string
+        const categoryId = typeof parentId === 'object' ? parentId?._id : parentId;
+        const parent = categories.find(cat => cat._id === categoryId);
+        
+        return parent ? parent.name : 'Unknown Category';
+    };
+
     // Fetch restaurants and categories when the modal opens
     useEffect(() => {
         if (isOpen) {
@@ -780,22 +791,36 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                     );
                 })()}
                 
-                {/* Filter out the current category to avoid duplication */}
+                {/* Filter out the current category to avoid duplication, and format with hierarchy */}
                 {filteredCategories
                     .filter(c => String(c._id) !== String(typeof menuItem.categoryId === 'object' ? menuItem.categoryId?._id : menuItem.categoryId))
-                    .map(category => (
-                        <option key={category._id} value={category._id}>
-                            {category.name}
-                        </option>
-                    ))
+                    .map(category => {
+                        const level = category.level || 0;
+                        const indent = level > 0 ? Array(level).fill('\u00A0\u00A0\u00A0\u00A0').join('') : '';
+                        const prefix = level > 0 ? '↳ ' : '';
+                        
+                        return (
+                            <option key={category._id} value={category._id}>
+                                {indent}{prefix}{category.name}
+                                {category.parentCategory ? ` (${getParentCategoryName(category.parentCategory)})` : ''}
+                            </option>
+                        );
+                    })
                 }
             </>
         ) : filteredCategories && filteredCategories.length > 0 ? (
-            filteredCategories.map(category => (
-                <option key={category._id} value={category._id}>
-                    {category.name}
-                </option>
-            ))
+            filteredCategories.map(category => {
+                const level = category.level || 0;
+                const indent = level > 0 ? Array(level).fill('\u00A0\u00A0\u00A0\u00A0').join('') : '';
+                const prefix = level > 0 ? '↳ ' : '';
+                
+                return (
+                    <option key={category._id} value={category._id}>
+                        {indent}{prefix}{category.name}
+                        {category.parentCategory ? ` (${getParentCategoryName(category.parentCategory)})` : ''}
+                    </option>
+                );
+            })
         ) : menuItem.restaurantId ? (
             <option disabled>No categories available for this restaurant/branch</option>
         ) : (

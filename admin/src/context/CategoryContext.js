@@ -9,6 +9,7 @@ const CategoryContext = createContext();
 
 const CategoryProvider = ({ children }) => {
     const [categories, setCategories] = useState([]);
+    const [categoryTree, setCategoryTree] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [filteredCategories, setFilteredCategories] = useState([]);
@@ -26,7 +27,6 @@ const CategoryProvider = ({ children }) => {
                 }
             } : {};
             
-            // The backend now handles restaurant-based filtering automatically
             const response = await axios.get('/api/categories', config);
             const fetchedCategories = response.data;
             setCategories(fetchedCategories);
@@ -128,6 +128,57 @@ const CategoryProvider = ({ children }) => {
         });
     }, [categories, fetchCategories]);
 
+    // Function to fetch the category tree
+    const fetchCategoryTree = useCallback(async (restaurantId, branchId = null) => {
+        setLoading(true);
+        try {
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            let url = `/api/categories/tree/${restaurantId}`;
+            if (branchId) {
+                url += `?branchId=${branchId}`;
+            }
+            
+            const response = await axios.get(url, config);
+            setCategoryTree(response.data);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching category tree:', error);
+            setError(error.response?.data?.message || error.message);
+            setCategoryTree([]);
+            return [];
+        } finally {
+            setLoading(false);
+        }
+    }, [token]);
+
+    // Function to get child categories for a parent category
+    const getChildCategories = useCallback(async (parentId) => {
+        try {
+            if (!parentId) {
+                return { success: false, error: 'Parent ID is required' };
+            }
+            
+            const config = token ? {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            } : {};
+            
+            const response = await axios.get(`/api/categories/children/${parentId}`, config);
+            return { success: true, data: response.data };
+        } catch (error) {
+            console.error('Error fetching child categories:', error);
+            return { success: false, error: error.response?.data?.message || error.message };
+        }
+    }, [token]);
+
     // Function to upload an image for a category
     const uploadImage = useCallback(async (imageFile) => {
         try {
@@ -193,6 +244,7 @@ const CategoryProvider = ({ children }) => {
             }
             
             const response = await axios.post('/api/categories', dataToSend, config);
+            
             setCategories(prevCategories => [...prevCategories, response.data]);
             setFilteredCategories(prevFiltered => [...prevFiltered, response.data]);
             return response.data;
@@ -262,25 +314,49 @@ const CategoryProvider = ({ children }) => {
         }
     }, [token, categories]);
 
+    // Function to find a category by ID
+    const getCategoryById = useCallback((categoryId) => {
+        if (!categoryId) return null;
+        return categories.find(cat => cat._id === categoryId) || null;
+    }, [categories]);
+
+    // Helper function to get parent hierarchy for a category
+    const getCategoryHierarchy = useCallback((categoryId) => {
+        const result = [];
+        let currentCat = getCategoryById(categoryId);
+        
+        while (currentCat) {
+            result.unshift(currentCat);
+            currentCat = currentCat.parentCategory ? getCategoryById(currentCat.parentCategory) : null;
+        }
+        
+        return result;
+    }, [getCategoryById]);
+
     // Fetch categories when the component mounts or token changes
     useEffect(() => {
         if (token) {
             fetchCategories();
         }
-    }, [token]);
+    }, [token, fetchCategories]);
 
     return (
         <CategoryContext.Provider value={{
             categories,
             filteredCategories,
+            categoryTree,
             loading,
             error,
             fetchCategories,
+            fetchCategoryTree,
+            getChildCategories,
             createCategory,
             updateCategory,
             deleteCategory,
             uploadImage,
-            filterCategories
+            filterCategories,
+            getCategoryById,
+            getCategoryHierarchy
         }}>
             {children}
         </CategoryContext.Provider>

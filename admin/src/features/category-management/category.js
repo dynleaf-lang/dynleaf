@@ -39,7 +39,20 @@ import { handleTagsChange, handleTagKeyDown, removeTag } from "../../components/
 const CategoryManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
-  const { categories, loading, error, fetchCategories, createCategory, updateCategory, deleteCategory, uploadImage } = useContext(CategoryContext);
+  const { 
+    categories, 
+    categoryTree, 
+    loading, 
+    error, 
+    fetchCategories, 
+    fetchCategoryTree,
+    getChildCategories, 
+    createCategory, 
+    updateCategory, 
+    deleteCategory, 
+    uploadImage, 
+    getCategoryById
+  } = useContext(CategoryContext);
   const { restaurants, fetchRestaurants } = useContext(RestaurantContext);
   const { fetchBranchesByRestaurant } = useContext(BranchContext);
   const { isSuperAdmin, user } = useContext(AuthContext);   
@@ -54,6 +67,7 @@ const CategoryManagement = () => {
   const [formData, setFormData] = useState({
     restaurantId: user && user.restaurantId ? user.restaurantId : '', 
     branchId: user && user.branchId ? user.branchId : '',
+    parentCategory: null,
     name: '',
     description: '',
     imageUrl: '',
@@ -68,6 +82,8 @@ const CategoryManagement = () => {
     error: null,
     success: false
   });
+ 
+  
   
   // State to store branches for selected restaurant
   const [restaurantBranches, setRestaurantBranches] = useState([]);
@@ -119,6 +135,7 @@ const CategoryManagement = () => {
     setFormData({
       restaurantId: user && user.restaurantId ? user.restaurantId : '',
       branchId: user && user.branchId ? user.branchId : '',
+      parentCategory: null,
       name: '',
       description: '',
       imageUrl: '',
@@ -140,6 +157,7 @@ const CategoryManagement = () => {
     setFormData({
       restaurantId: category.restaurantId || '',
       branchId: category.branchId || '',
+      parentCategory: category.parentCategory || null,
       name: category.name || '',
       description: category.description || '',
       imageUrl: category.imageUrl || '',
@@ -321,6 +339,42 @@ const CategoryManagement = () => {
     }
   }, [currentEditItem?._id, formData.restaurantId]); // Reduced dependencies to only what's needed
 
+  // Fetch category tree for the selected restaurant
+  useEffect(() => {
+    if (selectedRestaurantId || (user && user.restaurantId)) {
+      const restaurantId = selectedRestaurantId || user.restaurantId;
+      const branchId = user?.branchId || null;
+      fetchCategoryTree(restaurantId, branchId);
+    }
+  }, [selectedRestaurantId, user, fetchCategoryTree]);
+  
+  // Get parent category name
+  const getParentCategoryName = useCallback((parentId) => { 
+    if (!parentId) return null;
+    const parent = categories.find(cat => cat._id === parentId._id);  
+    
+    return parent ? parent.name : 'Unknown Category';
+  }, [categories]);
+  
+  // Format category name with indentation based on level
+  const formatCategoryName = (category) => {
+    const level = category.level || 0;
+    const indent = level > 0 ? Array(level).fill('\u00A0\u00A0\u00A0\u00A0').join('') : '';
+    return (
+      <div>
+        {indent}
+        {level > 0 && <i className="fas fa-level-up-alt fa-rotate-90 mr-2 text-muted"></i>}
+        
+        {category.name}
+        {category.parentCategory && (
+          <small className="text-muted ml-2">
+            (Parent: {getParentCategoryName(category.parentCategory)})
+          </small>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <Header />
@@ -446,7 +500,7 @@ const CategoryManagement = () => {
                               )}
                               <Media>
                                 <span className="mb-0 text-sm font-weight-bold">
-                                  {category.name}
+                                  {formatCategoryName(category)}
                                 </span>
                                 {/* Display tags as badges */}
                                 <div className="ml-2">
@@ -776,6 +830,37 @@ const CategoryManagement = () => {
                 </div>
               )}
             </FormGroup>
+            {/* Parent Category selection - for all users */}
+            <FormGroup>
+              <Label for="parentCategory">Parent Category</Label>
+              <Input
+                type="select"
+                name="parentCategory"
+                id="parentCategory"
+                value={formData.parentCategory && formData.parentCategory?._id || ''}
+                onChange={handleInputChange}
+              >
+                <option value="">No Parent Category</option>
+                {filteredCategories && filteredCategories.length > 0 && filteredCategories
+                  // Only show categories from same restaurant/branch
+                  .filter(cat => 
+                    // Don't show itself as a parent option when editing
+                    (!currentEditItem || cat._id !== currentEditItem._id) && 
+                    // Don't show categories that would create a circular reference
+                    (!currentEditItem || !cat.parentCategory || cat.parentCategory !== currentEditItem._id)
+                  )
+                  .map(category => (
+                    <option key={category._id} value={category._id}>
+                      {category.name} {category.level > 0 && `(Level ${category.level})`}
+                    </option>
+                  ))
+                }
+              </Input>
+              <small className="form-text text-muted">
+                Select a parent category if this category is a sub-category
+              </small>
+            </FormGroup>
+
             <FormGroup check>
               <Label check>
                 <Input
