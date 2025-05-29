@@ -31,13 +31,14 @@ import {
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { TableContext } from "../../context/TableContext";
 import { AuthContext } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import FloorPlan from "./FloorPlan";
 import TableReservations from "./TableReservations";
 import TableOrderAssignment from "./TableOrderAssignment";
+import { QRCodeCanvas } from "qrcode.react";
 
 const TableManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
@@ -336,7 +337,7 @@ const TableManagement = () => {
                     </p>
                   </div>
                   <div>
-                    <Button color="light" className="font-weight-bold" onClick={() => {
+                    <Button color="primary" className="font-weight-bold" onClick={() => {
                       setCurrentEditItem(null);
                       setModalOpen(true);
                     }}>
@@ -441,6 +442,7 @@ const TableManagement = () => {
                       <th scope="col">Capacity</th>
                       <th scope="col">Zone</th>
                       <th scope="col">Status</th>
+                      <th scope="col">QR Code</th>
                       <th scope="col">Actions</th>
                     </tr>
                   </thead>
@@ -481,6 +483,66 @@ const TableManagement = () => {
                         </td>
                         <td>
                           <Button
+                            color="secondary"
+                            size="sm"
+                            onClick={() => {
+                              // Create QR code and download immediately
+                              const qrCodeValue = `${window.location.origin}/menu?tableId=${table._id}&tableName=${encodeURIComponent(table.TableName)}`;
+                              
+                              // Create a QR code element temporarily in the DOM
+                              const qrContainer = document.createElement('div');
+                              qrContainer.style.position = 'absolute';
+                              qrContainer.style.left = '-9999px';
+                              document.body.appendChild(qrContainer);
+                              
+                              // Render the QR code to the temporary container
+                              const qrCode = document.createElement('canvas');
+                              qrContainer.appendChild(qrCode);
+                              
+                              // Use the library directly without React
+                              import('qrcode').then(QRCode => {
+                                QRCode.toCanvas(qrCode, qrCodeValue, {
+                                  width: 256,
+                                  margin: 4,
+                                  color: {
+                                    dark: '#000000',
+                                    light: '#ffffff'
+                                  },
+                                  errorCorrectionLevel: 'H'
+                                }, function(error) {
+                                  if (error) {
+                                    console.error("Error generating QR code:", error);
+                                    alert("Failed to generate QR code");
+                                    document.body.removeChild(qrContainer);
+                                    return;
+                                  }
+                                  
+                                  // Create a temporary link element for download
+                                  const link = document.createElement("a");
+                                  link.href = qrCode.toDataURL("image/png");
+                                  link.download = `Table_QR_${table.TableName.replace(/\s+/g, '_')}.png`;
+                                  
+                                  // Trigger download
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  
+                                  // Clean up
+                                  document.body.removeChild(link);
+                                  document.body.removeChild(qrContainer);
+                                });
+                              }).catch(err => {
+                                console.error("Error loading QRCode library:", err);
+                                alert("Failed to load QR code generator");
+                                document.body.removeChild(qrContainer);
+                              });
+                            }}
+                            className="mr-2"
+                          >
+                            <i className="fas fa-qrcode"></i> QR Code
+                          </Button> 
+                        </td>
+                        <td>
+                          <Button
                             color="primary"
                             size="sm"
                             className="mr-1"
@@ -495,6 +557,14 @@ const TableManagement = () => {
                             onClick={() => handleViewReservations(table)}
                           >
                             <i className="fas fa-calendar"></i>
+                          </Button>
+                          <Button
+                            color="secondary"
+                            size="sm"
+                            className="mr-1"
+                            onClick={() => navigate(`/admin/tables-management/${table._id}`)}
+                          >
+                            <i className="fas fa-eye"></i>
                           </Button>
                           <Button
                             color="danger"

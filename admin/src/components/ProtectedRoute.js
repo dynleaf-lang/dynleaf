@@ -91,8 +91,8 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  // Redirect to login if not authenticated
-  if (!isAuthenticated() && !isVerified) {
+  // Check if user is authenticated and route is accessible
+  if (!isAuthenticated && !isVerified) {
     return <Navigate to="/auth/login" state={{ from: location }} replace />;
   }
 

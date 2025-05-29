@@ -23,7 +23,8 @@ import {
   Form,
   FormGroup,
   Label,
-  Input
+  Input,
+  Col
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
@@ -43,6 +44,9 @@ const BranchManagement = () => {
   
 const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin function
    
+  // Filter state
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState(restaurantId || '');
+  const [filteredBranches, setFilteredBranches] = useState([]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -77,6 +81,21 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
     }
   }, [restaurantId, restaurants]);
 
+  // Filter branches when selectedRestaurantId changes
+  useEffect(() => {
+    if (selectedRestaurantId && !restaurantId) {
+      // If we're on the "All Branches" page and a restaurant filter is selected
+      const loadFilteredBranches = async () => {
+        const branchData = await fetchBranchesByRestaurant(selectedRestaurantId);
+        setFilteredBranches(branchData || []);
+      };
+      loadFilteredBranches();
+    } else if (!selectedRestaurantId && !restaurantId) {
+      // If no restaurant filter is selected on "All Branches" page
+      setFilteredBranches(branches);
+    }
+  }, [selectedRestaurantId, branches, restaurantId]);
+
   // Fetch restaurants when component mounts
   useEffect(() => {
     fetchRestaurants();
@@ -88,7 +107,7 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
     setCurrentEditItem(null);
     // Reset form data
     setFormData({
-      restaurantId: restaurantId || '',
+      restaurantId: restaurantId || selectedRestaurantId || '',
       name: '',
       address: '',
       phone: '',
@@ -200,10 +219,10 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 <CardHeader className="border-0 d-flex justify-content-between">
                  <div className="d-inline-block">
                    {restaurantId && currentRestaurantName ? (
-                     <div>
-                       <h3 className="mb-0">Branches for {currentRestaurantName}</h3>
+                     <div className="d-flex align-items-center">
+                       <h3 className="mb-0 mr-3">Branches for {currentRestaurantName}</h3>
                        
-                       <Button color="link" onClick={() => navigate('/admin/restaurants')}> 
+                       <Button color="secondary" onClick={() => navigate('/admin/restaurants')}> 
                           <i className="fas fa-arrow-left mr-2"></i> Back to Restaurants
                         </Button>
                      </div>
@@ -211,7 +230,26 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                      <h3 className="mb-0">All Branches</h3>
                    )}
                  </div>
-                <div className="text-right d-inline-block">
+                 <div>
+                  {!restaurantId && (
+                    <FormGroup className="mb-0 d-inline-block mr-3">
+                      <Input
+                        type="select"
+                        name="restaurantFilter"
+                        id="restaurantFilter"
+                        className="form-control-sm"
+                        value={selectedRestaurantId}
+                        onChange={(e) => setSelectedRestaurantId(e.target.value)}
+                      >
+                        <option value="">All Restaurants</option>
+                        {restaurants.map(restaurant => (
+                          <option key={restaurant._id} value={restaurant._id}>
+                            {restaurant.name}
+                          </option>
+                        ))}
+                      </Input>
+                    </FormGroup>
+                  )}
                   <Button color="primary" onClick={() => {
                     setCurrentEditItem(null);
                     setModalOpen(true);
@@ -244,68 +282,133 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                         <p className="text-danger mb-0">Error loading branches: {error}</p>
                       </td>
                     </tr>
-                  ) : branches.length > 0 ? branches.map((branch) => (
-                    <tr key={branch._id}>
-                      <td>
-                        <span className="mb-0 text-sm font-weight-bold">
-                          {branch.name}
-                        </span>
-                      </td> 
-                      <td>{branch.address}</td>
-                      <td>{branch.phone}</td>
-                      <td>{branch.email}</td>
-                      <td>{branch.openingHours}</td>
-                      <td className="text-right">
-                        <UncontrolledDropdown>
-                          <DropdownToggle
-                            className="btn-icon-only text-light"
-                            href="#"
-                            role="button"
-                            size="sm"
-                            color=""
-                            onClick={(e) => e.preventDefault()}
-                          >
-                            <i className="fas fa-ellipsis-v" />
-                          </DropdownToggle>
-                          <DropdownMenu className="dropdown-menu-arrow" right>
-                            <DropdownItem
+                  ) : restaurantId ? (
+                    // When viewing branches for a specific restaurant from URL param
+                    branches.length > 0 ? branches.map((branch) => (
+                      <tr key={branch._id}>
+                        <td>
+                          <span className="mb-0 text-sm font-weight-bold">
+                            {branch.name}
+                          </span>
+                        </td> 
+                        <td>{branch.address}</td>
+                        <td>{branch.phone}</td>
+                        <td>{branch.email}</td>
+                        <td>{branch.openingHours}</td>
+                        <td className="text-right">
+                          <UncontrolledDropdown>
+                            <DropdownToggle
+                              className="btn-icon-only text-light"
                               href="#"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                handleEditBranch(branch);
-                              }}
-                            >
-                              <i className="fas fa-edit text-primary mr-2"></i> Edit
-                            </DropdownItem>
-                            <DropdownItem  
-                              onClick={() => {
-                                if (window.confirm("Are you sure you want to delete this branch?")) {
-                                  deleteBranch(branch._id);
-                                }
-                              }}
-                            >
-                              <i className="fas fa-trash text-danger mr-2"></i> Delete
-                            </DropdownItem>
-                            <DropdownItem
-                              href="#"
+                              role="button"
+                              size="sm"
+                              color=""
                               onClick={(e) => e.preventDefault()}
                             >
-                              <i className="fas fa-eye text-info mr-2"></i> View Details
-                            </DropdownItem>
-                          </DropdownMenu>
-                        </UncontrolledDropdown>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr>
-                      <td colSpan="7" className="text-center py-4">
-                        <p className="font-italic text-muted mb-0">No branches available</p>
-                      </td>
-                    </tr>
+                              <i className="fas fa-ellipsis-v" />
+                            </DropdownToggle>
+                            <DropdownMenu className="dropdown-menu-arrow" right>
+                              <DropdownItem
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleEditBranch(branch);
+                                }}
+                              >
+                                <i className="fas fa-edit text-primary mr-2"></i> Edit
+                              </DropdownItem>
+                              <DropdownItem  
+                                onClick={() => {
+                                  if (window.confirm("Are you sure you want to delete this branch?")) {
+                                    deleteBranch(branch._id);
+                                  }
+                                }}
+                              >
+                                <i className="fas fa-trash text-danger mr-2"></i> Delete
+                              </DropdownItem>
+                              <DropdownItem
+                                href="#"
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <i className="fas fa-eye text-info mr-2"></i> View Details
+                              </DropdownItem>
+                            </DropdownMenu>
+                          </UncontrolledDropdown>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan="7" className="text-center py-4">
+                          <p className="font-italic text-muted mb-0">No branches available</p>
+                        </td>
+                      </tr>
+                    )
+                  ) : (
+                    // When viewing all branches with potential restaurant filter
+                    (selectedRestaurantId ? filteredBranches : branches).length > 0 ? 
+                      (selectedRestaurantId ? filteredBranches : branches).map((branch) => (
+                      <tr key={branch._id}>
+                        <td>
+                          <span className="mb-0 text-sm font-weight-bold">
+                            {branch.name}
+                          </span>
+                        </td>
+                        <td>{branch.address}</td>
+                        <td>{branch.phone}</td>
+                        <td>{branch.email}</td>
+                        <td>{branch.openingHours}</td>
+                        <td className="text-right">
+                          <UncontrolledDropdown>
+                            <DropdownToggle
+                              className="btn-icon-only text-light"
+                              href="#"
+                              role="button"
+                              size="sm"
+                              color=""
+                              onClick={(e) => e.preventDefault()}
+                            >
+                              <i className="fas fa-ellipsis-v" />
+                            </DropdownToggle>
+                            <DropdownMenu className="dropdown-menu-arrow" right>
+                              <DropdownItem
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleEditBranch(branch);
+                                }}
+                              >
+                                <i className="fas fa-edit text-primary mr-2"></i> Edit
+                              </DropdownItem>
+                              <DropdownItem  
+                                onClick={() => {
+                                  if (window.confirm("Are you sure you want to delete this branch?")) {
+                                    deleteBranch(branch._id);
+                                  }
+                                }}
+                              >
+                                <i className="fas fa-trash text-danger mr-2"></i> Delete
+                              </DropdownItem>
+                              <DropdownItem
+                                href="#"
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <i className="fas fa-eye text-info mr-2"></i> View Details
+                              </DropdownItem>
+                            </DropdownMenu>
+                          </UncontrolledDropdown>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan="7" className="text-center py-4">
+                          <p className="font-italic text-muted mb-0">No branches available</p>
+                        </td>
+                      </tr>
+                    )
                   )}
                 </tbody>
                 </Table>
-                {branches.length > 0 && (
+                {(restaurantId ? branches.length > 0 : (selectedRestaurantId ? filteredBranches : branches).length > 0) && (
                 <CardFooter className="py-4">
                   <nav aria-label="...">
                     <Pagination

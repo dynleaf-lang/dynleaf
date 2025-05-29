@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
+const User = require('../models/User');
 
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-for-dev-only';
@@ -29,7 +30,7 @@ const formatId = (id) => {
 };
 
 // Middleware to check if the user is authenticated
-const authenticateJWT = (req, res, next) => {
+const authenticateJWT = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader) {
         console.log('Missing Authorization header');
@@ -66,8 +67,27 @@ const authenticateJWT = (req, res, next) => {
             decoded._id = decoded.id;
         }
         
+        // Check if the user still exists in the database
+        const userExists = await User.findById(decoded.id);
+        if (!userExists) {
+            console.log('User no longer exists in the database:', decoded.id);
+            return res.status(401).json({ 
+                message: 'Your account has been suspended by admin',
+                reason: 'account_suspended'
+            });
+        }
+        
+        // Check if the user is active
+        if (userExists.status === 'inactive' || userExists.isDeleted) {
+            console.log('User account is deactivated:', decoded.id);
+            return res.status(401).json({ 
+                message: 'Your account has been suspended by admin',
+                reason: 'account_suspended'
+            });
+        }
+        
         console.log('Authenticated user:', {
-            id: decoded.id, // Use decoded.id instead of decoded._id
+            id: decoded.id, 
             role: decoded.role,
             restaurantId: decoded.restaurantId,
             branchId: decoded.branchId

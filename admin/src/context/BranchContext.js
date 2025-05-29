@@ -42,19 +42,18 @@ export const BranchProvider = ({ children }) => {
     };
 
     const fetchBranchesByRestaurant = async (restaurantId) => {
-        // Don't set global loading state when called from components like MenuItemModal
-        // This prevents state updates that trigger re-renders
-        const isLoadingLocally = true; // Use local loading state instead
+        // Don't set global loading state when called from components
         setError(null);
+        
         try {
             if (!restaurantId) {
-                console.error('Restaurant ID is missing');
-                setError('Restaurant ID is required');
+                console.warn('Restaurant ID is missing');
                 return [];
             }
             
             // Ensure restaurant ID is a string
             const restaurantIdStr = ensureIdString(restaurantId);
+            console.log(`Fetching branches for restaurant: ${restaurantIdStr}`);
             
             const config = {
                 headers: {
@@ -65,11 +64,10 @@ export const BranchProvider = ({ children }) => {
                 timeout: 10000
             };
             
-            // Remove console.log that's causing renders
-            
             try {
                 const response = await axios.get(`/api/branches/restaurant/${restaurantIdStr}`, config);
-                return response.data; // Return data without setting global state
+                console.log(`Found ${response.data.length} branches for restaurant ${restaurantIdStr}`);
+                return response.data;
             } catch (axiosError) {
                 // Handle axios specific errors
                 if (axiosError.code === 'ECONNABORTED') {
@@ -105,10 +103,8 @@ export const BranchProvider = ({ children }) => {
                 setError('Failed to fetch branches: ' + err.message);
             }
             
-            // Return empty array instead of throwing
+            // Return empty array instead of throwing to prevent UI crashes
             return [];
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -215,6 +211,7 @@ export const BranchProvider = ({ children }) => {
             fetchBranches,
             fetchBranchesByRestaurant,
             getBranch,
+            fetchBranchById: getBranch, // Alias for getBranch function
             createBranch,
             updateBranch,
             deleteBranch

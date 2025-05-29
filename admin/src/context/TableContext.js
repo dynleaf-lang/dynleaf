@@ -455,6 +455,70 @@ const TableProvider = ({ children }) => {
         }
     };
 
+    // Get a table by its ID
+    const fetchTableById = async (tableId) => {
+        setLoading(true);
+        setError(null);
+        
+        try {
+            debug('Fetching table by ID', { tableId });
+            
+            // First check if the table exists in the current state
+            const cachedTable = tables.find(t => t._id === tableId);
+            if (cachedTable) {
+                debug('Found table in cache, returning', { table: cachedTable });
+                setLoading(false);
+                return cachedTable;
+            }
+            
+            // If not in cache, fetch from API
+            debug('Table not in cache, fetching from API');
+            
+            // Add debug headers and timestamp to prevent caching
+            const response = await axios.get(`/api/tables/${tableId}`, {
+                headers: {
+                    'X-Debug-Mode': 'true',
+                    'X-Request-ID': `table-detail-${Date.now()}`
+                },
+                params: {
+                    _t: Date.now() // Add timestamp to prevent caching
+                }
+            });
+            
+            if (!response.data || !response.data.data) {
+                throw new Error('Invalid response format');
+            }
+            
+            debug('Table fetched successfully', { table: response.data.data });
+            return response.data.data;
+        } catch (error) {
+            debug('Error fetching table by ID', { 
+                tableId,
+                error: error.message,
+                response: error.response?.data,
+                status: error.response?.status
+            });
+            
+            let errorMessage = 'Failed to fetch table details';
+            
+            if (error.response) {
+                if (error.response.status === 404) {
+                    errorMessage = 'Table not found';
+                } else if (error.response.status === 403) {
+                    errorMessage = 'You do not have permission to view this table';
+                } else {
+                    errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
+                }
+            }
+            
+            console.error('Error fetching table by ID:', error);
+            setError(errorMessage);
+            throw new Error(errorMessage);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Load tables when the component mounts and when the user/branch changes
     useEffect(() => {
         if (user && user.branchId) {
@@ -491,6 +555,7 @@ const TableProvider = ({ children }) => {
             assignTableToOrder,
             releaseTable,
             getTablesWithOrders,
+            fetchTableById,
             debugMode: DEBUG_MODE
         }}>
             {children}

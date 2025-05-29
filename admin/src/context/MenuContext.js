@@ -80,13 +80,23 @@ const MenuProvider = ({ children }) => {
                 params: {}
             } : { params: {} };
             
-            // Add restaurant filter if provided
-            if (filters.restaurantId) {
+            // For non-Super_Admin users, automatically filter by their assigned restaurant and branch
+            if (user && !isSuperAdmin()) {
+                if (user.restaurantId) {
+                    config.params.restaurantId = user.restaurantId;
+                }
+                
+                if (user.branchId) {
+                    config.params.branchId = user.branchId;
+                }
+            }
+            // Add restaurant filter if provided in filters (only for Super_Admin)
+            else if (filters.restaurantId) {
                 config.params.restaurantId = filters.restaurantId;
             }
             
-            // Add branch filter if provided
-            if (filters.branchId) {
+            // Add branch filter if provided in filters (only for Super_Admin)
+            if (isSuperAdmin() && filters.branchId) {
                 config.params.branchId = filters.branchId;
             }
             
@@ -132,7 +142,7 @@ const MenuProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    }, [token]); // Remove menuItems dependency to break circular updates
+    }, [token, user, isSuperAdmin]); // Added user and isSuperAdmin to dependencies
 
     // Fetch menu items when the component mounts or token changes
     useEffect(() => {

@@ -53,6 +53,8 @@
     "konva": "^9.3.20",
     "moment": "2.29.4",
     "nouislider": "15.4.0",
+    "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "18.2.0",
     "react-chartjs-2": "2.11.2",
     "react-copy-to-clipboard": "5.1.0",

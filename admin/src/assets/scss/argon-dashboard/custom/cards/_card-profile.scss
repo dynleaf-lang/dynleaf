@@ -6,7 +6,11 @@
     position: relative;
 
     img {
-        max-width: 180px;
+        max-width: 150px;
+        min-height: 150px;
+        padding: 20px;
+        object-fit: contain;
+        background-color: wheat;
         border-radius: $border-radius;
         @extend .shadow;
         transform: translate(-50%,-30%);

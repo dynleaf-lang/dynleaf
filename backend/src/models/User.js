@@ -16,29 +16,101 @@ const userSchema = new mongoose.Schema({
         required: true,
         trim: true,
     },
+    // Additional profile fields
+    username: {
+        type: String,
+        trim: true,
+        unique: true,
+        sparse: true, // Allow null values to avoid unique constraint issues
+    },
+    firstName: {
+        type: String,
+        trim: true,
+    },
+    lastName: {
+        type: String,
+        trim: true,
+    },
+    profilePhoto: {
+        type: String, // URL to the profile photo
+    },
+    address: {
+        type: String,
+        trim: true,
+    },
+    city: {
+        type: String,
+        trim: true,
+    },
+    country: {
+        type: String,
+        trim: true,
+    },
+    phoneNumber: {
+        type: String,
+        trim: true,
+    },
+    postalCode: {
+        type: String,
+        trim: true,
+    },
+    aboutMe: {
+        type: String,
+        trim: true,
+    },
+    // Auth fields
     email: {
         type: String,
         required: true,
         unique: true,
-        lowercase: true,
         trim: true,
+        lowercase: true,
     },
     password: {
         type: String,
         required: true,
-        minlength: 6,
     },
     role: {
         type: String,
-        enum: ['Branch_Manager', 'Kitchen', 'Delivery','Super_Admin', 'POS_Operator', 'admin'],
+        enum: ['Super_Admin', 'admin', 'Branch_Manager', 'Kitchen', 'Delivery', 'POS_Operator'],
         default: 'Branch_Manager',
-        required: true,  
     },
-    createdAt: {
+    // Email verification fields
+    isEmailVerified: {
+        type: Boolean,
+        default: false
+    },
+    emailVerificationOTP: {
+        type: String,
+        default: null
+    },
+    emailVerificationOTPExpires: {
         type: Date,
-        default: Date.now,
+        default: null
     },
-});
+    // Password reset fields
+    resetPasswordOTP: {
+        type: String,
+        default: null
+    },
+    resetPasswordOTPExpiry: {
+        type: Date,
+        default: null
+    },
+    passwordUpdatedAt: {
+        type: Date,
+        default: null
+    },
+    status: {
+        type: String,
+        enum: ['active', 'inactive', 'suspended'],
+        default: 'active'
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
+    }
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
 

@@ -31,6 +31,7 @@ const AdminNavbar = (props) => {
   const { branches } = useContext(BranchContext);
   const [restaurantName, setRestaurantName] = useState("");
   const [branchName, setBranchName] = useState("");
+  const [profilePhoto, setProfilePhoto] = useState("");
   const navigate = useNavigate(); 
   
  
@@ -45,7 +46,46 @@ const AdminNavbar = (props) => {
       const branch = branches.find(b => b._id === user.branchId);
       setBranchName(branch ? branch.name : "");
     }
+    
+    // Set the profile photo whenever user changes
+    if (user && user.profilePhoto) {
+      setProfilePhoto(user.profilePhoto);
+    }
   }, [user, restaurants, branches]);
+
+  // Listen for profile photo updates from localStorage
+  useEffect(() => {
+    // Check for profile photo updates
+    const checkProfileUpdates = () => {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          if (parsedUser.profilePhoto && parsedUser.profilePhoto !== profilePhoto) {
+            setProfilePhoto(parsedUser.profilePhoto);
+          }
+        } catch (err) {
+          console.error('Error parsing user from localStorage:', err);
+        }
+      }
+    };
+
+    // Check for updates initially
+    checkProfileUpdates();
+
+    // Listen for user data refresh events 
+    const handleUserDataRefreshed = (event) => {
+      if (event.detail && event.detail.user && event.detail.user.profilePhoto) {
+        setProfilePhoto(event.detail.user.profilePhoto);
+      }
+    };
+
+    window.addEventListener('userDataRefreshed', handleUserDataRefreshed);
+    
+    return () => {
+      window.removeEventListener('userDataRefreshed', handleUserDataRefreshed);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -81,7 +121,9 @@ const AdminNavbar = (props) => {
                   <span className="avatar avatar-sm rounded-circle">
                     <img
                       alt="..."
-                      src={require("../../assets/img/theme/team-4-800x800.jpg")}
+                      src={profilePhoto || (user && user.profilePhoto) 
+                        ? profilePhoto || user.profilePhoto 
+                        : require("../../assets/img/theme/team-4-800x800.jpg")}
                     />
                   </span>
                   <Media className="ml-2 d-none d-lg-block">

@@ -9,6 +9,8 @@ import Branch from "features/branch-management/branch.js";
 import Category from "features/category-management/category.js";
 import UserManagement from "features/user-management/user.js";
 import TableManagement from "features/table-management/table.js";
+import TableQRCode from "features/table-management/TableQRCode.js";
+import TableDetail from "features/table-management/TableDetail.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -76,6 +78,22 @@ var routes = [
     component: <TableManagement />,
     layout: "/admin",
     roles: ["admin", "Super_Admin", "Branch_Manager"], // Only admin, Super_Admin, or branch_manager can see this route
+  },
+  {
+    path: "/tables/qr/:tableId",
+    name: "Table QR Code",
+    component: <TableQRCode />,
+    layout: "/admin",
+    hidden: true, // Hide from sidebar
+    roles: ["admin", "Super_Admin", "Branch_Manager"], 
+  },
+  {
+    path: "/tables-management/:tableId",
+    name: "Table Details",
+    component: <TableDetail />,
+    layout: "/admin",
+    hidden: true, // Hide from sidebar
+    roles: ["admin", "Super_Admin", "Branch_Manager"], 
   },
   {
     path: "/icons",

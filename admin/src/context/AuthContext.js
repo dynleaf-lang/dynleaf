@@ -24,8 +24,18 @@ axios.interceptors.response.use(
         return response;
     },
     (error) => {
+        // Handle account suspension - check for specific error code or message
+        if (error.response && error.response.status === 401 && 
+            error.response.data && error.response.data.reason === 'account_suspended') {
+            // Dispatch a custom event for account suspension
+            const suspendedEvent = new CustomEvent('accountSuspended', {
+                detail: { message: error.response.data.message || 'Your account has been suspended by admin' }
+            });
+            window.dispatchEvent(suspendedEvent);
+            return Promise.reject(error);
+        }
         // Only clear auth data for unauthorized responses that aren't caused by branch/restaurant permission issues
-        if (error.response && (error.response.status === 401)) {
+        else if (error.response && (error.response.status === 401)) {
             console.error('Authentication error:', error.response.data);
             // Clear token and user data on unauthorized responses
             localStorage.removeItem('token');
@@ -45,16 +55,50 @@ const AuthContext = createContext();
 
 // Inactivity timeout in milliseconds (30 minutes)
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
+// Account status check interval (every 5 minutes)
+const ACCOUNT_STATUS_CHECK_INTERVAL = 5 * 60 * 1000;
 
 const AuthProvider = ({ children }) => {
-    // Initialize user state from localStorage to prevent losing state on refresh
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
     const [user, setUser] = useState(() => {
         const savedUser = localStorage.getItem('user');
         return savedUser ? JSON.parse(savedUser) : null;
     });
-    const [loading, setLoading] = useState(true);
     const [token, setToken] = useState(() => localStorage.getItem('token'));
+    const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+    const [requiresVerification, setRequiresVerification] = useState(false);
+    const [emailToVerify, setEmailToVerify] = useState('');
+    const [isAccountSuspended, setIsAccountSuspended] = useState(false);
+    const [suspensionMessage, setSuspensionMessage] = useState('');
     const inactivityTimerRef = useRef(null);
+    const accountCheckTimerRef = useRef(null);
+    
+    // Listen for account suspension events
+    useEffect(() => {
+        const handleAccountSuspended = (event) => {
+            console.log('Account suspended event received:', event.detail);
+            setIsAccountSuspended(true);
+            setSuspensionMessage(event.detail.message || 'Your account has been suspended by admin');
+        };
+
+        window.addEventListener('accountSuspended', handleAccountSuspended);
+        
+        return () => {
+            window.removeEventListener('accountSuspended', handleAccountSuspended);
+        };
+    }, []);
+
+    // Configure axios defaults
+    useEffect(() => {
+        // Set the Authorization header for all axios requests
+        const token = localStorage.getItem('token');
+        if (token) {
+            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        } else {
+            delete axios.defaults.headers.common['Authorization'];
+        }
+    }, [token]);
     
     // Function to reset the inactivity timer
     const resetInactivityTimer = useCallback(() => {
@@ -72,6 +116,7 @@ const AuthProvider = ({ children }) => {
                 localStorage.removeItem('user');
                 setToken(null);
                 setUser(null);
+                setIsAuthenticated(false);
                 // Redirect to login page
                 window.location.href = '/auth/login';
             }, INACTIVITY_TIMEOUT);
@@ -126,10 +171,8 @@ const AuthProvider = ({ children }) => {
                     return;
                 }
                 
-                // Set token state if it exists in localStorage but not in state
-                if (storedToken && !token) {
-                    setToken(storedToken);
-                }
+                // Set token for upcoming requests
+                axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
                 
                 // If we have both token and user data in localStorage, set them in state
                 if (storedToken && storedUser) {
@@ -252,22 +295,36 @@ const AuthProvider = ({ children }) => {
     const login = async (credentials, navigate) => {
         try {
             const { email, password, rememberMe } = credentials;
-            const response = await axios.post('/api/users/login', { email, password });
-            const newToken = response.data.token;
             
-            // Make sure userData includes all required fields
+            // Initial login to get token
+            const loginResponse = await axios.post('/api/users/login', { email, password });
+            const newToken = loginResponse.data.token;
+            
+            // Set token for upcoming requests
+            axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+            
+            // Fetch fresh user profile data to ensure we have the latest verification status
+            const profileResponse = await axios.get('/api/users/profile', {
+                headers: { 
+                    Authorization: `Bearer ${newToken}`
+                }
+            });
+            
+            // Construct user data from profile response
             const userData = {
-                ...response.data.user,
-                id: response.data.user.id,
-                restaurantId: response.data.user.restaurantId || null,
-                branchId: response.data.user.branchId || null
+                ...profileResponse.data.user || profileResponse.data,
+                id: profileResponse.data.user?.id || profileResponse.data?.id,
+                restaurantId: profileResponse.data.user?.restaurantId || profileResponse.data?.restaurantId || null,
+                branchId: profileResponse.data.user?.branchId || profileResponse.data?.branchId || null,
+                isEmailVerified: profileResponse.data.user?.isEmailVerified || profileResponse.data?.isEmailVerified || false
             };
             
-            console.log('User login data:', {
+            console.log('Fresh user profile data after login:', {
                 id: userData.id,
                 role: userData.role,
                 restaurantId: userData.restaurantId,
-                branchId: userData.branchId
+                branchId: userData.branchId,
+                isEmailVerified: userData.isEmailVerified
             });
             
             // For non-Super Admin users, verify they have required restaurant ID
@@ -305,6 +362,20 @@ const AuthProvider = ({ children }) => {
             
             setToken(newToken);
             setUser(userData);
+            setIsAuthenticated(true);
+            
+            // Check if user email is verified
+            if (!userData.isEmailVerified) {
+                // Set verification state to trigger verification modal
+                setRequiresVerification(true);
+                setEmailToVerify(email);
+                console.log('User email needs verification:', email);
+            } else {
+                // Ensure verification modals won't show for verified users
+                setRequiresVerification(false);
+                setEmailToVerify('');
+                console.log('User email already verified:', email);
+            }
             
             // Start the inactivity timer when logging in
             resetInactivityTimer();
@@ -312,7 +383,10 @@ const AuthProvider = ({ children }) => {
             if (navigate) {
                 navigate('/admin/index'); // Redirect to dashboard after login
             }
-            return { success: true };
+            return { 
+                success: true,
+                requiresVerification: !userData.isEmailVerified
+            };
         } catch (error) {
             console.error('Login error:', error);
             return { success: false, error };
@@ -327,11 +401,16 @@ const AuthProvider = ({ children }) => {
                 inactivityTimerRef.current = null;
             }
             
+            // Reset suspension state
+            setIsAccountSuspended(false);
+            setSuspensionMessage('');
+            
             // Remove both token and user data from localStorage
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             setToken(null);
             setUser(null);
+            setIsAuthenticated(false);
             if (navigate) {
                 navigate('/auth/login'); // Redirect to login after logout
             }
@@ -342,48 +421,202 @@ const AuthProvider = ({ children }) => {
         }
     };
 
+    const confirmAccountSuspension = async (navigate) => {
+        setIsAccountSuspended(false);
+        setSuspensionMessage('');
+        return await logout(navigate);
+    };
+
     const register = async (userData, navigate) => {
+        setLoading(true);
+        setError(null);
         try {
-            console.log('Sending registration data:', userData); // Log what we're sending
             const response = await axios.post('/api/users/register', userData);
             
-            // If registration auto-logs in
-            if (response.data.token) {
-                const newToken = response.data.token;
-                localStorage.setItem('token', newToken);
+            // Check if verification is required
+            if (response.data.requiresVerification) {
+                // Store information needed for verification
+                setRequiresVerification(true);
+                setEmailToVerify(userData.email);
+                
+                // Still save the token and user data so they can complete verification
+                localStorage.setItem('token', response.data.token);
                 localStorage.setItem('user', JSON.stringify(response.data.user));
-                setToken(newToken);
+                setToken(response.data.token);
                 setUser(response.data.user);
+                setIsAuthenticated(true);
+                
+                // Show success message about verification
+                alert('Registration successful! Please check your email for a verification code.');
+                
+                // Navigate to dashboard or verification page as needed
+                if (navigate) {
+                    navigate('/admin/index');
+                }
+                
+                return {
+                    success: true,
+                    requiresVerification: true,
+                    message: 'Registration successful! Please check your email for a verification code.'
+                };
+            } else {
+                // Standard registration without verification
+                localStorage.setItem('token', response.data.token);
+                localStorage.setItem('user', JSON.stringify(response.data.user));
+                setToken(response.data.token);
+                setUser(response.data.user);
+                setIsAuthenticated(true);
+                
+                if (navigate) {
+                    navigate('/admin/index');
+                }
+                
+                return {
+                    success: true,
+                    message: 'Registration successful!'
+                };
             }
-            
-            if (navigate) {
-                navigate('/admin/dashboard'); // Redirect to dashboard after registration
-            }
-            
-            return { 
-                success: true,
-                token: response.data.token,
-                user: response.data.user
-            };
         } catch (error) {
             console.error('Registration error:', error);
-            return { success: false, error };
+            setError(error.response?.data?.message || 'Registration failed');
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Registration failed'
+            };
+        } finally {
+            setLoading(false);
         }
     };
 
-    const isAuthenticated = useCallback(() => {
-        // More robust check that prioritizes localStorage for persistent authentication
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('user');
-        
-        // First check localStorage (this is what persists across refreshes)
-        if (storedToken && storedUser) {
-            return true;
+    const verifyEmail = async (email, navigate) => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            // Send verification email
+            await axios.post('/api/users/verify-email', { email });
+            
+            setEmailToVerify(email);
+            setRequiresVerification(true);
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Error sending verification email:', error);
+            setError('Failed to send verification email. Please try again later.');
+            return { success: false, error: error };
+        } finally {
+            setLoading(false);
         }
-        
-        // Fallback to memory state if localStorage check fails
-        return (user !== null && token !== null);
-    }, [user, token]);
+    };
+
+    const confirmVerification = async (otp) => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+            
+            // Confirm the email verification
+            const response = await axios.post(`${apiUrl}/api/users/confirm-verification`, { otp });
+             
+            // Get fresh user data from the server to ensure verification status is accurate
+            const profileResponse = await axios.get('/api/users/profile', {
+                headers: { 
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            
+            // Use the server response data for the updated user
+            const freshUserData = profileResponse.data.user || profileResponse.data;
+            
+            // Update user in state and localStorage with the fresh data from server
+            localStorage.setItem('user', JSON.stringify(freshUserData));
+            setUser(freshUserData);
+            
+            // Reset verification states to prevent further popups
+            setRequiresVerification(false);
+            setEmailToVerify('');
+            
+            console.log('Email verification successful - user data updated from server');
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Verification error:', error);
+            return { 
+                success: false, 
+                error: error
+            };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const resendVerificationEmail = async (email) => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+            
+            // Send verification email
+            await axios.post(`${apiUrl}/api/users/resend-otp`, { email });
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Error resending verification email:', error);
+            return { 
+                success: false, 
+                error: error
+            };
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Add a function to force refresh the user verification status from API
+    const forceRefreshVerificationStatus = async () => {
+        try {
+            // Only attempt if we have token and user
+            if (!token || !user) return false;
+            
+            console.log('Force refreshing user verification status');
+            const response = await axios.get('/api/users/profile', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            
+            const freshUserData = response.data.user || response.data;
+            
+            console.log('Server response for user verification status:', 
+                       { isEmailVerified: freshUserData.isEmailVerified });
+                
+            // Update user with fresh data from server
+            setUser(freshUserData);
+            
+            // Update localStorage with fresh server data
+            localStorage.setItem('user', JSON.stringify(freshUserData));
+            
+            // Update verification flags based on server response
+            if (freshUserData.isEmailVerified) {
+                setRequiresVerification(false);
+                setEmailToVerify('');
+            } else if (freshUserData.email) {
+                setEmailToVerify(freshUserData.email);
+            }
+            
+            return freshUserData.isEmailVerified;
+        } catch (error) {
+            console.error('Error refreshing verification status:', error);
+            return false;
+        }
+    };
+    
+    // Add an effect to check verification status on load
+    useEffect(() => {
+        // Only check if we have a user who might need verification
+        if (user && token) {
+            forceRefreshVerificationStatus();
+        }
+    }, [token, user?.id]);
 
     const isAdmin = useCallback(() => {
         return user && user.role === 'admin';
@@ -410,8 +643,81 @@ const AuthProvider = ({ children }) => {
     }, [user]);  
 
     const isAuthenticatedAndAuthorized = useCallback(() => {
-        return isAuthenticated() && (isAdmin() || isSuperAdmin() || isBranchManager() || isKitchen() || isDelivery() || isPOSOperator());
+        return isAuthenticated && (isAdmin() || isSuperAdmin() || isBranchManager() || isKitchen() || isDelivery() || isPOSOperator());
     }, [isAuthenticated, isAdmin, isSuperAdmin, isBranchManager, isKitchen, isDelivery, isPOSOperator]);
+
+    // Listen for user data refresh events from UserContext
+    useEffect(() => {
+        const handleUserDataRefreshed = (event) => {
+            if (event.detail && event.detail.user) {
+                const refreshedUserData = event.detail.user;
+                console.log('User data refreshed event received:', refreshedUserData);
+                
+                // Update user data in state
+                setUser(refreshedUserData);
+                
+                // If the user is now verified, clear verification flags
+                if (refreshedUserData.isEmailVerified) {
+                    setRequiresVerification(false);
+                    setEmailToVerify('');
+                }
+            }
+        };
+
+        window.addEventListener('userDataRefreshed', handleUserDataRefreshed);
+        
+        return () => {
+            window.removeEventListener('userDataRefreshed', handleUserDataRefreshed);
+        };
+    }, []);
+
+    // Periodic account status check
+    useEffect(() => {
+        // Function to check if user account is still active
+        const checkAccountStatus = async () => {
+            try {
+                const storedToken = localStorage.getItem('token');
+                const storedUser = localStorage.getItem('user');
+                
+                // Only check if user is logged in
+                if (storedToken && storedUser) {
+                    console.log('Performing periodic account status check');
+                    await axios.get('/api/users/account-status', {
+                        headers: { 
+                            Authorization: `Bearer ${storedToken}`
+                        }
+                    });
+                    // If request succeeds, account is still active
+                }
+            } catch (error) {
+                console.log('Account status check error:', error.response?.data);
+                // If error response indicates account suspension, trigger the suspension event
+                if (error.response && error.response.status === 401 && 
+                    error.response.data && error.response.data.reason === 'account_suspended') {
+                    const suspendedEvent = new CustomEvent('accountSuspended', {
+                        detail: { message: error.response.data.message || 'Your account has been suspended by admin' }
+                    });
+                    window.dispatchEvent(suspendedEvent);
+                }
+            }
+        };
+
+        // Start the account check timer
+        if (token && user) {
+            // Perform initial check
+            checkAccountStatus();
+            
+            // Set up periodic checks
+            accountCheckTimerRef.current = setInterval(checkAccountStatus, ACCOUNT_STATUS_CHECK_INTERVAL);
+        }
+
+        // Cleanup function
+        return () => {
+            if (accountCheckTimerRef.current) {
+                clearInterval(accountCheckTimerRef.current);
+            }
+        };
+    }, [token, user]);
 
     return (
         <AuthContext.Provider value={{ 
@@ -421,6 +727,9 @@ const AuthProvider = ({ children }) => {
             login, 
             logout, 
             register, 
+            verifyEmail,
+            confirmVerification,
+            resendVerificationEmail,
             isAuthenticated, 
             isAdmin, 
             isSuperAdmin, 
@@ -428,7 +737,12 @@ const AuthProvider = ({ children }) => {
             isKitchen, 
             isDelivery, 
             isPOSOperator, 
-            isAuthenticatedAndAuthorized 
+            isAuthenticatedAndAuthorized,
+            requiresVerification,
+            emailToVerify,
+            isAccountSuspended,
+            suspensionMessage,
+            confirmAccountSuspension
         }}>
         {children}
         </AuthContext.Provider>

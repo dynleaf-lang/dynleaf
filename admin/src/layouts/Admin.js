@@ -1,24 +1,39 @@
-import React from "react";
-import { useLocation, Route, Routes, Navigate } from "react-router-dom";
+import React, { useContext, useEffect, useState } from "react";
+import { useLocation, Route, Routes, Navigate, useNavigate } from "react-router-dom";
 // reactstrap components
-import { Container } from "reactstrap";
+import { Container, Alert, Button } from "reactstrap";
 // core components
 import AdminNavbar from "components/Navbars/AdminNavbar.js";
 import AdminFooter from "components/Footers/AdminFooter.js";
 import Sidebar from "components/Sidebar/Sidebar.js";
-import SessionTimeoutModal from "components/Modals/SessionTimeoutModal.js";
-
 import routes from "routes.js";
+import { AuthContext } from "../context/AuthContext";
+import EmailVerificationModal from "../components/Modals/EmailVerificationModal";
+import SessionTimeoutModal from "../components/Verification/SessionTimeoutModal";
+import AccountSuspendedModal from "../components/Verification/AccountSuspendedModal";
+
+// Create this variable outside the component to persist between renders
+const hasCheckedVerification = { current: false };
 
 const Admin = (props) => {
   const mainContent = React.useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
+  const [showVerificationAlert, setShowVerificationAlert] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const { user, isAccountSuspended, confirmAccountSuspension } = useContext(AuthContext);
 
   React.useEffect(() => {
     document.documentElement.scrollTop = 0;
     document.scrollingElement.scrollTop = 0;
-    mainContent.current.scrollTop = 0;
+    if (mainContent.current) {
+      mainContent.current.scrollTop = 0;
+    }
   }, [location]);
+
+  const handleAccountSuspensionConfirm = () => {
+    confirmAccountSuspension(navigate);
+  };
 
   const getRoutes = (routes) => {
     return routes.map((prop, key) => {
@@ -35,13 +50,50 @@ const Admin = (props) => {
   const getBrandText = (path) => {
     for (let i = 0; i < routes.length; i++) {
       if (
-        props?.location?.pathname.indexOf(routes[i].layout + routes[i].path) !==
+        props?.location?.pathname?.indexOf(routes[i].layout + routes[i].path) !==
         -1
       ) {
         return routes[i].name;
       }
     }
     return "Brand";
+  };
+
+  // Check for unverified email - but only once
+  useEffect(() => {
+    // Skip if no user or verification has been checked already
+    if (!user || hasCheckedVerification.current) return;
+
+    // If user exists and email is not verified
+    if (user.isEmailVerified === false) {
+      console.log("User email is not verified, showing verification modal");
+      // Check for bypass flag in localStorage first to avoid showing modal if previously verified
+      if (localStorage.getItem('bypassVerification') !== 'true') {
+        setShowVerificationModal(true);
+        setShowVerificationAlert(true);
+      }
+    }
+    
+    // Mark as checked for this session - won't run again
+    hasCheckedVerification.current = true;
+  }, [user]);
+
+  // Handle when user chooses to verify email from alert
+  const handleVerifyEmail = () => {
+    setShowVerificationModal(true);
+  };
+
+  // Handle successful verification
+  const handleVerificationSuccess = () => {
+    setShowVerificationAlert(false);
+    setShowVerificationModal(false);
+    
+    // Set verified status in both localStorage and state
+    if (user) {
+      const updatedUser = { ...user, isEmailVerified: true };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      localStorage.setItem('bypassVerification', 'true');
+    }
   };
 
   return (
@@ -60,6 +112,34 @@ const Admin = (props) => {
           {...props}
           brandText={getBrandText(props?.location?.pathname)}
         />
+        
+        {/* Email verification alert for unverified users */}
+        {showVerificationAlert && (
+          <div className="fixed-top" style={{ top: "100px", zIndex: 999, left : '16.5%' }}>
+            <Container fluid>
+              <Alert 
+                color="warning" 
+                className="d-flex justify-content-between align-items-center"
+                style={{ boxShadow: "rgb(0 0 0 / 35%) 5px 6px 8px", borderRadius: "5px" }}
+                toggle={() => setShowVerificationAlert(false)}
+              >
+                <div>
+                  <i className="fas fa-exclamation-triangle mr-2"></i>
+                  <strong>Your email is not verified.</strong> Some features may be limited until you verify your email address.
+                </div>
+                <Button 
+                  color="warning" 
+                  size="sm"
+                  onClick={handleVerifyEmail}
+                >
+                  <i className="fas fa-envelope mr-1"></i>
+                  Verify Now
+                </Button>
+              </Alert>
+            </Container>
+          </div>
+        )}
+        
         <Routes>
           {getRoutes(routes)}
           <Route path="*" element={<Navigate to="/admin/index" replace />} />
@@ -69,8 +149,21 @@ const Admin = (props) => {
         </Container>
       </div>
       
+      {/* Email verification modal */}
+      <EmailVerificationModal 
+        isOpen={showVerificationModal}
+        toggle={() => setShowVerificationModal(false)}
+        onVerified={handleVerificationSuccess}
+      />
+      
       {/* Session timeout modal */}
       <SessionTimeoutModal />
+
+      {/* Account Suspended Modal */}
+      <AccountSuspendedModal 
+        isOpen={isAccountSuspended} 
+        onConfirm={handleAccountSuspensionConfirm} 
+      />
     </>
   );
 };

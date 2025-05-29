@@ -196,6 +196,7 @@ export const RestaurantProvider = ({ children }) => {
             error,
             fetchRestaurants,
             getRestaurant,
+            fetchRestaurantById: getRestaurant, // Alias for getRestaurant
             createRestaurant,
             updateRestaurant,
             deleteRestaurant

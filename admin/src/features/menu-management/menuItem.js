@@ -62,7 +62,7 @@ const Tables = () => {
   // Context data
   const { menuItems, loading, error, fetchMenuItems, deleteMenuItem } = useContext(MenuContext); 
   const { categories, fetchCategories } = useContext(CategoryContext);
-  const { isSuperAdmin } = useContext(AuthContext);
+  const { user, isSuperAdmin } = useContext(AuthContext);
   const { restaurants } = useContext(RestaurantContext);
   const { branches, fetchBranches } = useContext(BranchContext); 
   
@@ -87,8 +87,34 @@ const Tables = () => {
   
   // Update derived state - use either context menu items or locally filtered items
   const displayedMenuItems = useMemo(() => {
+    // If the user is not a Super_Admin, filter menu items based on their restaurant and branch assignment
+    if (!isUserSuperAdmin && user) {
+      // For non-Super_Admin users, only show items from their assigned restaurant and branch
+      const userRestaurantId = user.restaurantId;
+      const userBranchId = user.branchId;
+      
+      if (userRestaurantId && userBranchId) {
+        const userFiltered = useLocalFilter 
+          ? filteredMenuItems.filter(item => 
+              item.restaurantId === userRestaurantId && item.branchId === userBranchId)
+          : menuItems.filter(item => 
+              item.restaurantId === userRestaurantId && item.branchId === userBranchId);
+        
+        return userFiltered;
+      }
+      // For users with only restaurant assigned but no branch (may happen for some roles)
+      else if (userRestaurantId) {
+        const userFiltered = useLocalFilter 
+          ? filteredMenuItems.filter(item => item.restaurantId === userRestaurantId)
+          : menuItems.filter(item => item.restaurantId === userRestaurantId);
+        
+        return userFiltered;
+      }
+    }
+    
+    // For Super_Admin users or if user doesn't have restaurant/branch assigned, show all items
     return useLocalFilter ? filteredMenuItems : menuItems;
-  }, [useLocalFilter, filteredMenuItems, menuItems]);
+  }, [useLocalFilter, filteredMenuItems, menuItems, isUserSuperAdmin, user]);
   
   // Paginate the displayed items
   const paginatedItems = useMemo(() => {
@@ -101,6 +127,8 @@ const Tables = () => {
     // Return only items for current page
     return displayedMenuItems.slice(startIndex, endIndex);
   }, [displayedMenuItems, currentPage, itemsPerPage]);
+ 
+  
   
   // Get category name helper - MOVED UP before being used in handleSearch
   const getCategoryNameById = useCallback((categoryId) => {
