@@ -52,9 +52,7 @@ const UserManagement = () => {
 
   // Add form submission loading state
   const [formSubmitting, setFormSubmitting] = useState(false);
-  
-  console.log("Users:", users);
-  
+   
 
   // Form state
   const [formData, setFormData] = useState({

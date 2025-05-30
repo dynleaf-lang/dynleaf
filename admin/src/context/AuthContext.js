@@ -196,15 +196,12 @@ const AuthProvider = ({ children }) => {
                             const freshUserData = {
                                 ...response.data.user || response.data,
                                 restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
-                                branchId: response.data.user?.branchId || response.data?.branchId || null
+                                branchId: response.data.user?.branchId || response.data?.branchId || null,
+                                // Normalize isEmailVerified to ensure it's always available under the same property name
+                                isEmailVerified: response.data.user?.isEmailVerified || response.data?.isEmailVerified || 
+                                                response.data.user?.emailVerified || response.data?.emailVerified || 
+                                                response.data.user?.verified || response.data?.verified || false
                             };
-                            
-                            console.log('Fresh user data from server:', {
-                                id: freshUserData.id,
-                                role: freshUserData.role,
-                                restaurantId: freshUserData.restaurantId,
-                                branchId: freshUserData.branchId
-                            });
                             
                             localStorage.setItem('user', JSON.stringify(freshUserData));
                             setUser(freshUserData);
@@ -215,8 +212,13 @@ const AuthProvider = ({ children }) => {
                                     id: parsedUser.id,
                                     role: parsedUser.role,
                                     restaurantId: parsedUser.restaurantId,
-                                    branchId: parsedUser.branchId
+                                    branchId: parsedUser.branchId,
+                                    isEmailVerified: parsedUser.isEmailVerified || parsedUser.emailVerified || parsedUser.verified || false
                                 });
+                                
+                                // Normalize isEmailVerified in the parsedUser object to ensure consistent property naming
+                                parsedUser.isEmailVerified = parsedUser.isEmailVerified || parsedUser.emailVerified || 
+                                                            parsedUser.email_verified || parsedUser.verified || false;
                                 setUser(parsedUser);
                             }
                         }
@@ -231,7 +233,11 @@ const AuthProvider = ({ children }) => {
                         const userData = {
                             ...response.data.user || response.data,
                             restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
-                            branchId: response.data.user?.branchId || response.data?.branchId || null
+                            branchId: response.data.user?.branchId || response.data?.branchId || null,
+                            // Normalize isEmailVerified to ensure it's always available under the same property name
+                            isEmailVerified: response.data.user?.isEmailVerified || response.data?.isEmailVerified || 
+                                            response.data.user?.emailVerified || response.data?.emailVerified || 
+                                            response.data.user?.verified || response.data?.verified || false
                         };
                         localStorage.setItem('user', JSON.stringify(userData));
                         setUser(userData);
@@ -251,7 +257,11 @@ const AuthProvider = ({ children }) => {
                     const userData = {
                         ...response.data.user || response.data,
                         restaurantId: response.data.user?.restaurantId || response.data?.restaurantId || null,
-                        branchId: response.data.user?.branchId || response.data?.branchId || null
+                        branchId: response.data.user?.branchId || response.data?.branchId || null,
+                        // Normalize isEmailVerified to ensure it's always available under the same property name
+                        isEmailVerified: response.data.user?.isEmailVerified || response.data?.isEmailVerified || 
+                                        response.data.user?.emailVerified || response.data?.emailVerified || 
+                                        response.data.user?.verified || response.data?.verified || false
                     };
                     localStorage.setItem('user', JSON.stringify(userData));
                     setUser(userData);
@@ -487,6 +497,7 @@ const AuthProvider = ({ children }) => {
             setLoading(false);
         }
     };
+ 
 
     const verifyEmail = async (email, navigate) => {
         try {
@@ -509,6 +520,55 @@ const AuthProvider = ({ children }) => {
         }
     };
 
+    // Add a more robust resendVerificationEmail function
+    const resendVerificationEmail = async (email) => {
+        try {
+            setLoading(true);
+            setError(null);
+            
+            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+            
+            // Try both endpoints to maximize chance of success
+            let response;
+            
+            try {
+                // First try the resend-otp endpoint
+                response = await axios.post(`${apiUrl}/api/users/resend-otp`, { email });
+                console.log('Verification email resent successfully via resend-otp');
+            } catch (resendError) {
+                console.log('Could not use resend-otp, falling back to verify-email endpoint');
+                // Fallback to verify-email endpoint
+                response = await axios.post(`${apiUrl}/api/users/verify-email`, { email });
+                console.log('Verification email sent successfully via verify-email');
+            }
+            
+            // Store the email for later use in verification
+            setEmailToVerify(email);
+            
+            return { success: true, response: response.data };
+        } catch (error) {
+            console.error('Error resending verification email:', error);
+            
+            // Provide more detailed error messages
+            let errorMsg = 'Failed to send verification email';
+            if (error.response?.data?.message) {
+                errorMsg = error.response.data.message;
+            } else if (error.message) {
+                errorMsg = error.message;
+            }
+            
+            setError(errorMsg);
+            return { 
+                success: false, 
+                error: error,
+                message: errorMsg
+            };
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    // Enhance the confirmVerification function to ensure it properly updates user state
     const confirmVerification = async (otp) => {
         try {
             setLoading(true);
@@ -518,9 +578,9 @@ const AuthProvider = ({ children }) => {
             
             // Confirm the email verification
             const response = await axios.post(`${apiUrl}/api/users/confirm-verification`, { otp });
-             
+            
             // Get fresh user data from the server to ensure verification status is accurate
-            const profileResponse = await axios.get('/api/users/profile', {
+            const profileResponse = await axios.get(`${apiUrl}/api/users/profile`, {
                 headers: { 
                     Authorization: `Bearer ${token}`
                 }
@@ -542,81 +602,25 @@ const AuthProvider = ({ children }) => {
             return { success: true };
         } catch (error) {
             console.error('Verification error:', error);
-            return { 
-                success: false, 
-                error: error
-            };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const resendVerificationEmail = async (email) => {
-        try {
-            setLoading(true);
-            setError(null);
             
-            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-            
-            // Send verification email
-            await axios.post(`${apiUrl}/api/users/resend-otp`, { email });
-            
-            return { success: true };
-        } catch (error) {
-            console.error('Error resending verification email:', error);
-            return { 
-                success: false, 
-                error: error
-            };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Add a function to force refresh the user verification status from API
-    const forceRefreshVerificationStatus = async () => {
-        try {
-            // Only attempt if we have token and user
-            if (!token || !user) return false;
-            
-            console.log('Force refreshing user verification status');
-            const response = await axios.get('/api/users/profile', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            
-            const freshUserData = response.data.user || response.data;
-            
-            console.log('Server response for user verification status:', 
-                       { isEmailVerified: freshUserData.isEmailVerified });
-                
-            // Update user with fresh data from server
-            setUser(freshUserData);
-            
-            // Update localStorage with fresh server data
-            localStorage.setItem('user', JSON.stringify(freshUserData));
-            
-            // Update verification flags based on server response
-            if (freshUserData.isEmailVerified) {
-                setRequiresVerification(false);
-                setEmailToVerify('');
-            } else if (freshUserData.email) {
-                setEmailToVerify(freshUserData.email);
+            // Provide more detailed error messages
+            let errorMsg = 'Failed to verify email';
+            if (error.response?.data?.message) {
+                errorMsg = error.response.data.message;
+            } else if (error.message) {
+                errorMsg = error.message;
             }
             
-            return freshUserData.isEmailVerified;
-        } catch (error) {
-            console.error('Error refreshing verification status:', error);
-            return false;
+            setError(errorMsg);
+            return { 
+                success: false, 
+                error: error,
+                message: errorMsg
+            };
+        } finally {
+            setLoading(false);
         }
     };
-    
-    // Add an effect to check verification status on load
-    useEffect(() => {
-        // Only check if we have a user who might need verification
-        if (user && token) {
-            forceRefreshVerificationStatus();
-        }
-    }, [token, user?.id]);
 
     const isAdmin = useCallback(() => {
         return user && user.role === 'admin';
@@ -742,7 +746,11 @@ const AuthProvider = ({ children }) => {
             emailToVerify,
             isAccountSuspended,
             suspensionMessage,
-            confirmAccountSuspension
+            confirmAccountSuspension,
+            // Add isEmailVerified directly in the context value
+            isEmailVerified: user?.isEmailVerified || user?.emailVerified || user?.email_verified || user?.verified || false,
+            // Add a helper function to check email verification status 
+            getEmailVerificationStatus: () => !!(user?.isEmailVerified || user?.emailVerified || user?.email_verified || user?.verified)
         }}>
         {children}
         </AuthContext.Provider>

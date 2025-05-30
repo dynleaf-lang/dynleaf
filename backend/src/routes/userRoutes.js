@@ -52,7 +52,8 @@ router.get('/profile', authenticateJWT, async (req, res) => {
                 country: user.country || null,
                 postalCode: user.postalCode || null,
                 aboutMe: user.aboutMe || null,
-                profilePhoto: user.profilePhoto || null
+                profilePhoto: user.profilePhoto || null,
+                isEmailVerified: user.isEmailVerified || false
             }
         });
     } catch (error) {
@@ -444,7 +445,8 @@ router.post('/login', async (req, res) => {
                 email: existingUser.email, 
                 role: existingUser.role,
                 restaurantId: existingUser.restaurantId || null,
-                branchId: existingUser.branchId || null
+                branchId: existingUser.branchId || null,
+                isEmailVerified: existingUser.isEmailVerified || false
             } 
         });
     } catch (error) {

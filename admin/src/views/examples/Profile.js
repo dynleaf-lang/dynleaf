@@ -19,10 +19,9 @@ import {
 } from "reactstrap";
 // core components
 import UserHeader from "components/Headers/UserHeader.js";
-import { useContext, useState, useEffect, useRef, use } from "react";
-import { AuthContext } from "../../context/AuthContext";
-import { UserContext } from "../../context/UserContext"; // Import UserContext
-import EmailVerificationModal from "../../components/Modals/EmailVerificationModal";
+import { useContext, useState, useEffect, useRef } from "react";
+import { AuthContext } from "../../context/AuthContext"; 
+import EmailVerificationModal from "../../components/Modals/EmailVerificationModal";import OTPVerificationModal from "../../components/Modals/OTPVerificationModal"; // Add OTP modal import
 import axios from "axios";
 
 
@@ -231,11 +230,10 @@ const countries = [
 const DEFAULT_COUNTRY = "IN";
 
 const Profile = () => {
-  // Get user from AuthContext instead of UserContext
-  const { token, verifyEmail, user } = useContext(AuthContext); 
-  const { isEmailVerified } = useContext(UserContext); // Get isEmailVerified from UserContext
-  
-  
+ // Get user and isEmailVerified directly from AuthContext
+ const { token, user, isEmailVerified } = useContext(AuthContext); 
+   
+   
   
   const [formData, setFormData] = useState({
     username: "",
@@ -261,6 +259,7 @@ const Profile = () => {
   const [branchName, setBranchName] = useState("");
   const [profilePhoto, setProfilePhoto] = useState("");
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showOtpVerificationModal, setShowOtpVerificationModal] = useState(false); // Add missing state for OTP modal
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({
@@ -277,8 +276,7 @@ const Profile = () => {
     confirmPassword: ""
   });
   const fileInputRef = useRef(null);
-   
-  console.log("User data from AuthContext:", user);
+     
   
 
   // Use refs to track if we've already fetched names to prevent infinite loops
@@ -438,9 +436,7 @@ const Profile = () => {
       });
       return;
     }
-
-    // Debug logs to verify file data
-    console.log("File selected:", file.name, file.type, file.size);
+ 
 
     // Create FormData instance
     const formData = new FormData();
@@ -464,8 +460,7 @@ const Profile = () => {
       
       // Make the request
       const response = await axiosInstance.post('/api/users/profile-photo', formData);
-      
-      console.log("Upload response:", response.data);
+       
       
       // Update profile photo state with the URL returned from the server
       setProfilePhoto(response.data.photoUrl);
@@ -878,7 +873,15 @@ const Profile = () => {
   const handleVerifyEmail = () => {
     // Set email to verify and open verification modal
     if (user && user.email) {
+      console.log('Opening email verification modal');
       setShowVerifyModal(true);
+    } else {
+      console.error('No user email available for verification');
+      setAlert({
+        show: true,
+        color: "danger",
+        message: "No email available for verification. Please contact support."
+      });
     }
   };
   
@@ -1513,7 +1516,19 @@ const Profile = () => {
       <EmailVerificationModal 
         isOpen={showVerifyModal}
         toggle={() => setShowVerifyModal(false)}
-        onVerified={handleVerificationSuccess}
+        onEmailSent={(email) => {
+          // When email is sent successfully, close the sending modal and
+          // show success message before opening OTP modal
+          setAlert({
+            show: true,
+            color: "success",
+            message: "Verification email sent successfully. Please enter the OTP code."
+          });
+          
+          // We'll need to add state to track when to show the OTP verification modal
+          setShowVerifyModal(false);
+          setShowOtpVerificationModal(true);
+        }}
       />
 
       {/* Change Password Modal */}
@@ -1607,6 +1622,8 @@ const Profile = () => {
           </Form>
         </ModalBody>
       </Modal>
+
+       
     </>
   );
 };

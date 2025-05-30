@@ -8,7 +8,7 @@ import AdminFooter from "components/Footers/AdminFooter.js";
 import Sidebar from "components/Sidebar/Sidebar.js";
 import routes from "routes.js";
 import { AuthContext } from "../context/AuthContext";
-import EmailVerificationModal from "../components/Modals/EmailVerificationModal";
+import DirectOTPModal from "../components/Modals/DirectOTPModal";
 import SessionTimeoutModal from "../components/Verification/SessionTimeoutModal";
 import AccountSuspendedModal from "../components/Verification/AccountSuspendedModal";
 
@@ -20,9 +20,9 @@ const Admin = (props) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [showVerificationAlert, setShowVerificationAlert] = useState(false);
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const { user, isAccountSuspended, confirmAccountSuspension } = useContext(AuthContext);
-
+  const [showOTPModal, setShowOTPModal] = useState(false);
+  const { user, isAccountSuspended, confirmAccountSuspension, isEmailVerified } = useContext(AuthContext);
+ 
   React.useEffect(() => {
     document.documentElement.scrollTop = 0;
     document.scrollingElement.scrollTop = 0;
@@ -65,35 +65,41 @@ const Admin = (props) => {
     if (!user || hasCheckedVerification.current) return;
 
     // If user exists and email is not verified
-    if (user.isEmailVerified === false) {
-      console.log("User email is not verified, showing verification modal");
-      // Check for bypass flag in localStorage first to avoid showing modal if previously verified
-      if (localStorage.getItem('bypassVerification') !== 'true') {
-        setShowVerificationModal(true);
-        setShowVerificationAlert(true);
-      }
+    if (user && !isEmailVerified) {
+      setShowVerificationAlert(true);
     }
     
     // Mark as checked for this session - won't run again
     hasCheckedVerification.current = true;
-  }, [user]);
+  }, [user, isEmailVerified]);
 
   // Handle when user chooses to verify email from alert
   const handleVerifyEmail = () => {
-    setShowVerificationModal(true);
+    console.log('Opening verification modal with direct OTP flow');
+    setShowOTPModal(true);
   };
 
   // Handle successful verification
   const handleVerificationSuccess = () => {
+    console.log('Email verification successful');
+    // Update UI after successful verification
     setShowVerificationAlert(false);
-    setShowVerificationModal(false);
+    setShowOTPModal(false);
     
     // Set verified status in both localStorage and state
     if (user) {
       const updatedUser = { ...user, isEmailVerified: true };
       localStorage.setItem('user', JSON.stringify(updatedUser));
       localStorage.setItem('bypassVerification', 'true');
+      
+      // Force a UI update by dispatching a custom event
+      window.dispatchEvent(new CustomEvent('userDataRefreshed', {
+        detail: { user: updatedUser }
+      }));
     }
+    
+    // Reset the verification check to allow it to run again if needed
+    hasCheckedVerification.current = false;
   };
 
   return (
@@ -114,7 +120,7 @@ const Admin = (props) => {
         />
         
         {/* Email verification alert for unverified users */}
-        {showVerificationAlert && (
+        {!isEmailVerified && (
           <div className="fixed-top" style={{ top: "100px", zIndex: 999, left : '16.5%' }}>
             <Container fluid>
               <Alert 
@@ -149,10 +155,10 @@ const Admin = (props) => {
         </Container>
       </div>
       
-      {/* Email verification modal */}
-      <EmailVerificationModal 
-        isOpen={showVerificationModal}
-        toggle={() => setShowVerificationModal(false)}
+      {/* Simplified Direct OTP verification modal */}
+      <DirectOTPModal
+        isOpen={showOTPModal}
+        toggle={() => setShowOTPModal(false)}
         onVerified={handleVerificationSuccess}
       />
       

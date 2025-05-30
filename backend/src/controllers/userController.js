@@ -54,7 +54,13 @@ const getUserProfile = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    res.status(200).json({ user });
+    // Ensure response includes isEmailVerified field
+    const userData = user.toObject();
+    if (userData.isEmailVerified === undefined) {
+      userData.isEmailVerified = false; // Provide default if missing
+    }
+    
+    res.status(200).json({ user: userData });
   } catch (error) {
     console.error('Error fetching user profile:', error);
     res.status(500).json({ message: 'Server error' });
@@ -131,7 +137,8 @@ const updateUserProfile = async (req, res) => {
         role: updatedUser.role,
         restaurantId: updatedUser.restaurantId,
         branchId: updatedUser.branchId,
-        profilePhoto: updatedUser.profilePhoto
+        profilePhoto: updatedUser.profilePhoto,
+        isEmailVerified: updatedUser.isEmailVerified
       } 
     });
   } catch (error) {

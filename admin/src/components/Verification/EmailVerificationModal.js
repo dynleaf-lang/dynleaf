@@ -12,7 +12,30 @@ import {
 } from "reactstrap";
 import { AuthContext } from "../../context/AuthContext";
 
-const EmailVerificationModal = ({ isOpen, toggle, email, onVerified }) => {
+/**
+ * A reusable email verification modal component.
+ * 
+ * @param {boolean} isOpen - Whether the modal is open
+ * @param {function} toggle - Function to toggle the modal visibility
+ * @param {string} email - Email address to send verification code to
+ * @param {function} onVerified - Callback function called when verification is successful
+ * @param {string} title - Optional custom modal title
+ * @param {string} subtitle - Optional custom modal subtitle
+ * @param {string} successMessage - Optional custom success message
+ * @param {string} successTitle - Optional custom success title
+ * @param {Object} customStyle - Optional custom styles for the modal
+ */
+const EmailVerificationModal = ({ 
+  isOpen, 
+  toggle, 
+  email, 
+  onVerified,
+  title = "Verify Your Email",
+  subtitle = "Verify your email address to unlock all features",
+  successTitle = "Email Verified Successfully!",
+  successMessage = "Your email has been verified and your account is now fully activated.",
+  customStyle = {}
+}) => {
   const [verificationCode, setVerificationCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +59,7 @@ const EmailVerificationModal = ({ isOpen, toggle, email, onVerified }) => {
       // Reset the emailSent state when modal is closed
       setEmailSent(false);
     }
-  }, [isOpen]);
+  }, [isOpen, email, emailSent]);
 
   const handleSendVerificationEmail = async () => {
     setLoading(true);
@@ -125,14 +148,14 @@ const EmailVerificationModal = ({ isOpen, toggle, email, onVerified }) => {
   };
 
   return (
-    <Modal isOpen={isOpen} toggle={toggle} size="md" style={{zIndex: 1050}} className="verification-modal">
+    <Modal isOpen={isOpen} toggle={toggle} size="md" style={{zIndex: 1050, ...customStyle}} className="verification-modal">
       <ModalHeader toggle={toggle} className="bg-gradient-info text-white">
         <div>
           <h4 className="mb-0 text-white font-weight-bold">
-            <i className="fas fa-envelope mr-2"></i>Verify Your Email
+            <i className="fas fa-envelope mr-2"></i>{title}
           </h4>
           <p className="text-white-50 mb-0 small">
-            Verify your email address to unlock all features
+            {subtitle}
           </p>
         </div>
       </ModalHeader>
@@ -142,9 +165,9 @@ const EmailVerificationModal = ({ isOpen, toggle, email, onVerified }) => {
             <div className="icon icon-shape icon-shape-success rounded-circle mb-3">
               <i className="fas fa-check-circle fa-2x"></i>
             </div>
-            <h4>Email Verified Successfully!</h4>
+            <h4>{successTitle}</h4>
             <p className="text-muted">
-              Your email has been verified and your account is now fully activated.
+              {successMessage}
             </p>
           </div>
         ) : (
@@ -180,6 +203,7 @@ const EmailVerificationModal = ({ isOpen, toggle, email, onVerified }) => {
                 onChange={(e) =>
                   setVerificationCode(e.target.value.replace(/[^0-9]/g, ""))
                 }
+                autoComplete="off"
               />
               <small className="form-text text-muted">
                 <i className="fas fa-info-circle mr-1"></i>

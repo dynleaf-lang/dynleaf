@@ -30,7 +30,9 @@ export const UserProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { token } = useContext(AuthContext);
+  const { token } = useContext(AuthContext); 
+
+   
 
   // Fetch all users
   const fetchUsers = async () => {
@@ -80,8 +82,7 @@ export const UserProvider = ({ children }) => {
           'Authorization': `Bearer ${token}`
         }
       });
-      
-      console.log('User creation succeeded with response:', response.data);
+       
       setUsers([...users, response.data.user]);
       setError(null);
       return response.data.user;
@@ -179,6 +180,8 @@ export const UserProvider = ({ children }) => {
     }
   };
 
+  
+
   // Refresh a specific user from the server
   const refreshUser = async (userId) => {
     try {
@@ -211,53 +214,17 @@ export const UserProvider = ({ children }) => {
       throw err;
     }
   };
-
-  // Test payload function
-  const testPayload = async () => {
-    try {
-      console.log('Testing payload endpoint...');
-      
-      const testData = {
-        firstName: 'Test',
-        lastName: 'User',
-        email: 'test@example.com',
-        password: 'Password123!',
-        role: 'Branch_Manager'
-      };
-      
-      const response = await axios({
-        method: 'post',
-        url: '/api/users/test-payload',
-        data: JSON.stringify(testData),
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('Test payload response:', response.data);
-      return response.data;
-    } catch (err) {
-      console.error('Test payload error:', err);
-      return {
-        success: false,
-        error: err.message,
-        responseData: err.response?.data
-      };
-    }
-  };
-
+  
   return (
     <UserContext.Provider value={{
-      users,
-      loading,
-      isEmailVerified: users.some(user => user.isEmailVerified),
+      users, 
+      loading, 
       error,
       fetchUsers,
       createUser,
       updateUser,
       deleteUser,
-      refreshUser,
-      testPayload  // Add the test function to the context
+      refreshUser, 
     }}>
       {children}
     </UserContext.Provider>
