@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useRef, useContext } from 'react';
 import axios from 'axios';
 
 // Configure axios with base URL from environment variables
@@ -52,6 +52,15 @@ axios.interceptors.response.use(
 );
 
 const AuthContext = createContext();
+
+// Custom hook for using the auth context
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 // Inactivity timeout in milliseconds (30 minutes)
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
@@ -526,24 +535,34 @@ const AuthProvider = ({ children }) => {
             setLoading(true);
             setError(null);
             
+            // Get base API URL from environment or use default
             const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+            
+            // If no email is provided, use the email from context or user object
+            const emailToUse = email || emailToVerify || user?.email;
+            
+            if (!emailToUse) {
+                throw new Error('Email address is required for verification');
+            }
+            
+            console.log('Attempting to resend verification email to:', emailToUse);
             
             // Try both endpoints to maximize chance of success
             let response;
             
             try {
                 // First try the resend-otp endpoint
-                response = await axios.post(`${apiUrl}/api/users/resend-otp`, { email });
+                response = await axios.post(`${apiUrl}/api/users/resend-otp`, { email: emailToUse });
                 console.log('Verification email resent successfully via resend-otp');
             } catch (resendError) {
-                console.log('Could not use resend-otp, falling back to verify-email endpoint');
+                console.log('Could not use resend-otp, falling back to verify-email endpoint:', resendError.message);
                 // Fallback to verify-email endpoint
-                response = await axios.post(`${apiUrl}/api/users/verify-email`, { email });
+                response = await axios.post(`${apiUrl}/api/users/verify-email`, { email: emailToUse });
                 console.log('Verification email sent successfully via verify-email');
             }
             
             // Store the email for later use in verification
-            setEmailToVerify(email);
+            setEmailToVerify(emailToUse);
             
             return { success: true, response: response.data };
         } catch (error) {

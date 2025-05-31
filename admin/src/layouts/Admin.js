@@ -120,7 +120,7 @@ const Admin = (props) => {
         />
         
         {/* Email verification alert for unverified users */}
-        {!isEmailVerified && (
+        {!isEmailVerified && showVerificationAlert && (
           <div className="fixed-top" style={{ top: "100px", zIndex: 999, left : '16.5%' }}>
             <Container fluid>
               <Alert 
@@ -139,8 +139,8 @@ const Admin = (props) => {
                   onClick={handleVerifyEmail}
                 >
                   <i className="fas fa-envelope mr-1"></i>
-                  Verify Now
-                </Button>
+                  Verify Now 
+                </Button> 
               </Alert>
             </Container>
           </div>

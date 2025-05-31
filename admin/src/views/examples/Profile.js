@@ -377,8 +377,17 @@ const Profile = () => {
     
     // Cleanup function to remove the element if we created one
     return () => {
-      if (fileInputRef.current && !fileInputRef.current.parentElement?.classList?.contains('custom-file')) {
-        document.body.removeChild(fileInputRef.current);
+      // More safely check if the element is actually in the DOM before removing it
+      if (fileInputRef.current) {
+        try {
+          // Check if the element is actually in the document body
+          if (document.body.contains(fileInputRef.current)) {
+            document.body.removeChild(fileInputRef.current);
+          }
+        } catch (error) {
+          console.error("Error removing file input:", error);
+          // Just let it be if there's an error - browser will clean it up eventually
+        }
       }
     };
   }, []);
@@ -1393,7 +1402,7 @@ const Profile = () => {
                     </Row>
 
                     <div className="text-center">
-                      <Button color="warning" type="submit" disabled={loading}>
+                      <Button color="warning" type="submit" disabled={isProfileReadOnly() ||loading} >
                         {loading ? (
                           <><span className="spinner-border spinner-border-sm mr-1"></span> Updating...</>
                         ) : (
@@ -1414,6 +1423,7 @@ const Profile = () => {
                         <Button
                           color="info"
                           block
+                          disabled={isProfileReadOnly()}
                           onClick={() => setShowChangePasswordModal(true)}
                         >
                           <i className="fas fa-key mr-2"></i> Change Password
@@ -1623,7 +1633,28 @@ const Profile = () => {
         </ModalBody>
       </Modal>
 
-       
+      {/* OTP Verification Modal */}
+      <OTPVerificationModal
+        isOpen={showOtpVerificationModal}
+        toggle={() => setShowOtpVerificationModal(false)}
+        email={user?.email}
+        onVerified={() => {
+          // Close the modal
+          setShowOtpVerificationModal(false);
+          
+          // Show success message
+          setAlert({
+            show: true,
+            color: "success",
+            message: "Email verified successfully! You can now edit your profile."
+          });
+          
+          // Refresh user data to update verification status
+          if (user) {
+            refreshUserData(user.id || user._id);
+          }
+        }}
+      />
     </>
   );
 };

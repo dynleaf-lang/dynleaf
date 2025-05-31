@@ -6,6 +6,11 @@ const customerSchema = new mongoose.Schema({
         ref: 'Restaurant',
         required: true,
     },
+    branchId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Branch',
+        required: true,
+    },
     customerId: {
         type: String,
         required: true,
@@ -19,9 +24,10 @@ const customerSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        required: true,
-        unique: true,
+        required: false, // Changed from true to false to make it optional
+        unique: false, // Changed from true to false since it's optional
         lowercase: true,
+        sparse: true, // Added sparse index to allow multiple null/undefined values
     },
     phone: {
         type: String,
@@ -29,7 +35,7 @@ const customerSchema = new mongoose.Schema({
     },
     address: {
         type: String,
-        required: true,
+        required: false, // Changed from true to false to make it optional
     },
     createdAt: {
         type: Date,

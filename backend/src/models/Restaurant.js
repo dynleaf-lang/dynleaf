@@ -18,7 +18,12 @@ const restaurantSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-    }, 
+    },
+    country: {
+        type: String,
+        required: true,
+        default: 'US',
+    },
     openingHours: {
         type: String,
         required: true,

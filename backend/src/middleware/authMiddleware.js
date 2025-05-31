@@ -29,7 +29,7 @@ const formatId = (id) => {
     }
 };
 
-// Middleware to check if the user is authenticated
+// Authentication middleware - primary function for verifying tokens
 const authenticateJWT = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader) {
@@ -118,6 +118,10 @@ const authenticateJWT = async (req, res, next) => {
     }
 };
 
+// Alias for authenticateJWT to maintain backward compatibility
+// For the new routes that use 'protect'
+const protect = authenticateJWT;
+
 // Middleware to check if the user is an admin
 const authorizeAdmin = (req, res, next) => {
     console.log('User role check:', req.user.role);
@@ -127,7 +131,27 @@ const authorizeAdmin = (req, res, next) => {
     next();
 };
 
+// Grant access to specific roles
+const authorize = (...roles) => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({
+                message: 'Authentication required for this route'
+            });
+        }
+
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                message: `Access denied. Role required: ${roles.join(' or ')}`
+            });
+        }
+        next();
+    };
+};
+
 module.exports = {
+    protect,
+    authorize,
     authenticateJWT,
     authorizeAdmin
 };

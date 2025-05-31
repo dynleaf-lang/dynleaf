@@ -52,6 +52,34 @@ const orderSchema = new mongoose.Schema({
             
         },
     ],
+    subtotal: {
+        type: Number,
+        required: true,
+        min: 0,
+    },
+    tax: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: 0,
+    },
+    taxDetails: {
+        country: {
+            type: String,
+            required: true,
+            default: 'US'
+        },
+        taxName: {
+            type: String,
+            required: true,
+            default: 'Sales Tax'
+        },
+        percentage: {
+            type: Number,
+            required: true,
+            default: 0
+        }
+    },
     totalAmount: {
         type: Number,
         required: true,

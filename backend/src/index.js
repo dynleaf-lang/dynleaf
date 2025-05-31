@@ -50,12 +50,24 @@ app.use(cors({
   exposedHeaders: ['X-Request-Time'],
 }));  
 
+// Import the Tax seedDefaultTaxes function for later use
+const { seedDefaultTaxes } = require('./models/Tax');
+
 // Connect to MongoDB with updated options
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('MongoDB connected successfully'))
+.then(() => {
+  console.log('MongoDB connected successfully');
+  
+  // Now that the database is connected, seed the tax data
+  seedDefaultTaxes().then(() => {
+    console.log('Tax seeding process completed');
+  }).catch(err => {
+    console.error('Error during tax seeding:', err);
+  });
+})
 .catch(err => {
   console.error('MongoDB connection error:', err);
   process.exit(1);
@@ -82,6 +94,9 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const restaurantRoutes = require('./routes/restaurantRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const tableRoutes = require('./routes/tableRoutes');
+const taxRoutes = require('./routes/taxRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const customerRoutes = require('./routes/customerRoutes');
 
 // Serve static files from the public directory
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
@@ -99,6 +114,9 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/tables', tableRoutes);
+app.use('/api/taxes', taxRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/customers', customerRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
