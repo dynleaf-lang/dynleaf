@@ -1,567 +1,596 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import axios from 'axios';
-import { AuthContext } from './AuthContext';
+import { AuthContext } from './AuthContext'; 
+import api from '../utils/api';
 
-// Enable detailed debugging for table operations
-const DEBUG_MODE = true;
+export const TableContext = createContext();
 
-const TableContext = createContext();
+export const TableProvider = ({ children }) => {
+  const [tables, setTables] = useState([]);
+  const [floors, setFloors] = useState([]);
+  const [tableZones, setTableZones] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const { user } = useContext(AuthContext);
 
-const TableProvider = ({ children }) => {
-    const [tables, setTables] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [tableZones, setTableZones] = useState([]);
-    const [reservations, setReservations] = useState({});
-    const [tablesWithOrders, setTablesWithOrders] = useState([]);
-    const [availableTables, setAvailableTables] = useState([]);
-    const { user } = useContext(AuthContext);
+  // Get all tables for a restaurant/branch
+  const getTables = async (filters = {}) => {
+    setLoading(true);
+    setError(null);
     
-    // Debug logger that only logs in debug mode
-    const debug = (message, data) => {
-        if (DEBUG_MODE) {
-            console.log(`[TableContext Debug] ${message}`, data);
-        }
-    };
+    try {
+      // Build the query string based on filters
+      const queryParams = new URLSearchParams();
+      
+      if (filters.restaurantId) {
+        queryParams.append('restaurantId', filters.restaurantId);
+      } else if (user?.restaurantId) {
+        queryParams.append('restaurantId', user.restaurantId);
+      }
+      
+      if (filters.branchId) {
+        queryParams.append('branchId', filters.branchId);
+      } else if (user?.branchId) {
+        queryParams.append('branchId', user.branchId);
+      }
+      
+      // Add other filters if provided
+      if (filters.zone) queryParams.append('zone', filters.zone);
+      if (filters.status) queryParams.append('status', filters.status);
+      if (filters.isVIP) queryParams.append('isVIP', true);
+      if (filters.minCapacity) queryParams.append('minCapacity', filters.minCapacity);
+      if (filters.maxCapacity) queryParams.append('maxCapacity', filters.maxCapacity);
+      
+      const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      
+      const response = await api.get(`/tables${query}`);
+      
+      if (response.data && response.data.data) {
+        setTables(response.data.data);
+        return { success: true, tables: response.data.data };
+      } else {
+        setTables(response.data || []);
+        return { success: true, tables: response.data || [] };
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to fetch tables';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Get all tables for the current branch with optional filters
-    const fetchTables = async (filters = {}) => {
-        if (!user) {
-            const errorMessage = 'User authentication required';
-            debug('Authentication error', { error: errorMessage });
-            setError(errorMessage);
-            return [];
-        }
-        
-        if (!user.restaurantId || !user.branchId) {
-            const missingIds = [];
-            if (!user.restaurantId) missingIds.push('restaurant');
-            if (!user.branchId) missingIds.push('branch');
-            
-            const errorMessage = `User authentication error: Missing ${missingIds.join(' and ')} ID`;
-            debug('Missing IDs', { user, missingIds });
-            console.error(errorMessage, { user });
-            setError(errorMessage);
-            return [];
-        }
-        
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const queryParams = new URLSearchParams();
-            
-            // Add filter parameters if they exist
-            if (filters.zone) queryParams.append('zone', filters.zone);
-            if (filters.status) queryParams.append('status', filters.status);
-            if (filters.isVIP !== undefined) queryParams.append('isVIP', filters.isVIP);
-            if (filters.minCapacity) queryParams.append('minCapacity', filters.minCapacity);
-            if (filters.maxCapacity) queryParams.append('maxCapacity', filters.maxCapacity);
-            
-            const queryString = queryParams.toString();
-            const url = `/api/tables${queryString ? '?' + queryString : ''}`;
-            
-            debug('Fetching tables', {
-                restaurantId: user.restaurantId,
-                branchId: user.branchId,
-                url,
-                filters
-            });
-            
-            // Add a timestamp parameter to prevent caching issues
-            const timestampedUrl = url + (queryString ? '&' : '?') + '_t=' + Date.now();
-            
-            // Add a specific header for debugging
-            const response = await axios.get(timestampedUrl, {
-                headers: {
-                    'X-Debug-Mode': 'true',
-                    'X-Request-ID': `table-fetch-${Date.now()}`
-                }
-            });
-            
-            debug('API Response received', { status: response.status, headers: response.headers });
-            
-            if (!response.data) {
-                throw new Error('Empty response from server');
-            }
-            
-            if (!response.data.data) {
-                throw new Error(`Invalid response format: ${JSON.stringify(response.data)}`);
-            }
-            
-            const tableData = response.data.data;
-            debug('Tables fetched successfully', { count: tableData.length });
-            setTables(tableData);
-            return tableData;
-        } catch (error) {
-            // Enhanced error logging
-            debug('Error details', { 
-                message: error.message,
-                response: error.response,
-                request: error.request,
-                config: error.config
-            });
-            
-            let errorMessage = 'Failed to fetch dining tables';
-            
-            if (error.response) {
-                // Server responded with an error status
-                errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
-                debug('Server error response', { 
-                    status: error.response.status,
-                    data: error.response.data
-                });
-            } else if (error.request) {
-                // Request made but no response received
-                errorMessage = 'No response received from server. Please check your network connection.';
-                debug('No response from server', { request: error.request });
-            } else {
-                // Error in setting up the request
-                errorMessage = `Request setup error: ${error.message}`;
-                debug('Request setup error', { error });
-            }
-            
-            console.error('Error fetching tables:', error);
-            setError(errorMessage);
-            return [];
-        } finally {
-            setLoading(false);
-        }
-    };
+  // Alias for getTables to maintain existing code compatibility
+  const fetchTables = getTables;
 
-    // Create a new table
-    const createTable = async (tableData) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.post('/api/tables', tableData);
-            setTables([...tables, response.data.data]);
-            return { success: true, table: response.data.data };
-        } catch (error) {
-            console.error('Error creating table:', error);
-            setError(error.response?.data?.message || 'Failed to create table');
-            return { success: false, error: error.response?.data?.message || 'Failed to create table' };
-        } finally {
-            setLoading(false);
-        }
-    };
+  // Get all floors for a restaurant
+  const getFloors = async (restaurantId) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Use restaurantId from params, or fall back to user context
+      const id = restaurantId || user?.restaurantId;
+      if (!id) {
+        return { success: false, message: 'Restaurant ID is required' };
+      }
+      
+      const response = await api.get(`/floors/restaurant/${id}`);
+      
+      const floorsData = response.data || [];
+      setFloors(floorsData);
+      return { success: true, floors: floorsData };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to fetch floors';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Update an existing table
-    const updateTable = async (tableId, tableData) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put(`/api/tables/${tableId}`, tableData);
-            setTables(tables.map(table => 
-                table._id === tableId ? response.data.data : table
-            ));
-            return { success: true, table: response.data.data };
-        } catch (error) {
-            console.error('Error updating table:', error);
-            setError(error.response?.data?.message || 'Failed to update table');
-            return { success: false, error: error.response?.data?.message || 'Failed to update table' };
-        } finally {
-            setLoading(false);
-        }
-    };
+  // Alias for getFloors
+  const fetchFloors = getFloors;
 
-    // Delete a table
-    const deleteTable = async (tableId) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            await axios.delete(`/api/tables/${tableId}`);
-            setTables(tables.filter(table => table._id !== tableId));
-            return { success: true };
-        } catch (error) {
-            console.error('Error deleting table:', error);
-            setError(error.response?.data?.message || 'Failed to delete table');
-            return { success: false, error: error.response?.data?.message || 'Failed to delete table' };
-        } finally {
-            setLoading(false);
+  // Get all table zones for a restaurant
+  const getTableZones = async (restaurantId) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // First, ensure we have tables to extract zones from
+      if (tables.length === 0) {
+        // If no tables in state yet, fetch them first
+        const id = restaurantId || user?.restaurantId;
+        if (id) {
+          await getTables({ restaurantId: id });
         }
-    };
+      }
+      
+      // Extract unique zones from tables
+      const zones = Array.from(new Set(
+        tables
+          .filter(table => table.location && table.location.zone)
+          .map(table => table.location.zone)
+      ));
+      
+      // Add default zones if none exist
+      const defaultZones = ['Main', 'Patio', 'Private'];
+      const uniqueZones = Array.from(new Set([...zones, ...defaultZones]));
+      
+      setTableZones(uniqueZones);
+      return { success: true, tableZones: uniqueZones };
+    } catch (err) {
+      const errorMessage = err.message || 'Failed to fetch table zones';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Update table status (occupied/available)
-    const updateTableStatus = async (tableId, status) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put(`/api/tables/${tableId}/status`, status);
-            setTables(tables.map(table => 
-                table._id === tableId ? response.data.data : table
-            ));
-            return { success: true, table: response.data.data };
-        } catch (error) {
-            console.error('Error updating table status:', error);
-            setError(error.response?.data?.message || 'Failed to update table status');
-            return { success: false, error: error.response?.data?.message || 'Failed to update table status' };
-        } finally {
-            setLoading(false);
+  // Alias for getTableZones
+  const fetchTableZones = getTableZones;
+
+  // Create a new table
+  const createTable = async (tableData) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Ensure restaurantId and branchId are set
+      const data = { ...tableData };
+      if (!data.restaurantId && user?.restaurantId) {
+        data.restaurantId = user.restaurantId;
+      }
+      
+      if (!data.branchId && user?.branchId) {
+        data.branchId = user.branchId;
+      }
+      
+      if (!data.restaurantId) {
+        return { success: false, message: 'Restaurant ID is required' };
+      }
+      
+      const response = await api.post(`/tables`, data);
+      
+      setTables(prev => [...prev, response.data]);
+      return { success: true, table: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to create table';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update a table
+  const updateTable = async (tableId, tableData) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(`/tables/${tableId}`, tableData);
+      
+      setTables(tables.map(table => (table._id === tableId ? response.data : table)));
+      return { success: true, table: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to update table';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete a table
+  const deleteTable = async (tableId) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await api.delete(`/tables/${tableId}`);
+      
+      setTables(tables.filter(table => table._id !== tableId));
+      return { success: true };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to delete table';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create a new floor
+  const createFloor = async (floorData) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Ensure restaurantId is set
+      const data = { ...floorData };
+      if (!data.restaurantId && user?.restaurantId) {
+        data.restaurantId = user.restaurantId;
+      }
+      
+      if (!data.restaurantId) {
+        return { success: false, message: 'Restaurant ID is required' };
+      }
+      
+      const response = await api.post(`/floors`, data);
+      
+      setFloors([...floors, response.data]);
+      return { success: true, floor: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to create floor';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update a floor
+  const updateFloor = async (floorId, floorData) => {
+    if (!floorId) return { success: false, message: 'Floor ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(`/floors/${floorId}`, floorData);
+      
+      setFloors(floors.map(floor => (floor._id === floorId ? response.data : floor)));
+      return { success: true, floor: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to update floor';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete a floor
+  const deleteFloor = async (floorId) => {
+    if (!floorId) return { success: false, message: 'Floor ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await api.delete(`/floors/${floorId}`);
+      
+      setFloors(floors.filter(floor => floor._id !== floorId));
+      return { success: true };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get table reservations
+  const getTableReservations = async (tableId, params = {}) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Build query params
+      const queryParams = new URLSearchParams();
+      if (params.date) queryParams.append('date', params.date);
+      if (params.status) queryParams.append('status', params.status);
+      
+      const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      
+      const response = await api.get(`/tables/${tableId}/reservations${query}`);
+      
+      return { success: true, reservations: response.data.data || [] };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to fetch reservations';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create a reservation
+  const createReservation = async (tableId, reservationData) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.post(`/tables/${tableId}/reservations`, reservationData);
+      
+      return { success: true, reservation: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to create reservation';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update a reservation
+  const updateReservation = async (tableId, reservationId, reservationData) => {
+    if (!tableId || !reservationId) return { success: false, message: 'Table ID and Reservation ID are required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(`/tables/${tableId}/reservations/${reservationId}`, reservationData);
+      
+      return { success: true, reservation: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to update reservation';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cancel a reservation
+  const cancelReservation = async (tableId, reservationId) => {
+    if (!tableId || !reservationId) return { success: false, message: 'Table ID and Reservation ID are required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(
+        `/tables/${tableId}/reservations/${reservationId}/cancel`,
+        {}
+      );
+      
+      return { success: true, reservation: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to cancel reservation';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get all tables with their current order information
+  const getTablesWithOrders = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Build URL with branch ID from user context if available
+      let url = '/tables/with-orders';
+      
+      const response = await api.get(url);
+      
+      if (response.data && response.data.data) {
+        // Update tables with order information
+        setTables(response.data.data);
+        return { success: true, tables: response.data.data };
+      } else if (response.data && Array.isArray(response.data)) {
+        // Handle case where API returns direct array
+        setTables(response.data);
+        return { success: true, tables: response.data };
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to fetch tables with orders';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Find customer by phone number
+  const findCustomerByPhone = async (phone) => {
+    if (!phone) return { success: false, message: 'Phone number is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Use the correct API endpoint with search query parameter
+      const response = await api.get(`/customers?search=${encodeURIComponent(phone)}`);
+      
+      // Return all customers that might match instead of trying to find an exact match
+      // This allows for different phone number formats to work properly
+      return { success: true, customers: response.data };
+    } catch (err) {
+      console.error('Error searching for customer by phone:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to find customer';
+      
+      // Don't set global error for search failures, they'll be handled locally
+      if (errorMessage === 'Not authorized to access all customers') {
+        return { success: false, message: 'You do not have permission to search for customers' };
+      }
+      
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Find customer by email
+  const findCustomerByEmail = async (email) => {
+    if (!email) return { success: false, message: 'Email is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Use the correct API endpoint with search query parameter
+      const response = await api.get(`/customers?search=${encodeURIComponent(email)}`);
+      
+      // Return all customers that might match instead of trying to find one exact match
+      return { success: true, customers: response.data };
+    } catch (err) {
+      console.error('Error searching for customer by email:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to find customer';
+      
+      // Don't set global error for search failures, they'll be handled locally
+      if (errorMessage === 'Not authorized to access all customers') {
+        return { success: false, message: 'You do not have permission to search for customers' };
+      }
+      
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get customers with search capabilities
+  const getCustomers = async (params = {}) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Build query params
+      const queryParams = new URLSearchParams();
+      if (params.search) queryParams.append('search', params.search);
+      
+      const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+      
+      const response = await api.get(`/customers${query}`);
+      
+      return { success: true, customers: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to fetch customers';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Assign a table to an order
+  const assignTableToOrder = async (tableId, orderId) => {
+    if (!tableId || !orderId) return { success: false, message: 'Table ID and Order ID are required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(
+        `/tables/${tableId}/assign-order/${orderId}`,
+        {}
+      );
+      
+      // Update tables array with the updated table
+      setTables(tables.map(table => (table._id === tableId ? response.data.data || response.data : table)));
+      
+      return { success: true, table: response.data.data || response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to assign table to order';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Release a table (mark as available and remove order association)
+  const releaseTable = async (tableId) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put(
+        `/tables/${tableId}/release`,
+        {}
+      );
+      
+      // Update tables array with the updated table
+      setTables(tables.map(table => (table._id === tableId ? response.data.data || response.data : table)));
+      
+      return { success: true, table: response.data.data || response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to release table';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update table positions in floor plan
+  const updateTablePositions = async (tablePositions) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.put('/tables/positions', { tables: tablePositions });
+      
+      // Update affected tables in state
+      const updatedTables = [...tables];
+      tablePositions.forEach(positionUpdate => {
+        const tableIndex = updatedTables.findIndex(t => t._id === positionUpdate._id);
+        if (tableIndex !== -1) {
+          updatedTables[tableIndex] = {
+            ...updatedTables[tableIndex],
+            location: positionUpdate.location
+          };
         }
-    };
+      });
+      
+      setTables(updatedTables);
+      return { success: true, message: 'Table positions updated successfully' };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to update table positions';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Get all available zones for filtering
-    const fetchTableZones = async () => {
-        if (!user || !user.branchId) return [];
-        
-        try {
-            const response = await axios.get('/api/tables/zones');
-            setTableZones(response.data.data);
-            return response.data.data;
-        } catch (error) {
-            console.error('Error fetching table zones:', error);
-            return [];
-        }
-    };
-
-    // Create a reservation for a table
-    const createReservation = async (tableId, reservationData) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.post(`/api/tables/${tableId}/reservations`, reservationData);
-            
-            // Update the reservations state
-            setReservations(prev => ({
-                ...prev,
-                [tableId]: [...(prev[tableId] || []), response.data.data]
-            }));
-            
-            return { success: true, reservation: response.data.data };
-        } catch (error) {
-            console.error('Error creating reservation:', error);
-            setError(error.response?.data?.message || 'Failed to create reservation');
-            return { success: false, error: error.response?.data?.message || 'Failed to create reservation' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Get reservations for a specific table
-    const getTableReservations = async (tableId, filters = {}) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const queryParams = new URLSearchParams();
-            
-            if (filters.date) queryParams.append('date', filters.date);
-            if (filters.status) queryParams.append('status', filters.status);
-            
-            const url = `/api/tables/${tableId}/reservations${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-            const response = await axios.get(url);
-            
-            // Update the reservations state for this table
-            setReservations(prev => ({
-                ...prev,
-                [tableId]: response.data.data
-            }));
-            
-            return { success: true, reservations: response.data.data };
-        } catch (error) {
-            console.error('Error fetching reservations:', error);
-            setError(error.response?.data?.message || 'Failed to fetch reservations');
-            return { success: false, error: error.response?.data?.message || 'Failed to fetch reservations' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Update a reservation
-    const updateReservation = async (tableId, reservationId, reservationData) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put(`/api/tables/${tableId}/reservations/${reservationId}`, reservationData);
-            
-            // Update the reservations state
-            setReservations(prev => {
-                const tableReservations = [...(prev[tableId] || [])];
-                const index = tableReservations.findIndex(r => r._id === reservationId);
-                
-                if (index !== -1) {
-                    tableReservations[index] = response.data.data;
-                }
-                
-                return {
-                    ...prev,
-                    [tableId]: tableReservations
-                };
-            });
-            
-            return { success: true, reservation: response.data.data };
-        } catch (error) {
-            console.error('Error updating reservation:', error);
-            setError(error.response?.data?.message || 'Failed to update reservation');
-            return { success: false, error: error.response?.data?.message || 'Failed to update reservation' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Cancel a reservation
-    const cancelReservation = async (tableId, reservationId) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            await axios.put(`/api/tables/${tableId}/reservations/${reservationId}/cancel`);
-            
-            // Update the reservations state
-            setReservations(prev => {
-                const tableReservations = [...(prev[tableId] || [])];
-                const index = tableReservations.findIndex(r => r._id === reservationId);
-                
-                if (index !== -1) {
-                    tableReservations[index].status = 'cancelled';
-                }
-                
-                return {
-                    ...prev,
-                    [tableId]: tableReservations
-                };
-            });
-            
-            return { success: true };
-        } catch (error) {
-            console.error('Error cancelling reservation:', error);
-            setError(error.response?.data?.message || 'Failed to cancel reservation');
-            return { success: false, error: error.response?.data?.message || 'Failed to cancel reservation' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Get available tables for a specific time
-    const getAvailableTables = async (params) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const { date, startTime, endTime, partySize } = params;
-            
-            const queryParams = new URLSearchParams({
-                date,
-                startTime,
-                endTime
-            });
-            
-            if (partySize) queryParams.append('partySize', partySize);
-            
-            const response = await axios.get(`/api/tables/available?${queryParams.toString()}`);
-            setAvailableTables(response.data.data);
-            
-            return { success: true, tables: response.data.data };
-        } catch (error) {
-            console.error('Error fetching available tables:', error);
-            setError(error.response?.data?.message || 'Failed to fetch available tables');
-            return { success: false, error: error.response?.data?.message || 'Failed to fetch available tables' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Update table positions in floor plan
-    const updateTablePositions = async (tablePositions) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put('/api/tables/positions', { tables: tablePositions });
-            
-            // Refresh tables to get updated positions
-            await fetchTables();
-            
-            return { success: true, result: response.data };
-        } catch (error) {
-            console.error('Error updating table positions:', error);
-            setError(error.response?.data?.message || 'Failed to update table positions');
-            return { success: false, error: error.response?.data?.message || 'Failed to update table positions' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Assign a table to an order
-    const assignTableToOrder = async (tableId, orderId) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put(`/api/tables/${tableId}/assign-order`, { orderId });
-            
-            // Update tables state
-            setTables(tables.map(table => 
-                table._id === tableId ? response.data.data : table
-            ));
-            
-            return { success: true, table: response.data.data };
-        } catch (error) {
-            console.error('Error assigning table to order:', error);
-            setError(error.response?.data?.message || 'Failed to assign table to order');
-            return { success: false, error: error.response?.data?.message || 'Failed to assign table to order' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Release a table from an order
-    const releaseTable = async (tableId) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.put(`/api/tables/${tableId}/release`);
-            
-            // Update tables state
-            setTables(tables.map(table => 
-                table._id === tableId ? response.data.data : table
-            ));
-            
-            return { success: true, table: response.data.data };
-        } catch (error) {
-            console.error('Error releasing table:', error);
-            setError(error.response?.data?.message || 'Failed to release table');
-            return { success: false, error: error.response?.data?.message || 'Failed to release table' };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Get all tables with current orders
-    const getTablesWithOrders = async () => {
-        if (!user || !user.branchId) return [];
-        
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await axios.get('/api/tables/with-orders');
-            setTablesWithOrders(response.data.data);
-            return response.data.data;
-        } catch (error) {
-            console.error('Error fetching tables with orders:', error);
-            setError(error.response?.data?.message || 'Failed to fetch tables with orders');
-            return [];
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Get a table by its ID
-    const fetchTableById = async (tableId) => {
-        setLoading(true);
-        setError(null);
-        
-        try {
-            debug('Fetching table by ID', { tableId });
-            
-            // First check if the table exists in the current state
-            const cachedTable = tables.find(t => t._id === tableId);
-            if (cachedTable) {
-                debug('Found table in cache, returning', { table: cachedTable });
-                setLoading(false);
-                return cachedTable;
-            }
-            
-            // If not in cache, fetch from API
-            debug('Table not in cache, fetching from API');
-            
-            // Add debug headers and timestamp to prevent caching
-            const response = await axios.get(`/api/tables/${tableId}`, {
-                headers: {
-                    'X-Debug-Mode': 'true',
-                    'X-Request-ID': `table-detail-${Date.now()}`
-                },
-                params: {
-                    _t: Date.now() // Add timestamp to prevent caching
-                }
-            });
-            
-            if (!response.data || !response.data.data) {
-                throw new Error('Invalid response format');
-            }
-            
-            debug('Table fetched successfully', { table: response.data.data });
-            return response.data.data;
-        } catch (error) {
-            debug('Error fetching table by ID', { 
-                tableId,
-                error: error.message,
-                response: error.response?.data,
-                status: error.response?.status
-            });
-            
-            let errorMessage = 'Failed to fetch table details';
-            
-            if (error.response) {
-                if (error.response.status === 404) {
-                    errorMessage = 'Table not found';
-                } else if (error.response.status === 403) {
-                    errorMessage = 'You do not have permission to view this table';
-                } else {
-                    errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
-                }
-            }
-            
-            console.error('Error fetching table by ID:', error);
-            setError(errorMessage);
-            throw new Error(errorMessage);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Load tables when the component mounts and when the user/branch changes
-    useEffect(() => {
-        if (user && user.branchId) {
-            debug('User or branch changed, fetching tables', { 
-                userId: user.id,
-                branchId: user.branchId
-            });
-            fetchTables();
-            fetchTableZones();
-        }
-    }, [user?.branchId]);
-
-    return (
-        <TableContext.Provider value={{
-            tables,
-            loading,
-            error,
-            tableZones,
-            reservations,
-            tablesWithOrders,
-            availableTables,
-            fetchTables,
-            createTable,
-            updateTable,
-            deleteTable,
-            updateTableStatus,
-            fetchTableZones,
-            createReservation,
-            getTableReservations,
-            updateReservation,
-            cancelReservation,
-            getAvailableTables,
-            updateTablePositions,
-            assignTableToOrder,
-            releaseTable,
-            getTablesWithOrders,
-            fetchTableById,
-            debugMode: DEBUG_MODE
-        }}>
-            {children}
-        </TableContext.Provider>
-    );
+  return (
+    <TableContext.Provider value={{ 
+      tables, 
+      floors, 
+      tableZones,
+      loading, 
+      error, 
+      getTables, 
+      getFloors,
+      getTableZones,
+      fetchFloors,
+      fetchTables,
+      fetchTableZones,
+      createTable, 
+      updateTable, 
+      deleteTable, 
+      createFloor, 
+      updateFloor, 
+      deleteFloor, 
+      getTableReservations, 
+      createReservation, 
+      updateReservation, 
+      cancelReservation, 
+      findCustomerByPhone, 
+      findCustomerByEmail, 
+      getCustomers,
+      getTablesWithOrders,
+      assignTableToOrder,
+      releaseTable,
+      updateTablePositions
+    }}>
+      {children}
+    </TableContext.Provider>
+  );
 };
-
-export { TableContext, TableProvider };
-export default TableProvider;

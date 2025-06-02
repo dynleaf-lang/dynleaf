@@ -54,7 +54,8 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         isActive: true,
         imageFile: null,
         restaurantId: user?.restaurantId || "",
-        branchId: user?.branchId || "" // Add branchId to the state
+        branchId: user?.branchId || "", // Add branchId to the state
+        sizeVariants: [] // Add size variants array
     });
     
 
@@ -313,22 +314,38 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         if (e) {
             e.preventDefault();
         } 
-        
         // Clear any previous alerts
         setShowSuccessAlert(false);
         setShowErrorAlert(false);
          
         
         // Validate required fields
-        if (!menuItem.name || !menuItem.price || !menuItem.categoryId) {
-            setErrorMessage("Please fill in all required fields.");
+        if (!menuItem.name || (!menuItem.price && (!menuItem.sizeVariants || menuItem.sizeVariants.length === 0)) || !menuItem.categoryId) {
+            setErrorMessage("Please fill in all required fields. Either a base price or size variants are required.");
             setShowErrorAlert(true);
             return;
         }
 
+        // Validate size variants if they exist
+        if (menuItem.sizeVariants && menuItem.sizeVariants.length > 0) {
+            // Check if any variant is missing name or price
+            const invalidVariants = menuItem.sizeVariants.filter(v => !v.name || !v.price);
+            if (invalidVariants.length > 0) {
+                setErrorMessage("All size variants must have both name and price. Please fill in all variant details.");
+                setShowErrorAlert(true);
+                return;
+            }
+            
+            // Convert all variant prices to numbers
+            menuItem.sizeVariants = menuItem.sizeVariants.map(v => ({
+                ...v,
+                price: parseFloat(v.price)
+            }));
+        }
+
         // Parse price as a number to ensure it's sent as a number, not a string
         const parsedPrice = parseFloat(menuItem.price);
-        if (isNaN(parsedPrice)) {
+        if (menuItem.price && isNaN(parsedPrice)) {
             setErrorMessage("Price must be a valid number.");
             setShowErrorAlert(true);
             return;
@@ -349,10 +366,11 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         // Clone menuItem to send to parent - ensure categoryId is kept
         const itemToSave = {
             ...menuItem,
-            price: parsedPrice, // Ensure price is a number
+            price: parsedPrice || 0, // Ensure price is a number, default to 0 if not provided
             restaurantId: restaurantId, // Use the determined restaurantId
             categoryId: menuItem.categoryId, // Always include the category ID - don't override to undefined
-            branchId: menuItem.branchId || undefined
+            branchId: menuItem.branchId || undefined,
+            sizeVariants: menuItem.sizeVariants || [] // Ensure size variants are included
         };
         
         console.log("Form submission - itemToSave:", itemToSave);
@@ -494,6 +512,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                             // Normal filtering logic
                             const restaurantMatch = String(category.restaurantId) === String(menuItem.restaurantId);
                             
+
                             if (menuItem.branchId) {
                                 return restaurantMatch && 
                                      (!category.branchId || String(category.branchId) === String(menuItem.branchId));
@@ -756,8 +775,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                 <input type="hidden" name="branchId" value={user?.branchId || ''} />
                             )}
 
-                            
-<FormGroup>
+                            <FormGroup>
     <Label for="categoryId">Category*</Label>
     <Input
         type="select"
@@ -1022,6 +1040,103 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                     placeholder="Enter item description"
                                     rows="3"
                                 />
+                            </FormGroup>
+
+                            {/* Size Variants Section */}
+                            <FormGroup className="mt-3">
+                                <Label className="d-flex justify-content-between align-items-center">
+                                    <span>Size Variants</span>
+                                    <Button 
+                                        color="info" 
+                                        size="sm" 
+                                        onClick={() => {
+                                            setMenuItem({
+                                                ...menuItem,
+                                                sizeVariants: [
+                                                    ...menuItem.sizeVariants || [],
+                                                    { name: '', price: '' }
+                                                ]
+                                            });
+                                        }}
+                                    >
+                                        <i className="fas fa-plus-circle mr-1"></i> Add Size
+                                    </Button>
+                                </Label>
+                                
+                                {menuItem.sizeVariants && menuItem.sizeVariants.length > 0 ? (
+                                    <div className="border rounded p-3 mb-3">
+                                        {menuItem.sizeVariants.map((variant, index) => (
+                                            <Row key={index} className="mb-2">
+                                                <Col xs="5">
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="Size name (e.g. Small)"
+                                                        value={variant.name}
+                                                        onChange={(e) => {
+                                                            const updatedVariants = [...menuItem.sizeVariants];
+                                                            updatedVariants[index] = {
+                                                                ...variant,
+                                                                name: e.target.value
+                                                            };
+                                                            setMenuItem({
+                                                                ...menuItem,
+                                                                sizeVariants: updatedVariants
+                                                            });
+                                                        }}
+                                                    />
+                                                </Col>
+                                                <Col xs="5">
+                                                    <InputGroup>
+                                                        <InputGroupAddon addonType="prepend">
+                                                            <InputGroupText>₹</InputGroupText>
+                                                        </InputGroupAddon>
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Price"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={variant.price}
+                                                            onChange={(e) => {
+                                                                const updatedVariants = [...menuItem.sizeVariants];
+                                                                updatedVariants[index] = {
+                                                                    ...variant,
+                                                                    price: e.target.value
+                                                                };
+                                                                setMenuItem({
+                                                                    ...menuItem,
+                                                                    sizeVariants: updatedVariants
+                                                                });
+                                                            }}
+                                                        />
+                                                    </InputGroup>
+                                                </Col>
+                                                <Col xs="2" className="d-flex align-items-center">
+                                                    <Button
+                                                        color="danger"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            const updatedVariants = menuItem.sizeVariants.filter((_, i) => i !== index);
+                                                            setMenuItem({
+                                                                ...menuItem,
+                                                                sizeVariants: updatedVariants
+                                                            });
+                                                        }}
+                                                    >
+                                                        <i className="fas fa-trash"></i>
+                                                    </Button>
+                                                </Col>
+                                            </Row>
+                                        ))}
+                                        <small className="text-muted mt-2 d-block">
+                                            When size variants are added, they will be shown as options when ordering this item.
+                                        </small>
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-3 border rounded mb-3 bg-light">
+                                        <p className="text-muted mb-0">No size variants added. This item will use the base price only.</p>
+                                        <small className="text-info">Click "Add Size" to create different sizes with their own prices.</small>
+                                    </div>
+                                )}
                             </FormGroup>
 
                             <Row className="mt-4">

@@ -14,6 +14,9 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 // All routes are protected, requiring authentication
 router.use(protect);
 
+// Search customers route - needs to be before the /:id route to avoid conflicts
+router.get('/', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), getAllCustomers);
+
 // Get all customers with filter options (Super_Admin only)
 router.get('/all', authorize('Super_Admin'), getAllCustomers);
 

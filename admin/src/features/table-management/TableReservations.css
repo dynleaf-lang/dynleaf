@@ -1,0 +1,68 @@
+.table-reservations-container .spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.table-reservations-container .customer-search-results {
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ced4da;
+  border-radius: 0.25rem;
+  z-index: 1050;
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.table-reservations-container .customer-search-results .list-group-item {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+}
+
+.table-reservations-container .react-datepicker-wrapper,
+.table-reservations-container .react-datepicker__input-container {
+  display: block;
+  width: 100%;
+}
+
+/* Status badge styling */
+.table-reservations-container .badge {
+  font-size: 85%;
+  font-weight: 600;
+  padding: 0.35em 0.65em;
+}
+
+/* Table hover effects */
+.table-reservations-container tbody tr:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* Modal styling enhancements */
+.table-reservations-container .modal-header,
+.table-reservations-container .modal-footer {
+  padding: 1rem 1.5rem;
+}
+
+.table-reservations-container .modal-body {
+  padding: 1.5rem;
+}
+
+/* Card styling */
+.table-reservations-container .card {
+  border: 0;
+}
+
+.table-reservations-container .card-header {
+  background-color: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Today's reservation highlight */
+.table-reservations-container .today-reservation {
+  background-color: rgba(23, 162, 184, 0.05);
+}

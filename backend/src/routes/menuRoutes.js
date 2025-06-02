@@ -121,10 +121,22 @@ router.get('/export', authenticateJWT, async (req, res) => {
         // Process based on requested format
         if (format === 'csv') {
             // Create CSV content
-            const header = 'Name,Category,Price,Description,Vegetarian,Featured,Active\n';
+            // Add Size Variants columns to header
+            const header = 'Name,Category,Base Price,Size Variants,Description,Vegetarian,Featured,Active\n';
+            
             const rows = menuItems.map(item => {
                 const categoryName = item.categoryId?.name || 'Uncategorized';
-                return `"${item.name}","${categoryName}",${item.price},"${item.description || ''}",${item.isVegetarian ? 'Yes' : 'No'},${item.featured ? 'Yes' : 'No'},${item.isActive ? 'Available' : 'Unavailable'}`;
+                const basePrice = item.price !== undefined ? item.price.toString() : '';
+                
+                // Format size variants as a string: "Small: 100, Medium: 200, Large: 300"
+                let sizeVariantsStr = '';
+                if (item.sizeVariants && item.sizeVariants.length > 0) {
+                    sizeVariantsStr = item.sizeVariants
+                        .map(v => `${v.name}: ${v.price}`)
+                        .join(', ');
+                }
+                
+                return `"${item.name}","${categoryName}",${basePrice},"${sizeVariantsStr}","${item.description || ''}",${item.isVegetarian ? 'Yes' : 'No'},${item.featured ? 'Yes' : 'No'},${item.isActive ? 'Available' : 'Unavailable'}`;
             });
             
             const csvContent = header + rows.join('\n');
@@ -138,23 +150,33 @@ router.get('/export', authenticateJWT, async (req, res) => {
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Menu Items');
             
-            // Define columns
+            // Define columns - updated to include size variants
             worksheet.columns = [
                 { header: 'Name', key: 'name', width: 30 },
                 { header: 'Category', key: 'category', width: 20 },
-                { header: 'Price', key: 'price', width: 10, style: { numFmt: '₹#,##0.00' } },
+                { header: 'Base Price', key: 'basePrice', width: 12, style: { numFmt: '₹#,##0.00' } },
+                { header: 'Size Variants', key: 'sizeVariants', width: 40 },
                 { header: 'Description', key: 'description', width: 50 },
                 { header: 'Vegetarian', key: 'vegetarian', width: 12 },
                 { header: 'Featured', key: 'featured', width: 12 },
                 { header: 'Status', key: 'status', width: 12 }
             ];
             
-            // Add rows
+            // Add rows with size variants information
             menuItems.forEach(item => {
+                // Format size variants as a string
+                let sizeVariantsStr = '';
+                if (item.sizeVariants && item.sizeVariants.length > 0) {
+                    sizeVariantsStr = item.sizeVariants
+                        .map(v => `${v.name}: ₹${parseFloat(v.price).toFixed(2)}`)
+                        .join(', ');
+                }
+                
                 worksheet.addRow({
                     name: item.name,
                     category: item.categoryId?.name || 'Uncategorized',
-                    price: item.price,
+                    basePrice: item.price !== undefined ? item.price : null, // Use null for empty cells
+                    sizeVariants: sizeVariantsStr,
                     description: item.description || '',
                     vegetarian: item.isVegetarian ? 'Yes' : 'No',
                     featured: item.featured ? 'Yes' : 'No',
@@ -202,7 +224,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
 // Create a new menu item
 router.post('/', authenticateJWT, async (req, res) => {
     try {
-        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId } = req.body;
+        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants } = req.body;
         
         console.log("Backend received menu item data:", {
             name,
@@ -210,6 +232,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             categoryId,
             restaurantId: req.body.restaurantId,
             branchId,
+            sizeVariants,
             // other fields omitted for brevity
         });
         
@@ -245,18 +268,46 @@ router.post('/', authenticateJWT, async (req, res) => {
             }
         }
         
+        // Validate that either price or sizeVariants is provided
+        if (price === undefined && (!sizeVariants || sizeVariants.length === 0)) {
+            return res.status(400).json({ 
+                message: 'Either a price or at least one size variant with price must be provided' 
+            });
+        }
+        
+        // Validate size variants if they exist
+        if (sizeVariants && sizeVariants.length > 0) {
+            const invalidVariants = sizeVariants.filter(v => !v.name || v.price === undefined);
+            if (invalidVariants.length > 0) {
+                return res.status(400).json({ 
+                    message: 'All size variants must have both name and price'
+                });
+            }
+            
+            // Ensure all prices are numbers
+            for (let variant of sizeVariants) {
+                if (isNaN(parseFloat(variant.price))) {
+                    return res.status(400).json({ 
+                        message: `Invalid price for size variant "${variant.name}"`
+                    });
+                }
+                variant.price = parseFloat(variant.price);
+            }
+        }
+        
         const menuItem = new MenuItem({
             restaurantId,
             itemId,
             name,
             description,
-            price,
+            price: price !== undefined ? parseFloat(price) : undefined,
             categoryId: validCategoryId,
             imageUrl,
             isVegetarian: isVegetarian || false,
             tags: tags || [],
             featured: featured || false,
             isActive: isActive !== undefined ? isActive : true,
+            sizeVariants: sizeVariants || [],
             // Add branchId if provided (optional)
             ...(branchId && { branchId })
         });
@@ -323,22 +374,54 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         const menuItem = await MenuItem.findById(req.params.id);
         if (!menuItem) return res.status(404).json({ message: 'Menu item not found' });
         
-        
+        // Check if user has permission to update this item
+        if (req.user.role !== 'Super_Admin' && 
+            (!req.user.restaurantId || menuItem.restaurantId.toString() !== req.user.restaurantId.toString())) {
+            return res.status(403).json({ message: 'Access denied to update this menu item' });
+        }
         
         // Get the fields to update
-        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId } = req.body;
+        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants } = req.body;
+        
+        // Validate that either price or sizeVariants is provided
+        if (price === undefined && (!sizeVariants || sizeVariants.length === 0)) {
+            return res.status(400).json({ 
+                message: 'Either a price or at least one size variant with price must be provided' 
+            });
+        }
+        
+        // Validate size variants if they exist
+        if (sizeVariants && sizeVariants.length > 0) {
+            const invalidVariants = sizeVariants.filter(v => !v.name || v.price === undefined);
+            if (invalidVariants.length > 0) {
+                return res.status(400).json({ 
+                    message: 'All size variants must have both name and price'
+                });
+            }
+            
+            // Ensure all prices are numbers
+            for (let variant of sizeVariants) {
+                if (isNaN(parseFloat(variant.price))) {
+                    return res.status(400).json({ 
+                        message: `Invalid price for size variant "${variant.name}"`
+                    });
+                }
+                variant.price = parseFloat(variant.price);
+            }
+        }
         
         // Update the menu item
         const updateData = {
             name,
             description,
-            price,
+            price: price !== undefined ? parseFloat(price) : price,
             categoryId,
             imageUrl,
             isVegetarian,
             tags,
             featured,
-            isActive
+            isActive,
+            sizeVariants: sizeVariants || []
         };
         
         // Handle branchId separately - allow setting to null or a value
@@ -346,10 +429,15 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             updateData.branchId = branchId || null;
         }
         
-        const updatedItem = await MenuItem.findByIdAndUpdate(req.params.id, updateData, { new: true });
+        // Use runValidators to ensure the updated document passes all validation
+        const updatedItem = await MenuItem.findByIdAndUpdate(req.params.id, updateData, { 
+            new: true,
+            runValidators: true
+        });
         
         res.json(updatedItem);
     } catch (error) {
+        console.error("Error updating menu item:", error);
         res.status(400).json({ message: error.message });
     }
 });

@@ -38,6 +38,7 @@ import { useNavigate } from "react-router-dom";
 import FloorPlan from "./FloorPlan";
 import TableReservations from "./TableReservations";
 import TableOrderAssignment from "./TableOrderAssignment";
+import FloorManagement from "./FloorManagement";
 import { QRCodeCanvas } from "qrcode.react";
 
 const TableManagement = () => {
@@ -52,7 +53,9 @@ const TableManagement = () => {
     updateTable, 
     deleteTable,
     tableZones,
-    fetchTableZones
+    fetchTableZones,
+    floors,
+    fetchFloors
   } = useContext(TableContext);
   const { user, isAdmin, isSuperAdmin, isBranchManager } = useContext(AuthContext);
   const navigate = useNavigate();
@@ -76,6 +79,7 @@ const TableManagement = () => {
       zone: 'Main',
       x: 50,
       y: 50,
+      floor: null
     },
     isVIP: false,
     notes: ''
@@ -95,6 +99,7 @@ const TableManagement = () => {
     }
     
     fetchTableZones();
+    fetchFloors();
   }, [user, isSuperAdmin]);
 
   // Apply filters when they change
@@ -128,6 +133,7 @@ const TableManagement = () => {
         zone: 'Main',
         x: 50,
         y: 50,
+        floor: null
       },
       isVIP: false,
       notes: ''
@@ -141,10 +147,11 @@ const TableManagement = () => {
       TableName: table.TableName || '',
       capacity: table.capacity || '',
       shape: table.shape || 'square',
-      location: table.location || {
-        zone: 'Main',
-        x: 50,
-        y: 50
+      location: {
+        zone: table.location?.zone || 'Main',
+        x: table.location?.x || 50,
+        y: table.location?.y || 50,
+        floor: table.location?.floor || null
       },
       isVIP: table.isVIP || false,
       notes: table.notes || ''
@@ -314,6 +321,15 @@ const TableManagement = () => {
                   </NavItem>
                   <NavItem>
                     <NavLink
+                      className={`${activeTab === 'floor-management' ? 'active bg-white text-primary' : 'text-white'} rounded-top px-4 py-3 font-weight-bold`}
+                      onClick={() => setActiveTab('floor-management')}
+                      style={{ cursor: 'pointer', transition: 'all 0.2s ease' }}
+                    >
+                      <i className="fas fa-building mr-2"></i> Floor Management
+                    </NavLink>
+                  </NavItem>
+                  <NavItem>
+                    <NavLink
                       className={`${activeTab === 'orders' ? 'active bg-white text-primary' : 'text-white'} rounded-top px-4 py-3 font-weight-bold`}
                       onClick={() => setActiveTab('orders')}
                       style={{ cursor: 'pointer', transition: 'all 0.2s ease' }}
@@ -361,7 +377,7 @@ const TableManagement = () => {
                             onChange={handleFilterChange}
                           >
                             <option value="">All Zones</option>
-                            {tableZones.map(zone => (
+                            {tableZones && tableZones.map(zone => (
                               <option key={zone} value={zone}>
                                 {zone}
                               </option>
@@ -441,6 +457,7 @@ const TableManagement = () => {
                       <th scope="col">Name</th>
                       <th scope="col">Capacity</th>
                       <th scope="col">Zone</th>
+                      <th scope="col">Floor</th>
                       <th scope="col">Status</th>
                       <th scope="col">QR Code</th>
                       <th scope="col">Actions</th>
@@ -449,7 +466,7 @@ const TableManagement = () => {
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td colSpan="6" className="text-center py-4">
+                        <td colSpan="8" className="text-center py-4">
                           <div className="spinner-border text-primary" role="status">
                             <span className="sr-only">Loading...</span>
                           </div>
@@ -457,7 +474,7 @@ const TableManagement = () => {
                       </tr>
                     ) : error ? (
                       <tr>
-                        <td colSpan="6" className="text-center py-4">
+                        <td colSpan="8" className="text-center py-4">
                           <p className="text-danger mb-0">Error loading tables: {error}</p>
                         </td>
                       </tr>
@@ -478,6 +495,15 @@ const TableManagement = () => {
                         </td>
                         <td>{table.capacity} persons</td>
                         <td>{table.location?.zone || 'Main'}</td>
+                        <td>
+                          {table.location?.floor ? (
+                            <Badge color="primary" className="px-2">
+                              {Array.isArray(floors) && floors.find(f => f._id === table.location.floor)?.name || 'Floor ' + table.location.floor}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted">Not assigned</span>
+                          )}
+                        </td>
                         <td>
                           {getStatusBadge(table.status || (table.isOccupied ? 'occupied' : 'available'))}
                         </td>
@@ -582,7 +608,7 @@ const TableManagement = () => {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="6" className="text-center py-4">
+                        <td colSpan="8" className="text-center py-4">
                           <p className="font-italic text-muted mb-0">No tables available</p>
                         </td>
                       </tr>
@@ -633,6 +659,10 @@ const TableManagement = () => {
             
             {activeTab === 'floor-plan' && (
               <FloorPlan />
+            )}
+            
+            {activeTab === 'floor-management' && (
+              <FloorManagement />
             )}
             
             {activeTab === 'orders' && (
@@ -740,6 +770,30 @@ const TableManagement = () => {
               </Col>
             </Row>
             
+            <Row form>
+              <Col md={6}>
+                <FormGroup>
+                  <Label for="location.floor">Floor</Label>
+                  <Input
+                    type="select"
+                    name="location.floor"
+                    id="location.floor"
+                    value={formData.location?.floor || ''}
+                    onChange={handleInputChange}
+                  >
+                    <option value="">Select Floor</option>
+                    {Array.isArray(floors) ? floors.map(floor => (
+                      <option key={floor._id} value={floor._id}>
+                        {floor.name} (Level {floor.level})
+                      </option>
+                    )) : (
+                      <option value="" disabled>Loading floors...</option>
+                    )}
+                  </Input>
+                </FormGroup>
+              </Col>
+            </Row>
+            
             <FormGroup check className="mb-3">
               <Label check>
                 <Input
@@ -782,7 +836,8 @@ const TableManagement = () => {
         <Modal isOpen={reservationsModalOpen} toggle={() => setReservationsModalOpen(false)} size="xl">
           <ModalBody className="p-0">
             <TableReservations 
-              table={selectedTable} 
+              tableId={selectedTable._id}
+              tableName={selectedTable.TableName} 
               onClose={() => setReservationsModalOpen(false)} 
             />
           </ModalBody>

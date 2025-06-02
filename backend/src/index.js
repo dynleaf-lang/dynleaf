@@ -97,6 +97,7 @@ const tableRoutes = require('./routes/tableRoutes');
 const taxRoutes = require('./routes/taxRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
+const floorRoutes = require('./routes/floorRoutes');
 
 // Serve static files from the public directory
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
@@ -117,6 +118,7 @@ app.use('/api/tables', tableRoutes);
 app.use('/api/taxes', taxRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/floors', floorRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

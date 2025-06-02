@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
+import api from '../utils/api';
 
 export const CustomerContext = createContext();
 
@@ -17,47 +18,71 @@ export const CustomerProvider = ({ children }) => {
     setLoading(true);
     setError(null);
     try {
-      let response;
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
       
       if (!user) {
         throw new Error('User not authenticated');
       }
       
+      let endpoint = '';
+      let params = {};
+      
       // For Super_Admin with no filters, get all customers
       if (user.role === 'Super_Admin' && !filters.restaurantId && !filters.branchId) {
-        response = await axios.get('/api/customers/all', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        endpoint = 'customers'; // Removed '/api' prefix as it's added by the API utility
       }
       // For Super_Admin with filters, get filtered customers
       else if (user.role === 'Super_Admin' && (filters.restaurantId || filters.branchId)) {
-        const queryParams = [];
-        if (filters.restaurantId) queryParams.push(`restaurantId=${filters.restaurantId}`);
-        if (filters.branchId) queryParams.push(`branchId=${filters.branchId}`);
-        
-        response = await axios.get(`/api/customers/all?${queryParams.join('&')}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        endpoint = 'customers'; // Removed '/api' prefix as it's added by the API utility
+        if (filters.restaurantId) params.restaurantId = filters.restaurantId;
+        if (filters.branchId) params.branchId = filters.branchId;
       } 
       // For branch-specific users, get only their branch customers
       else if (user.branchId) {
-        response = await axios.get(`/api/customers/branch/${user.branchId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        endpoint = `customers/branch/${user.branchId}`; // Removed '/api' prefix
       }
       // Handle case where user has no branch assigned but has restaurant
       else if (user.restaurantId) {
-        response = await axios.get(`/api/customers/restaurant/${user.restaurantId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        endpoint = `customers/restaurant/${user.restaurantId}`; // Removed '/api' prefix
       } else {
         throw new Error('No restaurant or branch assigned to current user');
       }
+
+      console.log(`Fetching customers from endpoint: ${endpoint}`);
+      console.log('User info:', { 
+        role: user.role, 
+        userId: user._id, 
+        restaurantId: user.restaurantId, 
+        branchId: user.branchId 
+      });
       
-      setCustomers(response.data);
+      const response = await api.get(endpoint, { params });
+
+      if (response && response.data) {
+        console.log(`Successfully fetched ${response.data.length} customers`);
+        setCustomers(response.data);
+      } else {
+        throw new Error('Invalid response from server');
+      }
     } catch (err) {
       console.error('Error fetching customers:', err);
-      setError(err.response?.data?.message || 'Failed to fetch customers');
+      if (err.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        const errMessage = err.response.data?.message || `Server error: ${err.response.status}`;
+        console.error('Server responded with error:', errMessage);
+        setError(errMessage);
+      } else if (err.request) {
+        // The request was made but no response was received
+        console.error('No response received from server');
+        setError('No response from server. Please check your network connection and ensure the backend server is running.');
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        console.error('Request setup error:', err.message);
+        setError(err.message || 'Failed to fetch customers');
+      }
     } finally {
       setLoading(false);
     }
@@ -65,12 +90,10 @@ export const CustomerProvider = ({ children }) => {
 
   // Get all restaurants (for Super_Admin filtering)
   const getRestaurants = useCallback(async () => {
-    if (user?.role !== 'Super_Admin') return;
+    if (!user?.role || user.role !== 'Super_Admin') return;
     
     try {
-      const response = await axios.get('/api/restaurants', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('restaurants'); // Removed redundant '/api' prefix
       setRestaurants(response.data);
     } catch (err) {
       console.error('Error fetching restaurants:', err);
@@ -79,12 +102,10 @@ export const CustomerProvider = ({ children }) => {
 
   // Get branches for a restaurant (for Super_Admin filtering)
   const getBranchesForRestaurant = useCallback(async (restaurantId) => {
-    if (user?.role !== 'Super_Admin' || !restaurantId) return;
+    if (!user?.role || user.role !== 'Super_Admin' || !restaurantId) return;
     
     try {
-      const response = await axios.get(`/api/branches/restaurant/${restaurantId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get(`branches/restaurant/${restaurantId}`); // Removed redundant '/api' prefix
       setBranches(response.data);
       return response.data;
     } catch (err) {
@@ -100,9 +121,7 @@ export const CustomerProvider = ({ children }) => {
     try {
       // API now uses the authenticated user's restaurantId and branchId,
       // so we don't need to include them in the request
-      const response = await axios.post('/api/customers', customerData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.post('customers', customerData); // Removed redundant '/api' prefix
       
       // Update the customers list with the new customer
       setCustomers(prevCustomers => [...prevCustomers, response.data]);
@@ -122,10 +141,7 @@ export const CustomerProvider = ({ children }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`/api/customers/${customerId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
+      const response = await api.get(`customers/${customerId}`);
       return response.data;
     } catch (err) {
       console.error(`Error fetching customer with ID ${customerId}:`, err);
@@ -141,9 +157,7 @@ export const CustomerProvider = ({ children }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.put(`/api/customers/${customerId}`, customerData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.put(`customers/${customerId}`, customerData);
       
       // Update the customers list with the updated customer
       setCustomers(prevCustomers => 
@@ -167,9 +181,7 @@ export const CustomerProvider = ({ children }) => {
     setLoading(true);
     setError(null);
     try {
-      await axios.delete(`/api/customers/${customerId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`customers/${customerId}`);
       
       // Remove the deleted customer from the list
       setCustomers(prevCustomers => 

@@ -912,7 +912,19 @@ const Tables = () => {
                             </Media>
                           </Media>
                         </td>
-                        <td>₹{parseFloat(menuItem.price).toFixed(2)}</td>
+                        <td>
+                          {menuItem.sizeVariants && menuItem.sizeVariants.length > 0 ? (
+                            <div>
+                              {menuItem.sizeVariants.map((variant, idx) => (
+                                <div key={idx} className="mb-1">
+                                  <span className="text-dark">{variant.name}:</span> ₹{parseFloat(variant.price).toFixed(2)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span>₹{parseFloat(menuItem.price).toFixed(2)}</span>
+                          )}
+                        </td>
                         <td> 
                           {getCategoryNameById(menuItem.categoryId) || "Unknown"}
                         </td>

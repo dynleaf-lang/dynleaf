@@ -11,6 +11,7 @@ import UserManagement from "features/user-management/user.js";
 import TableManagement from "features/table-management/table.js";
 import TableQRCode from "features/table-management/TableQRCode.js";
 import TableDetail from "features/table-management/TableDetail.js";
+import FloorManagement from "features/table-management/FloorManagement.js";
 import TaxManagement from "features/tax-management/TaxManagement.js";
 import CustomerManagement from "features/customer-management/CustomerManagement.js";
 import OrderManagement from "features/order-management/OrderManagement.js";
@@ -122,6 +123,7 @@ var routes = [
     hidden: true, // Hide from sidebar
     roles: ["admin", "Super_Admin", "Branch_Manager"], 
   },
+  
   {
     path: "/icons",
     name: "Icons",

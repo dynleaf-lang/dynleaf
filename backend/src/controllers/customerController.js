@@ -4,34 +4,35 @@ const { v4: uuidv4 } = require('uuid');
 
 // @desc    Get all customers for a restaurant or specific branch
 // @route   GET /api/customers/restaurant/:restaurantId
-// @route   GET /api/customers/branch/:branchId
 // @access  Private
 const getRestaurantCustomers = async (req, res) => {
     try {
         const { restaurantId } = req.params;
         const { user } = req;
-        const { branchId } = req.query; // Added to allow Super_Admin to filter by branch
-
+        
+        console.log(`Fetching customers for restaurant: ${restaurantId} by user: ${user._id} (${user.role})`);
+        
         // Validate restaurantId
         if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+            console.log(`Invalid restaurant ID format: ${restaurantId}`);
             return res.status(400).json({ message: 'Invalid restaurant ID format' });
         }
 
         // Build query based on user role and permissions
         let query = { restaurantId };
         
-        // For Super_Admin, allow optional branch filtering
-        if (user.role === 'Super_Admin' && branchId && mongoose.Types.ObjectId.isValid(branchId)) {
-            query.branchId = branchId;
-        }
         // If user is not Super_Admin and has a specific branchId, restrict to that branch
-        else if (user.role !== 'Super_Admin' && user.branchId) {
+        if (user.role !== 'Super_Admin' && user.branchId) {
             query.branchId = user.branchId;
+            console.log(`Restricting to branch: ${user.branchId} for non-Super_Admin user`);
         }
 
+        console.log('Executing query with:', JSON.stringify(query));
+        
         // Get customers for the restaurant (and possibly branch-specific)
         const customers = await Customer.find(query).sort({ createdAt: -1 });
         
+        console.log(`Found ${customers.length} customers for restaurant ${restaurantId}`);
         res.status(200).json(customers);
     } catch (error) {
         console.error('Error fetching restaurant customers:', error);
@@ -45,21 +46,42 @@ const getRestaurantCustomers = async (req, res) => {
 const getAllCustomers = async (req, res) => {
     try {
         const { user } = req;
-        const { restaurantId, branchId } = req.query; // Allow filtering by restaurant and branch
+        const { restaurantId, branchId, search } = req.query; // Added search parameter
+        
+        console.log(`Fetching all customers with filters - restaurantId: ${restaurantId || 'none'}, branchId: ${branchId || 'none'}, search: ${search || 'none'}`);
 
-        // Only Super_Admin can access this endpoint
-        if (user.role !== 'Super_Admin') {
-            return res.status(403).json({ message: 'Not authorized to access all customers' });
-        }
-
-        // Build query based on optional filters
+        // Build query based on user role and permissions
         let query = {};
-        if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
-            query.restaurantId = restaurantId;
+        
+        if (user.role === 'Super_Admin') {
+            // Super_Admin can filter by any restaurant/branch
+            if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
+                query.restaurantId = restaurantId;
+            }
+            if (branchId && mongoose.Types.ObjectId.isValid(branchId)) {
+                query.branchId = branchId;
+            }
+        } else {
+            // Non-Super_Admin users are restricted to their restaurant
+            query.restaurantId = user.restaurantId;
+            
+            // If user has a branch, restrict to that branch
+            if (user.branchId) {
+                query.branchId = user.branchId;
+            }
         }
-        if (branchId && mongoose.Types.ObjectId.isValid(branchId)) {
-            query.branchId = branchId;
+        
+        // Add search functionality - this is allowed for all roles
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } },
+                { phone: { $regex: search, $options: 'i' } },
+                { customerId: { $regex: search, $options: 'i' } }
+            ];
         }
+
+        console.log('Executing query with:', JSON.stringify(query));
 
         // Get all customers with optional filters
         const customers = await Customer.find(query)
@@ -67,6 +89,7 @@ const getAllCustomers = async (req, res) => {
             .populate('restaurantId', 'name')
             .populate('branchId', 'name');
         
+        console.log(`Found ${customers.length} customers`);
         res.status(200).json(customers);
     } catch (error) {
         console.error('Error fetching all customers:', error);
@@ -81,20 +104,25 @@ const getBranchCustomers = async (req, res) => {
     try {
         const { branchId } = req.params;
         const { user } = req;
+        
+        console.log(`Fetching customers for branch: ${branchId} by user: ${user._id} (${user.role})`);
 
         // Validate branchId
         if (!mongoose.Types.ObjectId.isValid(branchId)) {
+            console.log(`Invalid branch ID format: ${branchId}`);
             return res.status(400).json({ message: 'Invalid branch ID format' });
         }
 
         // Verify user has access to this branch
         if (user.role !== 'Super_Admin' && user.branchId && user.branchId.toString() !== branchId) {
+            console.log(`Permission denied: User ${user._id} attempted to access branch ${branchId} but is assigned to ${user.branchId}`);
             return res.status(403).json({ message: 'You do not have permission to access customers from this branch' });
         }
 
         // Get customers for the specific branch
         const customers = await Customer.find({ branchId }).sort({ createdAt: -1 });
         
+        console.log(`Found ${customers.length} customers for branch ${branchId}`);
         res.status(200).json(customers);
     } catch (error) {
         console.error('Error fetching branch customers:', error);

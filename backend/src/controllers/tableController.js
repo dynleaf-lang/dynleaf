@@ -91,10 +91,27 @@ exports.createTable = async (req, res) => {
 // Get all dining tables for a branch
 exports.getTables = async (req, res) => {
     try {
-        const branchId = req.user.branchId;
-        const { zone, status, isVIP, minCapacity, maxCapacity } = req.query;
+        // Build a flexible query that works with or without branchId
+        const query = {};
         
-        const query = { branchId };
+        // If user has a branchId, use it for filtering
+        if (req.user && req.user.branchId) {
+            query.branchId = req.user.branchId;
+        } else if (req.query.branchId) {
+            // If branchId is provided in query params, use that instead
+            query.branchId = req.query.branchId;
+        }
+        
+        // If user has restaurantId but no branchId, filter by restaurant
+        if (req.user && req.user.restaurantId && !query.branchId) {
+            query.restaurantId = req.user.restaurantId;
+        } else if (req.query.restaurantId && !query.branchId) {
+            // If restaurantId is provided in query params, use that
+            query.restaurantId = req.query.restaurantId;
+        }
+        
+        // Add additional filters if provided
+        const { zone, status, isVIP, minCapacity, maxCapacity } = req.query;
         
         // Add filters if provided
         if (zone) query['location.zone'] = zone;
@@ -108,6 +125,8 @@ exports.getTables = async (req, res) => {
                 query.capacity = { $lte: parseInt(maxCapacity) };
             }
         }
+        
+        console.log('Fetching tables with query:', JSON.stringify(query));
         
         const tables = await DiningTable.find(query)
             .sort({ tableId: 1 })
@@ -624,8 +643,11 @@ exports.updateTablePositions = async (req, res) => {
 exports.assignTableToOrder = async (req, res) => {
     try {
         const tableId = req.params.id;
+        const orderId = req.params.orderId; // Get orderId from URL parameter
         const branchId = req.user.branchId;
-        const { orderId } = req.body;
+        
+        // Log the request for debugging
+        console.log(`Assigning table ${tableId} to order ${orderId} (Branch: ${branchId})`);
         
         if (!orderId) {
             return res.status(400).json({
@@ -643,9 +665,9 @@ exports.assignTableToOrder = async (req, res) => {
         }
         
         // Check if table is available
-        if (table.status !== 'available' && table.status !== 'reserved') {
+        if (table.isOccupied) {
             return res.status(400).json({
-                message: `Table is currently ${table.status} and cannot be assigned to an order`
+                message: 'Table is already occupied and cannot be assigned to another order'
             });
         }
         
@@ -685,10 +707,16 @@ exports.releaseTable = async (req, res) => {
             });
         }
         
-        // Reset table status
+        // Store the previous order ID for logging purposes
+        const previousOrderId = table.currentOrder;
+        
+        // Reset table status and related fields
         table.currentOrder = null;
         table.isOccupied = false;
         table.status = 'available';
+        
+        // Log the table release
+        console.log(`Table ${table.tableId} released from order ${previousOrderId}`);
         
         await table.save();
         

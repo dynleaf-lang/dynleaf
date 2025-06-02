@@ -65,7 +65,7 @@ const CustomerManagement = () => {
 
   // Filter customers when search term or customers list changes
   useEffect(() => {
-    if (customers) {
+    if (customers && Array.isArray(customers)) {
       const filtered = customers.filter(
         customer =>
           (customer.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -74,6 +74,8 @@ const CustomerManagement = () => {
           (customer.address || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
       setFilteredCustomers(filtered);
+    } else {
+      setFilteredCustomers([]);
     }
   }, [searchTerm, customers]);
 

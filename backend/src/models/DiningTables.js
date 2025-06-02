@@ -45,6 +45,11 @@ const diningTableSchema = new mongoose.Schema({
     x: { type: Number, default: 0 },
     y: { type: Number, default: 0 },
     zone: { type: String, default: 'Main' },
+    floor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Floor',
+      default: null
+    }
   },
   shape: {
     type: String,

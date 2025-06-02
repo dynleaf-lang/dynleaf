@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   Modal,
   ModalHeader,
@@ -35,6 +35,18 @@ const ImportMenuItemModal = ({ isOpen, toggle }) => {
   const { user, isSuperAdmin } = useContext(AuthContext);
   const isUserSuperAdmin = isSuperAdmin();
   
+  // Set initial restaurant and branch values for non-superadmin users
+  useEffect(() => {
+    if (!isUserSuperAdmin && user) {
+      if (user.restaurantId) {
+        setSelectedRestaurantId(user.restaurantId);
+      }
+      if (user.branchId) {
+        setSelectedBranchId(user.branchId);
+      }
+    }
+  }, [isUserSuperAdmin, user]);
+  
   // Handle file selection
   const handleFileChange = (e) => {
     if (e.target.files.length > 0) {
@@ -52,8 +64,16 @@ const ImportMenuItemModal = ({ isOpen, toggle }) => {
     setFile(null);
     setLoading(false);
     setResult(null);
-    setSelectedRestaurantId('');
-    setSelectedBranchId('');
+    
+    // Reset to user defaults for non-superadmin, clear for superadmin
+    if (!isUserSuperAdmin && user) {
+      setSelectedRestaurantId(user.restaurantId || '');
+      setSelectedBranchId(user.branchId || '');
+    } else {
+      setSelectedRestaurantId('');
+      setSelectedBranchId('');
+    }
+    
     setOverwriteExisting(false);
     toggle();
   };
@@ -88,8 +108,8 @@ const ImportMenuItemModal = ({ isOpen, toggle }) => {
       else if (user && user.restaurantId) {
         importOptions.restaurantId = user.restaurantId;
         
-        if (selectedBranchId) {
-          importOptions.branchId = selectedBranchId;
+        if (user.branchId || selectedBranchId) {
+          importOptions.branchId = user.branchId || selectedBranchId;
         }
       }
       
@@ -194,27 +214,75 @@ const ImportMenuItemModal = ({ isOpen, toggle }) => {
             </FormGroup>
           )}
           
+          {isUserSuperAdmin && (
+            // For non-superadmin users, show read-only restaurant info if available
+            user && user.restaurantId && (
+              <FormGroup>
+                <Label>Restaurant</Label>
+                <Input
+                  type="text"
+                  value={restaurants.find(r => r._id === user.restaurantId)?.name || 'Your Restaurant'}
+                   
+                  className="bg-light"
+                />
+                <input type="hidden" name="restaurantId" value={user.restaurantId} />
+              </FormGroup>
+            )
+          )}
+           
           <FormGroup>
             <Label for="importBranch">Branch</Label>
-            <Input
-              type="select"
-              name="branchId"
-              id="importBranch"
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              disabled={loading || (isUserSuperAdmin && !selectedRestaurantId)}
-            >
-              <option value="">All Branches</option>
-              {filteredBranches && filteredBranches.map(branch => (
-                <option key={branch._id} value={branch._id}>
-                  {branch.name}
-                </option>
-              ))}
-            </Input>
+            {isUserSuperAdmin ? (
+              <Input
+                type="select"
+                name="branchId"
+                id="importBranch"
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(e.target.value)}
+                disabled={loading || !selectedRestaurantId}
+              >
+                <option value="">All Branches</option>
+                {filteredBranches && filteredBranches.map(branch => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Input>
+            ) : user && user.branchId ? (
+              <>
+                <Input
+                  type="text"
+                  value={branches.find(b => b._id === user.branchId)?.name || 'Your Branch'}
+                  disabled
+                  className="bg-light"
+                />
+                <input type="hidden" name="branchId" value={user.branchId} />
+              </>
+            ) : (
+              <Input
+                type="select"
+                name="branchId"
+                id="importBranch"
+                value={selectedBranchId}
+                onChange={(e) => setSelectedBranchId(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">All Branches</option>
+                {filteredBranches && filteredBranches.map(branch => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </Input>
+            )}
             <FormText color="muted">
-              Optional: Select a specific branch or leave blank for all branches
+              {isUserSuperAdmin ? 
+                'Optional: Select a specific branch or leave blank for all branches' : 
+                user && user.branchId ? 
+                'Menu items will be imported for your branch' :
+                'Optional: Select a specific branch or leave blank for all branches'}
             </FormText>
-          </FormGroup>
+          </FormGroup> 
           
           <FormGroup check className="mb-3">
             <CustomInput

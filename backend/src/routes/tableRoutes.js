@@ -55,7 +55,7 @@ router.route('/:id/reservations/:reservationId/cancel')
     .put(tableController.cancelReservation);
 
 // Order assignment routes
-router.route('/:id/assign-order')
+router.route('/:id/assign-order/:orderId')  // Updated to include orderId parameter
     .put(tableController.assignTableToOrder);
 
 router.route('/:id/release')
