@@ -27,6 +27,7 @@ import { CategoryContext } from "../../context/CategoryContext";
 import { AuthContext } from "../../context/AuthContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
 import { BranchContext } from "../../context/BranchContext";
+import { CurrencyContext } from "../../context/CurrencyContext";
 
 const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     // Get the default restaurant ID and user context
@@ -35,6 +36,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     const { user, isSuperAdmin } = useContext(AuthContext);
     const { restaurants, fetchRestaurants, loading: restaurantsLoading } = useContext(RestaurantContext);
     const { fetchBranchesByRestaurant } = useContext(BranchContext);
+    const { currencySymbol } = useContext(CurrencyContext); // Get currency symbol from context
 
     // Determine if we're in edit mode
     const isEditMode = !!editItem;
@@ -300,12 +302,35 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            console.log("File selected:", file.name, "Size:", file.size, "Type:", file.type);
+            
+            // Validate file type and size before setting
+            if (!file.type.startsWith('image/')) {
+                setErrorMessage("Please select a valid image file");
+                setShowErrorAlert(true);
+                return;
+            }
+            
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                setErrorMessage("Image file size should be less than 5MB");
+                setShowErrorAlert(true);
+                return;
+            }
+            
+            // Create a specific file object with proper properties to ensure it's correctly processed
+            const imageFile = new File([file], file.name, {
+                type: file.type,
+                lastModified: file.lastModified,
+            });
+            
             setMenuItem({ 
                 ...menuItem, 
-                imageFile: file,
+                imageFile: imageFile,
                 // Create a temporary URL for preview
-                imageUrl: URL.createObjectURL(file)
+                imageUrl: URL.createObjectURL(imageFile)
             });
+            
+            console.log("Image file set successfully in state:", imageFile.name);
         }
     };
 
@@ -353,15 +378,30 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         
         // Determine the appropriate restaurantId for the item
         let restaurantId = menuItem.restaurantId;
+
+        // Determine the appropriate branchId for the item
+        let branchId = menuItem.branchId
         
         // For non-Super_Admin users, always use their assigned restaurant
         if (user && !isSuperAdmin() && user.restaurantId) {
             restaurantId = user.restaurantId;
-        }
+        } 
+
         // For Super_Admin without a restaurant specified, use the default
         else if (isSuperAdmin() && !restaurantId) {
             restaurantId = DEFAULT_RESTAURANT_ID;
         }
+
+        // For non-Super_Admin users, always use their assigned branch
+        if (user && !isSuperAdmin() && user.branchId) {
+            branchId = user.branchId;
+        }
+        // For Super_Admin without a branch specified, use the default
+        else if (isSuperAdmin() && !branchId) {
+            branchId = ""; // Super_Admin can leave branch empty to apply to all branches
+        }
+
+
         
         // Clone menuItem to send to parent - ensure categoryId is kept
         const itemToSave = {
@@ -369,11 +409,10 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             price: parsedPrice || 0, // Ensure price is a number, default to 0 if not provided
             restaurantId: restaurantId, // Use the determined restaurantId
             categoryId: menuItem.categoryId, // Always include the category ID - don't override to undefined
-            branchId: menuItem.branchId || undefined,
+            branchId: branchId || undefined,
             sizeVariants: menuItem.sizeVariants || [] // Ensure size variants are included
         };
-        
-        console.log("Form submission - itemToSave:", itemToSave);
+         
         
         try {
             // Handle image upload if there's an image file
@@ -397,6 +436,10 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 
                 // Update success message
                 setSuccessMessage("Image uploaded successfully, saving menu item...");
+            } else {
+                // When no new image file is selected, keep the existing imageUrl
+                // And ensure we're not accidentally sending imageFile: null to the API
+                delete itemToSave.imageFile;
             }
 
             // Call the appropriate API function based on whether we're adding or editing
@@ -518,6 +561,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                      (!category.branchId || String(category.branchId) === String(menuItem.branchId));
                             }
                             
+
                             return restaurantMatch;
                         })
                     ];
@@ -872,7 +916,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                         <Label for="price">Price*</Label>
                                         <InputGroup>
                                             <InputGroupAddon addonType="prepend">
-                                                <InputGroupText>₹</InputGroupText>
+                                                <InputGroupText>{currencySymbol}</InputGroupText>
                                             </InputGroupAddon>
                                             <Input
                                                 type="number"
@@ -1088,7 +1132,7 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                                 <Col xs="5">
                                                     <InputGroup>
                                                         <InputGroupAddon addonType="prepend">
-                                                            <InputGroupText>₹</InputGroupText>
+                                                            <InputGroupText>{currencySymbol}</InputGroupText>
                                                         </InputGroupAddon>
                                                         <Input
                                                             type="number"

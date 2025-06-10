@@ -84,7 +84,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
 // Create a new branch
 router.post('/', authenticateJWT, async (req, res) => {
     try {
-        const { name, address, phone, email, openingHours } = req.body;
+        const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
         
         // Set restaurant ID based on user's context if not Super_Admin
         let restaurantId;
@@ -109,6 +109,9 @@ router.post('/', authenticateJWT, async (req, res) => {
             restaurantId,
             name,
             address,
+            city,
+            postalCode,
+            country,
             phone,
             email,
             openingHours
@@ -138,12 +141,15 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         }
         
         // Get the fields to update
-        const { name, address, phone, email, openingHours } = req.body;
+        const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
         
         // Update the branch
         const updatedBranch = await Branch.findByIdAndUpdate(req.params.id, {
             name,
             address,
+            city,
+            postalCode,
+            country,
             phone,
             email,
             openingHours

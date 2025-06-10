@@ -154,31 +154,112 @@ const MenuProvider = ({ children }) => {
             initializeMenuItems();
         }
     }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Upload image function
+    
+    // Upload image function with improved FormData handling
     const uploadImage = async (imageFile) => {
         try {
-            const formData = new FormData();
-            formData.append('image', imageFile);
-
-            const config = token ? {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                    'Authorization': `Bearer ${token}`
-                }
-            } : {
-                headers: {
-                    'Content-Type': 'multipart/form-data'
-                }
-            };
+            if (!imageFile) {
+                console.error('No file provided to uploadImage function');
+                return { 
+                    success: false, 
+                    error: { message: 'No file to upload' } 
+                };
+            }
             
-            const response = await axios.post(UPLOAD_ENDPOINT, formData, config);
-            return { success: true, data: response.data };
+            console.log("Creating FormData for file upload");
+            const formData = new FormData();
+            
+            // Use 'image' field name to match what the backend expects in uploadRoutes.js
+            formData.append('image', imageFile);
+            
+            // Add extra metadata to help with debugging
+            formData.append('name', imageFile.name.split('.')[0] || 'item');
+            formData.append('timestamp', Date.now().toString());
+            
+            console.log("File details:", {
+                name: imageFile.name,
+                type: imageFile.type,
+                size: `${(imageFile.size / 1024).toFixed(2)} KB`
+            });
+            
+            // IMPORTANT: Do NOT set Content-Type header when uploading files
+            const config = {};
+            
+            // Only add authorization header if we have a token
+            if (token) {
+                config.headers = {
+                    'Authorization': `Bearer ${token}`
+                };
+            }
+            
+            // Log axios request configuration
+            console.log(`Sending request to ${UPLOAD_ENDPOINT}`);
+            console.log("Request config:", JSON.stringify(config));
+            
+            // Use XMLHttpRequest directly for more control over the upload
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.open('POST', UPLOAD_ENDPOINT, true);
+                
+                // Add authorization header if token exists
+                if (token) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                }
+                
+                xhr.onload = function() {
+                    if (this.status >= 200 && this.status < 300) {
+                        try {
+                            const response = JSON.parse(this.response);
+                            console.log("Upload response:", response);
+                            resolve({ success: true, data: response });
+                        } catch (error) {
+                            console.error("Error parsing response:", error);
+                            reject({ 
+                                success: false, 
+                                error: { message: 'Failed to parse server response' } 
+                            });
+                        }
+                    } else {
+                        console.error("Upload failed with status:", this.status);
+                        try {
+                            const errorResponse = JSON.parse(this.response);
+                            reject({ 
+                                success: false, 
+                                error: errorResponse || { message: `Upload failed with status ${this.status}` }
+                            });
+                        } catch (e) {
+                            reject({ 
+                                success: false, 
+                                error: { message: `Upload failed with status ${this.status}` } 
+                            });
+                        }
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    console.error("Network error during upload");
+                    reject({ 
+                        success: false, 
+                        error: { message: 'Network error during upload' } 
+                    });
+                };
+                
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        console.log(`Upload progress: ${percentComplete.toFixed(2)}%`);
+                    }
+                };
+                
+                // Send the FormData object
+                xhr.send(formData);
+            });
         } catch (error) {
-            console.error('Error uploading image:', error);
+            console.error('Error in uploadImage:', error);
             return { 
                 success: false, 
-                error: error.response?.data?.message || error.message 
+                error: { message: error.message || 'Upload failed' } 
             };
         }
     };
@@ -387,7 +468,7 @@ const MenuProvider = ({ children }) => {
             } : {};
             
             // Delete the menu item from the server
-            await axios.delete(`${MENU_ENDPOINT}/${id}`, config);
+            const response = await axios.delete(`${MENU_ENDPOINT}/${id}`, config);
             
             // Delete the image if it exists and is stored on our server
             if (menuItem && menuItem.imageUrl && menuItem.imageUrl.includes('/uploads/')) {
@@ -406,10 +487,29 @@ const MenuProvider = ({ children }) => {
             
             // Update state to remove the item
             setMenuItems((prevItems) => prevItems.filter((item) => item._id !== id));
-            return { success: true };
+            return { success: true, data: response.data };
         } catch (error) {
             console.error('Error deleting menu item:', error);
-            return { success: false, error: error.response?.data || error.message };
+            
+            // Improved access denied error detection
+            if (error.response?.status === 403 || 
+                error.response?.data?.message?.toLowerCase().includes('access denied') ||
+                error.message?.toLowerCase().includes('access denied')) {
+                return { 
+                    success: false, 
+                    error: { 
+                        message: 'Access denied: You do not have permission to delete this menu item.',
+                        accessDenied: true,
+                        details: error.response?.data || error.message
+                    }
+                };
+            }
+            
+            // Handle other error types
+            return { 
+                success: false, 
+                error: error.response?.data || { message: error.message || 'Failed to delete menu item' }
+            };
         }
     };
     

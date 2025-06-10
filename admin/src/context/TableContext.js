@@ -8,6 +8,7 @@ export const TableProvider = ({ children }) => {
   const [tables, setTables] = useState([]);
   const [floors, setFloors] = useState([]);
   const [tableZones, setTableZones] = useState([]);
+  const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { user } = useContext(AuthContext);
@@ -63,6 +64,66 @@ export const TableProvider = ({ children }) => {
   // Alias for getTables to maintain existing code compatibility
   const fetchTables = getTables;
 
+//get all reservations for a restaurant
+  const getReservations = async (restaurantId) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Use restaurantId from params, or fall back to user context
+      const id = restaurantId || user?.restaurantId;
+      if (!id) {
+        console.warn('No restaurant ID available for fetching reservations');
+        return { success: false, message: 'Restaurant ID is required' };
+      }
+      
+      console.log(`Fetching reservations for restaurant ID: ${id}`);
+      const response = await api.get(`/reservations/restaurant/${id}`);
+      
+      // Handle different response formats
+      let reservationsData = [];
+      if (response.data && Array.isArray(response.data)) {
+        reservationsData = response.data;
+      } else if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        reservationsData = response.data.data;
+      } else if (response.data && response.data.reservations && Array.isArray(response.data.reservations)) {
+        reservationsData = response.data.reservations;
+      } else {
+        console.warn('Unexpected response format from reservations API:', response.data);
+        reservationsData = [];
+      }
+      
+      console.log(`Received ${reservationsData.length} reservations from API`);
+      
+      // Add table name to each reservation if missing
+      const processedReservations = reservationsData.map(reservation => {
+        // Ensure each reservation has appropriate fields for display
+        return {
+          ...reservation,
+          tableName: reservation.tableName || 
+                    (reservation.tableId && typeof reservation.tableId === 'object' ? 
+                     reservation.tableId.name || `Table ${reservation.tableId.number}` : 
+                     `Table ${reservation.tableId || 'Unknown'}`),
+          status: reservation.status || 'pending',
+          customerName: reservation.customerName || 'Guest',
+          partySize: reservation.partySize || 1
+        };
+      });
+      
+      // Set the reservations state to make it available to components
+      setReservations(processedReservations);
+
+      return { success: true, reservations: processedReservations };
+    } catch (err) { 
+      console.error('Error fetching reservations:', err);
+      const errorMessage = err.response?.data?.message || 'Failed to fetch reservations';
+      setError(errorMessage); 
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    } 
+  };  
+
+
   // Get all floors for a restaurant
   const getFloors = async (restaurantId) => {
     setLoading(true);
@@ -88,6 +149,8 @@ export const TableProvider = ({ children }) => {
       setLoading(false);
     }
   };
+
+   
 
   // Alias for getFloors
   const fetchFloors = getFloors;
@@ -128,6 +191,8 @@ export const TableProvider = ({ children }) => {
       setLoading(false);
     }
   };
+
+
 
   // Alias for getTableZones
   const fetchTableZones = getTableZones;
@@ -373,20 +438,86 @@ export const TableProvider = ({ children }) => {
       // Build URL with branch ID from user context if available
       let url = '/tables/with-orders';
       
+      // Add query parameters for filtering
+      const queryParams = new URLSearchParams();
+      
+      if (user?.restaurantId) {
+        queryParams.append('restaurantId', user.restaurantId);
+      }
+      
+      if (user?.branchId) {
+        queryParams.append('branchId', user.branchId);
+      }
+      
+      // Append query string if parameters exist
+      if (queryParams.toString()) {
+        url += `?${queryParams.toString()}`;
+      }
+      
+      console.log('DEBUG: Fetching tables from:', url, 'with user context:', { 
+        restaurantId: user?.restaurantId,
+        branchId: user?.branchId,
+        role: user?.role
+      });
+      
       const response = await api.get(url);
       
+      console.log('DEBUG: Raw API response:', response.status, response.statusText);
+      
+      let tablesData = [];
+      
+      // Handle different response formats from the API
       if (response.data && response.data.data) {
-        // Update tables with order information
-        setTables(response.data.data);
-        return { success: true, tables: response.data.data };
+        // Response format: { data: [...tables] }
+        console.log('DEBUG: Response format is { data: [...tables] }');
+        tablesData = response.data.data;
       } else if (response.data && Array.isArray(response.data)) {
-        // Handle case where API returns direct array
-        setTables(response.data);
-        return { success: true, tables: response.data };
+        // Response format: [...tables]
+        console.log('DEBUG: Response format is [...tables]');
+        tablesData = response.data;
       } else {
-        throw new Error('Invalid response format');
+        console.error('DEBUG: Unexpected response format:', response.data);
+        tablesData = [];
       }
+      
+      console.log(`DEBUG: Received ${tablesData.length} tables from API`);
+      if (tablesData.length > 0) {
+        console.log('DEBUG: First table sample:', tablesData[0]);
+      } else {
+        console.log('DEBUG: No tables received from API call');
+      }
+      
+      // Process the tables to ensure consistent status properties
+      const processedTables = tablesData.map(table => {
+        // Create a normalized status field if it doesn't exist
+        if (!table.status) {
+          if (table.currentOrder) {
+            table.status = 'Occupied';
+          } else if (table.isReserved) {
+            table.status = 'Reserved';
+          } else {
+            table.status = 'Available';
+          }
+        }
+        
+        return table;
+      });
+      
+      console.log(`DEBUG: Processed ${processedTables.length} tables`);
+      
+      // Update tables with order information
+      setTables(processedTables);
+      return { success: true, tables: processedTables };
     } catch (err) {
+      console.error('ERROR fetching tables with orders:', err);
+      console.error('Request details:', { 
+        url: '/tables/with-orders', 
+        user: user ? { 
+          restaurantId: user.restaurantId, 
+          branchId: user.branchId,
+          role: user.role 
+        } : 'No user context'
+      });
       const errorMessage = err.response?.data?.message || err.message || 'Failed to fetch tables with orders';
       setError(errorMessage);
       return { success: false, message: errorMessage };
@@ -559,11 +690,31 @@ export const TableProvider = ({ children }) => {
     }
   };
 
+  // Get a single table by ID
+  const getTable = async (tableId) => {
+    if (!tableId) return { success: false, message: 'Table ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await api.get(`/tables/${tableId}`);
+      return { success: true, table: response.data };
+    } catch (err) {
+      const errorMessage = err.response?.data?.message || 'Failed to fetch table details';
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <TableContext.Provider value={{ 
       tables, 
       floors, 
       tableZones,
+      reservations,
       loading, 
       error, 
       getTables, 
@@ -582,13 +733,15 @@ export const TableProvider = ({ children }) => {
       createReservation, 
       updateReservation, 
       cancelReservation, 
+      getReservations,
       findCustomerByPhone, 
       findCustomerByEmail, 
       getCustomers,
       getTablesWithOrders,
       assignTableToOrder,
       releaseTable,
-      updateTablePositions
+      updateTablePositions,
+      getTable
     }}>
       {children}
     </TableContext.Provider>

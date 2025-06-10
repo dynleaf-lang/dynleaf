@@ -20,6 +20,7 @@ import { TableProvider } from "./context/TableContext";
 import { TaxProvider } from "./context/TaxContext";
 import { CustomerProvider } from "./context/CustomerContext";
 import { OrderProvider } from "./context/OrderContext";
+import { CurrencyProvider } from "./context/CurrencyContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // This component synchronizes verification status across the app
@@ -65,19 +66,21 @@ root.render(
                 <TaxProvider>
                   <CustomerProvider>
                     <OrderProvider>
-                      <BrowserRouter>
-                        <VerificationStatusSynchronizer />
-                        <Routes>
-                          <Route path="/admin/*" element={
-                            <ProtectedRoute>
-                              <AdminLayout />
-                            </ProtectedRoute>
-                          } />
-                          <Route path="/auth/*" element={<AuthLayout />} />
-                          <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
-                          <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
-                        </Routes>
-                      </BrowserRouter>
+                      <CurrencyProvider>
+                        <BrowserRouter>
+                          <VerificationStatusSynchronizer />
+                          <Routes>
+                            <Route path="/admin/*" element={
+                              <ProtectedRoute>
+                                <AdminLayout />
+                              </ProtectedRoute>
+                            } />
+                            <Route path="/auth/*" element={<AuthLayout />} />
+                            <Route path="/" element={<Navigate to="/auth/login" replace />} /> {/* Redirect to login page by default */}
+                            <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
+                          </Routes>
+                        </BrowserRouter>
+                      </CurrencyProvider>
                     </OrderProvider>
                   </CustomerProvider>
                 </TaxProvider>

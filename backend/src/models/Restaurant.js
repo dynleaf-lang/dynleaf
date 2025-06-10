@@ -10,6 +10,19 @@ const restaurantSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    city: {
+        type: String,
+        required: true,
+    },
+    postalCode: {
+        type: String,
+        required: false,
+    },
+    country: {
+        type: String,
+        required: true,
+        default: 'US',
+    },
     phone: {
         type: String,
         required: true,
@@ -18,11 +31,6 @@ const restaurantSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-    },
-    country: {
-        type: String,
-        required: true,
-        default: 'US',
     },
     openingHours: {
         type: String,

@@ -35,6 +35,7 @@ import {
 } from 'reactstrap';
 import { useOrder } from '../../context/OrderContext';
 import { AuthContext } from '../../context/AuthContext';
+import { formatCurrencyByCountry } from '../../utils/currencyUtils';
 import Header from '../../components/Headers/Header';
 import { 
   FaSearch, 
@@ -95,11 +96,12 @@ const OrderManagement = () => {
   const [activeTab, setActiveTab] = useState('all');
 
   const {
-    orders,
+    orders: rawOrders,
     loading,
     error,
     restaurants,
     branches,
+    countryCode,
     getAllOrders,
     getRestaurants,
     getBranchesForRestaurant,
@@ -107,6 +109,9 @@ const OrderManagement = () => {
     deleteOrder,
     generateInvoice
   } = useOrder();
+
+  // Ensure orders is always an array to prevent "orders.filter is not a function" error
+  const orders = Array.isArray(rawOrders) ? rawOrders : [];
 
   const { user } = useContext(AuthContext);
 
@@ -297,10 +302,7 @@ const OrderManagement = () => {
 
   // Format currency
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
+    return formatCurrencyByCountry(amount, countryCode);
   };
   
   // Get the title based on user role and branch assignment
@@ -404,7 +406,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('pending')}
                     >
                       <Badge color="warning" pill className="mr-1">
-                        {orders.filter(o => o.orderStatus === 'Pending').length}
+                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Pending').length : 0}
                       </Badge>
                       Pending
                     </NavLink>
@@ -415,7 +417,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('processing')}
                     >
                       <Badge color="primary" pill className="mr-1">
-                        {orders.filter(o => o.orderStatus === 'Processing').length}
+                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Processing').length : 0}
                       </Badge>
                       Processing
                     </NavLink>
@@ -426,7 +428,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('completed')}
                     >
                       <Badge color="success" pill className="mr-1">
-                        {orders.filter(o => o.orderStatus === 'Completed').length}
+                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Completed').length : 0}
                       </Badge>
                       Completed
                     </NavLink>
@@ -437,7 +439,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('cancelled')}
                     >
                       <Badge color="danger" pill className="mr-1">
-                        {orders.filter(o => o.orderStatus === 'Cancelled').length}
+                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Cancelled').length : 0}
                       </Badge>
                       Cancelled
                     </NavLink>

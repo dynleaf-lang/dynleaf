@@ -24,7 +24,8 @@ import {
   FormGroup,
   Label,
   Input,
-  Col
+  Col,
+  FormFeedback
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
@@ -33,6 +34,7 @@ import { BranchContext } from "../../context/BranchContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
 import { AuthContext } from "../../context/AuthContext";
 import { useParams, useNavigate } from "react-router-dom";
+import { countries } from "../../utils/countryList"; // Import countries list
 
 const BranchManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
@@ -42,7 +44,7 @@ const BranchManagement = () => {
   const { restaurantId } = useParams(); // Get restaurant ID from URL params
   const navigate = useNavigate(); // For navigation
   
-const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin function
+  const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin function
    
   // Filter state
   const [selectedRestaurantId, setSelectedRestaurantId] = useState(restaurantId || '');
@@ -53,10 +55,16 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
     restaurantId: restaurantId || '',
     name: '',
     address: '',
+    city: '',
+    postalCode: '',
+    country: '',
     phone: '',
     email: '',
     openingHours: ''
   });
+  
+  // Form validation errors
+  const [formErrors, setFormErrors] = useState({});
   
   // Current restaurant name
   const [currentRestaurantName, setCurrentRestaurantName] = useState('');
@@ -105,11 +113,15 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
   const handleCloseModal = () => {
     setModalOpen(false);
     setCurrentEditItem(null);
+    setFormErrors({});
     // Reset form data
     setFormData({
       restaurantId: restaurantId || selectedRestaurantId || '',
       name: '',
       address: '',
+      city: '',
+      postalCode: '',
+      country: '',
       phone: '',
       email: '',
       openingHours: ''
@@ -129,6 +141,9 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
       restaurantId: branch.restaurantId || '',
       name: branch.name || '',
       address: branch.address || '',
+      city: branch.city || '',
+      postalCode: branch.postalCode || '',
+      country: branch.country || '',
       phone: branch.phone || '',
       email: branch.email || '',
       openingHours: branch.openingHours || ''
@@ -143,24 +158,60 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
       ...formData,
       [name]: value
     });
+    
+    // Clear error when user starts typing
+    if (formErrors[name]) {
+      setFormErrors({
+        ...formErrors,
+        [name]: ''
+      });
+    }
+  };
+  
+  // Function to validate form
+  const validateForm = () => {
+    const errors = {};
+    const requiredFields = ['name', 'address', 'city', 'country', 'phone', 'email', 'openingHours'];
+    
+    requiredFields.forEach(field => {
+      if (!formData[field]) {
+        errors[field] = `${field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1')} is required`;
+      }
+    });
+    
+    // Email validation
+    if (formData.email && !/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    // Restaurant validation
+    if (!formData.restaurantId) {
+      errors.restaurantId = 'Please select a restaurant';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
   
   // Function to handle saving a branch
   const handleSaveBranch = async () => {
-    // Validate form data
-    if (!formData.name || !formData.address || !formData.phone || !formData.email || !formData.openingHours) {  
-      alert("Please fill in all fields.");
+    if (!validateForm()) {
       return;
     }
-    if (currentEditItem) {
-      // Update existing branch
-      await updateBranch(currentEditItem._id, formData);
-    } else {
-      // Create new branch
-      await createBranch(formData);
-    }
     
-    handleCloseModal();
+    try {
+      if (currentEditItem) {
+        // Update existing branch
+        await updateBranch(currentEditItem._id, formData);
+      } else {
+        // Create new branch
+        await createBranch(formData);
+      }
+      
+      handleCloseModal();
+    } catch (err) {
+      console.error('Error saving branch:', err);
+    }
   };
 
   // Find restaurant name by ID
@@ -187,26 +238,26 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
     }
   };
 
-    // Only Super_Admin should be able to access this page
-    if (!isSuperAdmin()) {
-      return (
-        <Container className="mt-5">
-          <Row className="justify-content-center">
-            <div className="col-lg-6">
-              <Card className="shadow border-0">
-                <CardHeader className="bg-transparent">
-                  <h3 className="text-center">Access Denied</h3>
-                </CardHeader>
-                <div className="card-body text-center">
-                  <p>You do not have permission to view this page.</p>
-                  <p>Only users with the Super_Admin role can access Restaurant Management.</p>
-                </div>
-              </Card>
-            </div>
-          </Row>
-        </Container>
-      );
-    }
+  // Only Super_Admin should be able to access this page
+  if (!isSuperAdmin()) {
+    return (
+      <Container className="mt-5">
+        <Row className="justify-content-center">
+          <div className="col-lg-6">
+            <Card className="shadow border-0">
+              <CardHeader className="bg-transparent">
+                <h3 className="text-center">Access Denied</h3>
+              </CardHeader>
+              <div className="card-body text-center">
+                <p>You do not have permission to view this page.</p>
+                <p>Only users with the Super_Admin role can access Restaurant Management.</p>
+              </div>
+            </Card>
+          </div>
+        </Row>
+      </Container>
+    );
+  }
 
   return (
     <>
@@ -263,6 +314,7 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                   <tr>
                     <th scope="col">Branch Name</th> 
                     <th scope="col">Address</th>
+                    <th scope="col">City/Country</th>
                     <th scope="col">Phone</th>
                     <th scope="col">Email</th>
                     <th scope="col">Opening Hours</th>
@@ -292,6 +344,11 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                           </span>
                         </td> 
                         <td>{branch.address}</td>
+                        <td>
+                          {branch.city && branch.country ? `${branch.city}, ${branch.country}` : 
+                           branch.city ? branch.city : 
+                           branch.country ? branch.country : '-'}
+                        </td>
                         <td>{branch.phone}</td>
                         <td>{branch.email}</td>
                         <td>{branch.openingHours}</td>
@@ -354,6 +411,11 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                           </span>
                         </td>
                         <td>{branch.address}</td>
+                        <td>
+                          {branch.city && branch.country ? `${branch.city}, ${branch.country}` : 
+                           branch.city ? branch.city : 
+                           branch.country ? branch.country : '-'}
+                        </td>
                         <td>{branch.phone}</td>
                         <td>{branch.email}</td>
                         <td>{branch.openingHours}</td>
@@ -478,6 +540,7 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                   value={formData.restaurantId}
                   onChange={handleInputChange}
                   required
+                  invalid={!!formErrors.restaurantId}
                 >
                   <option value="">Select Restaurant</option>
                   {restaurants.map(restaurant => (
@@ -487,6 +550,7 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                   ))}
                 </Input>
               )}
+              {formErrors.restaurantId && <FormFeedback>{formErrors.restaurantId}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="name">Branch Name</Label>
@@ -498,7 +562,9 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 value={formData.name}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.name}
               />
+              {formErrors.name && <FormFeedback>{formErrors.name}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="address">Address</Label>
@@ -510,7 +576,60 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 value={formData.address}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.address}
               />
+              {formErrors.address && <FormFeedback>{formErrors.address}</FormFeedback>}
+            </FormGroup>
+            <Row>
+              <Col md={6}>
+                <FormGroup>
+                  <Label for="city">City</Label>
+                  <Input
+                    type="text"
+                    name="city"
+                    id="city"
+                    placeholder="City"
+                    value={formData.city}
+                    onChange={handleInputChange}
+                    required
+                    invalid={!!formErrors.city}
+                  />
+                  {formErrors.city && <FormFeedback>{formErrors.city}</FormFeedback>}
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label for="postalCode">Postal Code</Label>
+                  <Input
+                    type="text"
+                    name="postalCode"
+                    id="postalCode"
+                    placeholder="Postal Code"
+                    value={formData.postalCode}
+                    onChange={handleInputChange}
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+            <FormGroup>
+              <Label for="country">Country</Label>
+              <Input
+                type="select"
+                name="country"
+                id="country"
+                value={formData.country}
+                onChange={handleInputChange}
+                required
+                invalid={!!formErrors.country}
+              >
+                <option value="">Select Country</option>
+                {countries.map((country) => (
+                  <option key={country.code} value={country.name}>
+                    {country.name}
+                  </option>
+                ))}
+              </Input>
+              {formErrors.country && <FormFeedback>{formErrors.country}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="phone">Phone</Label>
@@ -522,7 +641,9 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 value={formData.phone}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.phone}
               />
+              {formErrors.phone && <FormFeedback>{formErrors.phone}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="email">Email</Label>
@@ -534,7 +655,9 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 value={formData.email}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.email}
               />
+              {formErrors.email && <FormFeedback>{formErrors.email}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="openingHours">Opening Hours</Label>
@@ -546,7 +669,9 @@ const { isSuperAdmin } = useContext(AuthContext); // Access isSuperAdmin functio
                 value={formData.openingHours}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.openingHours}
               />
+              {formErrors.openingHours && <FormFeedback>{formErrors.openingHours}</FormFeedback>}
             </FormGroup>
           </Form>
         </ModalBody>

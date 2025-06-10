@@ -23,7 +23,8 @@ import {
   Form,
   FormGroup,
   Label,
-  Input
+  Input,
+  FormFeedback
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
@@ -31,6 +32,7 @@ import { useContext, useState, useEffect } from "react";
 import { RestaurantContext } from "../../context/RestaurantContext";
 import { AuthContext } from "../../context/AuthContext"; // Import AuthContext
 import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { countries } from "../../utils/countryList"; // Import countries list
 
 const RestaurantManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
@@ -43,10 +45,15 @@ const RestaurantManagement = () => {
   const [formData, setFormData] = useState({
     name: '',
     address: '',
+    city: '',
+    postalCode: '',
+    country: '',
     phone: '',
     email: '',
     openingHours: ''
   });
+
+  const [formErrors, setFormErrors] = useState({});
 
   // Navigate to branches view for a specific restaurant
   const handleRestaurantClick = (restaurantId) => {
@@ -62,10 +69,14 @@ const RestaurantManagement = () => {
   const handleCloseModal = () => {
     setModalOpen(false);
     setCurrentEditItem(null);
+    setFormErrors({});
     // Reset form data
     setFormData({
       name: '',
       address: '',
+      city: '',
+      postalCode: '',
+      country: '',
       phone: '',
       email: '',
       openingHours: ''
@@ -78,6 +89,9 @@ const RestaurantManagement = () => {
     setFormData({
       name: restaurant.name || '',
       address: restaurant.address || '',
+      city: restaurant.city || '',
+      postalCode: restaurant.postalCode || '',
+      country: restaurant.country || '',
       phone: restaurant.phone || '',
       email: restaurant.email || '',
       openingHours: restaurant.openingHours || ''
@@ -92,14 +106,42 @@ const RestaurantManagement = () => {
       ...formData,
       [name]: value
     });
+    
+    // Clear error when user starts typing
+    if (formErrors[name]) {
+      setFormErrors({
+        ...formErrors,
+        [name]: ''
+      });
+    }
+  };
+  
+  // Function to validate form
+  const validateForm = () => {
+    const errors = {};
+    const requiredFields = ['name', 'address', 'city', 'country', 'phone', 'email', 'openingHours'];
+    
+    requiredFields.forEach(field => {
+      if (!formData[field]) {
+        errors[field] = `${field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1')} is required`;
+      }
+    });
+    
+    // Email validation
+    if (formData.email && !/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
   
   // Function to handle saving a restaurant
   const handleSaveRestaurant = async () => { 
-    if (!formData.name || !formData.address || !formData.phone || !formData.email || !formData.openingHours) {
-      alert("Please fill in all fields.");
+    if (!validateForm()) {
       return;
     }
+    
     try {
       if (currentEditItem) {
         // Update existing restaurant
@@ -305,7 +347,9 @@ const RestaurantManagement = () => {
                 value={formData.name}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.name}
               />
+              {formErrors.name && <FormFeedback>{formErrors.name}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="address">Address</Label>
@@ -317,7 +361,54 @@ const RestaurantManagement = () => {
                 value={formData.address}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.address}
               />
+              {formErrors.address && <FormFeedback>{formErrors.address}</FormFeedback>}
+            </FormGroup>
+            <FormGroup>
+              <Label for="city">City</Label>
+              <Input
+                type="text"
+                name="city"
+                id="city"
+                placeholder="City"
+                value={formData.city}
+                onChange={handleInputChange}
+                required
+                invalid={!!formErrors.city}
+              />
+              {formErrors.city && <FormFeedback>{formErrors.city}</FormFeedback>}
+            </FormGroup>
+            <FormGroup>
+              <Label for="postalCode">Postal Code</Label>
+              <Input
+                type="text"
+                name="postalCode"
+                id="postalCode"
+                placeholder="Postal Code"
+                value={formData.postalCode}
+                onChange={handleInputChange}
+              />
+            </FormGroup>
+            <FormGroup>
+              <Label for="country">Country</Label>
+              <Input
+                type="select"
+                name="country"
+                id="country"
+                value={formData.country}
+                onChange={handleInputChange}
+                required
+                invalid={!!formErrors.country}
+              >
+                <option value="">Select Country</option>
+                {countries.map((country) => (
+                  <option key={country.code} value={country.name}>
+                    {country.name}
+                  </option>
+                ))}
+              </Input>
+              {formErrors.country && <FormFeedback>{formErrors.country}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="phone">Phone</Label>
@@ -329,7 +420,9 @@ const RestaurantManagement = () => {
                 value={formData.phone}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.phone}
               />
+              {formErrors.phone && <FormFeedback>{formErrors.phone}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="email">Email</Label>
@@ -341,7 +434,9 @@ const RestaurantManagement = () => {
                 value={formData.email}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.email}
               />
+              {formErrors.email && <FormFeedback>{formErrors.email}</FormFeedback>}
             </FormGroup>
             <FormGroup>
               <Label for="openingHours">Opening Hours</Label>
@@ -353,7 +448,9 @@ const RestaurantManagement = () => {
                 value={formData.openingHours}
                 onChange={handleInputChange}
                 required
+                invalid={!!formErrors.openingHours}
               />
+              {formErrors.openingHours && <FormFeedback>{formErrors.openingHours}</FormFeedback>}
             </FormGroup>
           </Form>
         </ModalBody>

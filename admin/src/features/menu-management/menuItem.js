@@ -33,7 +33,8 @@ import { MenuContext } from "../../context/MenuContext";
 import { CategoryContext } from "../../context/CategoryContext";  
 import { AuthContext } from "../../context/AuthContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
-import { BranchContext } from "../../context/BranchContext";
+import { BranchContext } from "../../context/BranchContext";  
+import CurrencyDisplay from "../../components/Utils/CurrencyDisplay";
 
 const Tables = () => {
   // Modal states
@@ -79,11 +80,16 @@ const Tables = () => {
       ? branches.filter(branch => branch.restaurantId === selectedRestaurantId)
       : branches;
   }, [branches, selectedRestaurantId]);
+ 
+  
   
   // Add local state to manage filtered results
   const [filteredMenuItems, setFilteredMenuItems] = useState([]);
   const [useLocalFilter, setUseLocalFilter] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  
+  // Access denied error state
+  const [accessDeniedError, setAccessDeniedError] = useState(null);
   
   // Update derived state - use either context menu items or locally filtered items
   const displayedMenuItems = useMemo(() => {
@@ -787,6 +793,21 @@ const Tables = () => {
                 </Alert>
               )}
               
+              {accessDeniedError && (
+                <Alert color="danger" className="m-3">
+                  <i className="fas fa-exclamation-triangle mr-2"></i>
+                  {accessDeniedError}
+                  <Button 
+                    color="link" 
+                    className="alert-link ml-2" 
+                    size="sm"
+                    onClick={() => setAccessDeniedError(null)}
+                  >
+                    Close
+                  </Button>
+                </Alert>
+              )}
+              
               <Table className="align-items-center table-flush" responsive>
                 <thead className="thead-light">
                   <tr>
@@ -917,12 +938,12 @@ const Tables = () => {
                             <div>
                               {menuItem.sizeVariants.map((variant, idx) => (
                                 <div key={idx} className="mb-1">
-                                  <span className="text-dark">{variant.name}:</span> ₹{parseFloat(variant.price).toFixed(2)}
+                                  <span className="text-dark">{variant.name}:</span> <CurrencyDisplay amount={variant.price} />
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <span>₹{parseFloat(menuItem.price).toFixed(2)}</span>
+                            <CurrencyDisplay amount={menuItem.price} />
                           )}
                         </td>
                         <td> 
@@ -976,7 +997,14 @@ const Tables = () => {
                               <DropdownItem  
                                 onClick={() => {
                                   if (window.confirm("Are you sure you want to delete this menu item?")) {
-                                    deleteMenuItem(menuItem._id).then(() => {
+                                    deleteMenuItem(menuItem._id).then((result) => {
+                                      // Check for access denied error
+                                      if (!result.success && result.error?.accessDenied) {
+                                        // Show access denied error using alert
+                                        setAccessDeniedError(result.error.message);
+                                        return;
+                                      }
+                                      
                                       // If item was selected, remove from selection
                                       if (selectedItems.includes(menuItem._id)) {
                                         setSelectedItems(prev => 

@@ -108,6 +108,29 @@ export const BranchProvider = ({ children }) => {
         }
     };
 
+    const getBranches = async () => {
+        setLoading(true);
+        setError(null);
+        try {   
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                }
+            };  
+            const response = await axios.get('/api/branches', config);
+            setBranches(response.data);
+            return response.data;
+        } catch (err) {
+            console.error('Error fetching branches:', err);
+            setError(err.response?.data?.message || 'Failed to fetch branches');
+            return [];
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
     const getBranch = async (id) => {
         setLoading(true);
         setError(null);
@@ -211,6 +234,7 @@ export const BranchProvider = ({ children }) => {
             fetchBranches,
             fetchBranchesByRestaurant,
             getBranch,
+            getBranches,
             fetchBranchById: getBranch, // Alias for getBranch function
             createBranch,
             updateBranch,

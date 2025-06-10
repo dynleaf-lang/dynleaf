@@ -10,6 +10,12 @@ export const RestaurantProvider = ({ children }) => {
     const [error, setError] = useState(null);
     const { token } = useContext(AuthContext);
     
+    // Pagination state
+    const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(10);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);
+    
     // Use environment variable for API base URL
     const API_URL = process.env.REACT_APP_BASE_API_URL || 'http://localhost:5001/api';
     
@@ -28,6 +34,7 @@ export const RestaurantProvider = ({ children }) => {
         );
     }, [API_URL]);
 
+    // Original function that fetches all restaurants (keeping for backward compatibility)
     const fetchRestaurants = async () => {
         if (!token) {
             setError('Authentication required. Please log in.');
@@ -66,6 +73,63 @@ export const RestaurantProvider = ({ children }) => {
                 console.error('Error message:', err.message);
                 setError(`Failed to fetch restaurants: ${err.message}`);
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // New function for paginated restaurant fetching
+    const getRestaurants = async (pageNumber = 1, pageLimit = 10) => {
+        if (!token) {
+            setError('Authentication required. Please log in.');
+            return;
+        }
+        
+        setLoading(true);
+        setError(null);
+        try { 
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                params: {
+                    page: pageNumber,
+                    limit: pageLimit
+                }
+            };
+            
+            const response = await axios.get('/api/restaurants', config);
+            
+            // Check if the response has pagination metadata
+            if (response.data.restaurants && response.data.pagination) {
+                setRestaurants(response.data.restaurants);
+                setTotalPages(response.data.pagination.totalPages);
+                setTotalCount(response.data.pagination.totalCount);
+                setPage(pageNumber);
+                setLimit(pageLimit);
+            } else {
+                // Fallback for backward compatibility if endpoint doesn't support pagination yet
+                setRestaurants(response.data);
+            }
+            
+            return response.data;
+        } catch (err) {
+            console.error('Error fetching restaurants:', err);
+            
+            if (err.response) {
+                console.error('Response data:', err.response.data);
+                console.error('Response status:', err.response.status);
+                setError(`Failed to fetch restaurants: ${err.response.status} - ${err.response.data.message || 'Server error'}`);
+            } else if (err.request) {
+                console.error('No response received:', err.request);
+                setError('Failed to fetch restaurants: No response from server');
+            } else {
+                console.error('Error message:', err.message);
+                setError(`Failed to fetch restaurants: ${err.message}`);
+            }
+            
+            return null;
         } finally {
             setLoading(false);
         }
@@ -183,7 +247,7 @@ export const RestaurantProvider = ({ children }) => {
     // Load restaurants when the component mounts or token changes
     useEffect(() => {
         if (token) {
-            fetchRestaurants();
+            getRestaurants();
         } else {
             setRestaurants([]);
         }
@@ -199,7 +263,13 @@ export const RestaurantProvider = ({ children }) => {
             fetchRestaurantById: getRestaurant, // Alias for getRestaurant
             createRestaurant,
             updateRestaurant,
-            deleteRestaurant
+            deleteRestaurant,
+            // Pagination methods
+            page,
+            limit,
+            totalPages,
+            totalCount,
+            getRestaurants
         }}>
             {children}
         </RestaurantContext.Provider>

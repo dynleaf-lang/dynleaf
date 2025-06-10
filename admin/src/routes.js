@@ -15,6 +15,7 @@ import FloorManagement from "features/table-management/FloorManagement.js";
 import TaxManagement from "features/tax-management/TaxManagement.js";
 import CustomerManagement from "features/customer-management/CustomerManagement.js";
 import OrderManagement from "features/order-management/OrderManagement.js";
+import OrderReports from "features/order-management/OrderReports.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -82,6 +83,14 @@ var routes = [
     component: <OrderManagement />,
     layout: "/admin",
     roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"],
+  },
+  {
+    path: "/reports",
+    name: "Order Reports",
+    icon: "ni ni-chart-bar-32 text-purple",
+    component: <OrderReports />,
+    layout: "/admin",
+    roles: ["Branch_Manager", "Super_Admin"],
   },
   {
     path: "/customer-management",

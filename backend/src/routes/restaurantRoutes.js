@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Restaurant = require('../models/Restaurant'); 
+const Branch = require('../models/Branches'); 
 
 // Get all restaurants 
 router.get('/', async (req, res) => {
@@ -23,12 +24,25 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// Get branches for a specific restaurant
+router.get('/:restaurantId/branches', async (req, res) => {
+    try {
+        const branches = await Branch.find({ restaurantId: req.params.restaurantId });
+        res.json(branches);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // Create a new restaurant
 router.post('/', async (req, res) => {
-    const { name, address, phone, email, openingHours } = req.body;
+    const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
     const restaurant = new Restaurant({
         name,
         address,
+        city,
+        postalCode,
+        country,
         phone,
         email,
         openingHours
@@ -43,11 +57,14 @@ router.post('/', async (req, res) => {
 
 // Update a restaurant
 router.put('/:id', async (req, res) => {
-    const { name, address, phone, email, openingHours } = req.body;
+    const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
     try {
         const restaurant = await Restaurant.findByIdAndUpdate(req.params.id, {
             name,
             address,
+            city,
+            postalCode,
+            country,
             phone,
             email,
             openingHours

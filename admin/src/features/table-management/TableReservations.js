@@ -57,9 +57,10 @@ const TableReservations = ({ tableId, tableName }) => {
     cancelReservation,
     findCustomerByPhone,
     findCustomerByEmail,
-    getCustomers
+    getCustomers,
+    getTable
   } = useContext(TableContext);
-  const { customers } = useContext(CustomerContext);
+  const { customers, createCustomer } = useContext(CustomerContext);
   
   // State for reservations data
   const [reservations, setReservations] = useState([]);
@@ -75,7 +76,9 @@ const TableReservations = ({ tableId, tableName }) => {
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
   const [localError, setLocalError] = useState(null);
   const [localSuccess, setLocalSuccess] = useState(null);
-
+  const [tableCapacity, setTableCapacity] = useState(null); // Added for table capacity
+ 
+ 
   // Form state
   const [formData, setFormData] = useState({
     customerName: '',
@@ -96,6 +99,29 @@ const TableReservations = ({ tableId, tableName }) => {
   useEffect(() => {
     fetchReservations();
   }, [tableId, selectedDate]);
+  
+  // Fetch table details to get capacity
+  useEffect(() => {
+    const fetchTableDetails = async () => {
+      if (!tableId) return;
+      
+      try {
+        const result = await getTable(tableId);
+        if (result.success && result.table) {  
+          setTableCapacity(result.table?.data?.capacity);
+        } else {
+          console.log('Could not fetch table capacity:', result.message);
+          // Don't show error to user, just continue without capacity validation
+        }
+      } catch (err) {
+        console.error('Error fetching table details:', err);
+        // Don't show error to user, just continue without capacity validation
+      }
+    };
+    
+    fetchTableDetails();
+    // Only depend on tableId, not on the getTable function
+  }, [tableId]);
 
   // Generate time slots
   useEffect(() => {
@@ -134,8 +160,17 @@ const TableReservations = ({ tableId, tableName }) => {
 
   // Filter reservations based on status
   const filteredReservations = useMemo(() => {
-    if (statusFilter === 'all') return reservations;
-    return reservations.filter(res => res.status === statusFilter);
+    // Start with filtering out cancelled reservations unless specifically viewing cancelled ones
+    let filtered = statusFilter === 'cancelled' 
+      ? reservations.filter(res => res.status === 'cancelled')
+      : reservations.filter(res => res.status !== 'cancelled');
+    
+    // Then apply additional status filter if needed
+    if (statusFilter !== 'all' && statusFilter !== 'cancelled') {
+      filtered = filtered.filter(res => res.status === statusFilter);
+    }
+    
+    return filtered;
   }, [reservations, statusFilter]);
 
   // Open the reservation form modal
@@ -352,6 +387,8 @@ const TableReservations = ({ tableId, tableName }) => {
     
     if (!formData.partySize || Number(formData.partySize) <= 0) {
       errors.partySize = 'Valid party size is required';
+    } else if (tableCapacity && Number(formData.partySize) > tableCapacity) {
+      errors.partySize = `Party size exceeds table capacity (max: ${tableCapacity})`;
     }
     
     if (formData.customerEmail && !/^\S+@\S+\.\S+$/.test(formData.customerEmail)) {
@@ -436,6 +473,46 @@ const TableReservations = ({ tableId, tableName }) => {
     reservationData.endTime = endTime.toISOString();
     
     try {
+      // First check if this is a new customer and save them to the customer database
+      if (!isEditMode && formData.customerName && (formData.customerPhone || formData.customerEmail)) {
+        // Check if customer already exists with this phone or email
+        let customerExists = false;
+        
+        if (formData.customerPhone) {
+          const result = await findCustomerByPhone(formData.customerPhone);
+          if (result.success && result.customers && result.customers.length > 0) {
+            customerExists = true;
+          }
+        }
+        
+        if (!customerExists && formData.customerEmail) {
+          const result = await findCustomerByEmail(formData.customerEmail);
+          if (result.success && result.customers && result.customers.length > 0) {
+            customerExists = true;
+          }
+        }
+        
+        // If customer does not exist, create a new customer record
+        if (!customerExists) {
+          try {
+            const customerData = {
+              name: formData.customerName,
+              phone: formData.customerPhone,
+              email: formData.customerEmail
+            };
+            
+            // Create new customer in the database
+            await createCustomer(customerData);
+            console.log("New customer created:", formData.customerName);
+            // No need to show a message to the user as they're just trying to make a reservation
+          } catch (err) {
+            console.error("Failed to create customer:", err);
+            // Continue with reservation even if customer creation fails
+          }
+        }
+      }
+      
+      // Now create or update the reservation
       let result;
       
       if (isEditMode && currentReservation) {
@@ -489,10 +566,17 @@ const TableReservations = ({ tableId, tableName }) => {
       const result = await cancelReservation(tableId, reservationId);
       
       if (result.success) {
-        // Then update status to mark as deleted in our UI
-        setReservations(reservations.filter(r => r._id !== reservationId));
+        // Immediately remove from local state to update UI
+        setReservations(currentReservations => 
+          currentReservations.filter(r => r._id !== reservationId)
+        );
         setLocalSuccess('Reservation deleted successfully');
-        fetchReservations(); // Refresh the reservations list
+        
+        // Cancel the API refresh to avoid the deleted reservation from reappearing
+        // if the backend hasn't fully processed the deletion yet
+        setTimeout(() => {
+          fetchReservations();
+        }, 1000); // Increase timeout to give backend time to process
       } else {
         setLocalError(result.message || 'Failed to delete reservation');
       }
@@ -739,7 +823,7 @@ const TableReservations = ({ tableId, tableName }) => {
                             </Button>
                           )}
                           
-                          {reservation.status !== 'noShow' && (
+                          {/* {reservation.status !== 'noShow' && (
                             <Button
                               color="dark"
                               size="sm"
@@ -749,7 +833,7 @@ const TableReservations = ({ tableId, tableName }) => {
                             >
                               <i className="fas fa-user-slash"></i>
                             </Button>
-                          )}
+                          )} */}
                           
                           <Button
                             color="danger"
@@ -830,7 +914,9 @@ const TableReservations = ({ tableId, tableName }) => {
               </Col>
               <Col md="4">
                 <FormGroup>
-                  <Label for="partySize">Party Size *</Label>
+                  <Label for="partySize">
+                    Party Size * {tableCapacity && <small className="text-muted">(Max: {tableCapacity})</small>}
+                  </Label>
                   <InputGroup>
                     <Input
                       type="number"
@@ -841,6 +927,7 @@ const TableReservations = ({ tableId, tableName }) => {
                       invalid={!!formErrors.partySize}
                       placeholder="Number of guests"
                       min="1"
+                      max={tableCapacity || undefined}
                     />
                     <InputGroupAddon addonType="append">
                       <InputGroupText>
@@ -907,7 +994,7 @@ const TableReservations = ({ tableId, tableName }) => {
             </Row>
             
             <Row>
-              <Col md="5">
+              <Col md="3">
                 <FormGroup>
                   <Label for="date">Date *</Label>
                   <ReactDatePicker
@@ -943,7 +1030,7 @@ const TableReservations = ({ tableId, tableName }) => {
                   )}
                 </FormGroup>
               </Col>
-              <Col md="4">
+              <Col md="3">
                 <FormGroup>
                   <Label for="duration">Duration (minutes) *</Label>
                   <Input

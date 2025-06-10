@@ -448,10 +448,21 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
         const menuItem = await MenuItem.findById(req.params.id);
         if (!menuItem) return res.status(404).json({ message: 'Menu item not found' });
         
+        // Convert IDs to strings for proper comparison
+        const userRestaurantIdStr = req.user.restaurantId ? req.user.restaurantId.toString() : '';
+        const menuItemRestaurantIdStr = menuItem.restaurantId ? menuItem.restaurantId.toString() : '';
+        
         // Check if user has permission to delete this item
-        if (req.user.role !== 'Super_Admin' && 
-            (!req.user.restaurantId || menuItem.restaurantId !== req.user.restaurantId)) {
+        // Allow both Super_Admin and Branch_Manager roles to delete menu items
+        if (req.user.role !== 'Super_Admin' && req.user.role !== 'Branch_Manager' && 
+            (!userRestaurantIdStr || menuItemRestaurantIdStr !== userRestaurantIdStr)) {
             return res.status(403).json({ message: 'Access denied to delete this menu item' });
+        }
+        
+        // If user is Branch_Manager, ensure they can only delete items from their own restaurant
+        if (req.user.role === 'Branch_Manager' && 
+            (!userRestaurantIdStr || menuItemRestaurantIdStr !== userRestaurantIdStr)) {
+            return res.status(403).json({ message: 'Access denied: Branch managers can only delete menu items from their own restaurant' });
         }
         
         await MenuItem.findByIdAndDelete(req.params.id);

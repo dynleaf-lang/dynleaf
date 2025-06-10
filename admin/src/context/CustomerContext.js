@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
 import api from '../utils/api';
@@ -13,8 +13,25 @@ export const CustomerProvider = ({ children }) => {
   const [branches, setBranches] = useState([]);
   const { token, user } = useContext(AuthContext);
   
+  // Create refs to store the latest versions of functions to prevent unnecessary rerenders
+  const customersRef = useRef(customers);
+  const loadingRef = useRef(loading);
+  const errorRef = useRef(error);
+  
+  // Update refs when state changes
+  useEffect(() => {
+    customersRef.current = customers;
+    loadingRef.current = loading;
+    errorRef.current = error;
+  }, [customers, loading, error]);
+  
   // Get all customers for the current user's restaurant/branch
   const getAllCustomers = useCallback(async (filters = {}) => {
+    // Skip if we already have customers and no filters are provided
+    if (customersRef.current.length > 0 && Object.keys(filters).length === 0) {
+      return customersRef.current;
+    }
+    
     setLoading(true);
     setError(null);
     try {
@@ -31,97 +48,81 @@ export const CustomerProvider = ({ children }) => {
       
       // For Super_Admin with no filters, get all customers
       if (user.role === 'Super_Admin' && !filters.restaurantId && !filters.branchId) {
-        endpoint = 'customers'; // Removed '/api' prefix as it's added by the API utility
+        endpoint = 'customers';
       }
       // For Super_Admin with filters, get filtered customers
       else if (user.role === 'Super_Admin' && (filters.restaurantId || filters.branchId)) {
-        endpoint = 'customers'; // Removed '/api' prefix as it's added by the API utility
+        endpoint = 'customers';
         if (filters.restaurantId) params.restaurantId = filters.restaurantId;
         if (filters.branchId) params.branchId = filters.branchId;
       } 
       // For branch-specific users, get only their branch customers
       else if (user.branchId) {
-        endpoint = `customers/branch/${user.branchId}`; // Removed '/api' prefix
+        endpoint = `customers/branch/${user.branchId}`;
       }
       // Handle case where user has no branch assigned but has restaurant
       else if (user.restaurantId) {
-        endpoint = `customers/restaurant/${user.restaurantId}`; // Removed '/api' prefix
+        endpoint = `customers/restaurant/${user.restaurantId}`;
       } else {
         throw new Error('No restaurant or branch assigned to current user');
       }
 
       console.log(`Fetching customers from endpoint: ${endpoint}`);
-      console.log('User info:', { 
-        role: user.role, 
-        userId: user._id, 
-        restaurantId: user.restaurantId, 
-        branchId: user.branchId 
-      });
       
       const response = await api.get(endpoint, { params });
 
       if (response && response.data) {
         console.log(`Successfully fetched ${response.data.length} customers`);
         setCustomers(response.data);
+        return response.data;
       } else {
         throw new Error('Invalid response from server');
       }
     } catch (err) {
       console.error('Error fetching customers:', err);
-      if (err.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        const errMessage = err.response.data?.message || `Server error: ${err.response.status}`;
-        console.error('Server responded with error:', errMessage);
-        setError(errMessage);
-      } else if (err.request) {
-        // The request was made but no response was received
-        console.error('No response received from server');
-        setError('No response from server. Please check your network connection and ensure the backend server is running.');
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        console.error('Request setup error:', err.message);
-        setError(err.message || 'Failed to fetch customers');
-      }
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch customers';
+      setError(errorMsg);
+      return [];
     } finally {
       setLoading(false);
     }
-  }, [token, user]);
+  }, [token, user]); // Remove unnecessary dependencies
 
   // Get all restaurants (for Super_Admin filtering)
   const getRestaurants = useCallback(async () => {
     if (!user?.role || user.role !== 'Super_Admin') return;
     
     try {
-      const response = await api.get('restaurants'); // Removed redundant '/api' prefix
+      const response = await api.get('restaurants');
       setRestaurants(response.data);
+      return response.data;
     } catch (err) {
       console.error('Error fetching restaurants:', err);
+      return [];
     }
-  }, [token, user]);
+  }, [user?.role]);
 
   // Get branches for a restaurant (for Super_Admin filtering)
   const getBranchesForRestaurant = useCallback(async (restaurantId) => {
-    if (!user?.role || user.role !== 'Super_Admin' || !restaurantId) return;
+    if (!user?.role || user.role !== 'Super_Admin' || !restaurantId) return [];
     
     try {
-      const response = await api.get(`branches/restaurant/${restaurantId}`); // Removed redundant '/api' prefix
+      const response = await api.get(`branches/restaurant/${restaurantId}`);
       setBranches(response.data);
       return response.data;
     } catch (err) {
       console.error('Error fetching branches:', err);
       setBranches([]);
+      return [];
     }
-  }, [token, user]);
+  }, [user?.role]);
 
   // Create a new customer
   const createCustomer = useCallback(async (customerData) => {
     setLoading(true);
     setError(null);
     try {
-      // API now uses the authenticated user's restaurantId and branchId,
-      // so we don't need to include them in the request
-      const response = await api.post('customers', customerData); // Removed redundant '/api' prefix
+      const response = await api.post('customers', customerData);
       
       // Update the customers list with the new customer
       setCustomers(prevCustomers => [...prevCustomers, response.data]);
@@ -134,7 +135,7 @@ export const CustomerProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   // Get a specific customer by ID
   const getCustomerById = useCallback(async (customerId) => {
@@ -150,7 +151,7 @@ export const CustomerProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   // Update an existing customer
   const updateCustomer = useCallback(async (customerId, customerData) => {
@@ -174,7 +175,7 @@ export const CustomerProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   // Delete a customer
   const deleteCustomer = useCallback(async (customerId) => {
@@ -196,21 +197,25 @@ export const CustomerProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
-  // Initialize by fetching customers if the context is newly mounted
+  // Load initial data when component mounts
   useEffect(() => {
     if (token && user) {
-      getAllCustomers();
+      // Only load data if we don't already have customers
+      if (customers.length === 0) {
+        getAllCustomers();
+      }
       
       // For Super_Admin, also fetch restaurants for filtering
-      if (user.role === 'Super_Admin') {
+      if (user.role === 'Super_Admin' && restaurants.length === 0) {
         getRestaurants();
       }
     }
-  }, [token, user, getAllCustomers, getRestaurants]);
+  }, [token, user, getAllCustomers, getRestaurants, customers.length, restaurants.length]);
 
-  const contextValue = {
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
     customers,
     loading,
     error,
@@ -223,7 +228,20 @@ export const CustomerProvider = ({ children }) => {
     getCustomerById,
     updateCustomer,
     deleteCustomer
-  };
+  }), [
+    customers,
+    loading,
+    error,
+    restaurants,
+    branches,
+    getAllCustomers,
+    getRestaurants,
+    getBranchesForRestaurant,
+    createCustomer,
+    getCustomerById,
+    updateCustomer,
+    deleteCustomer
+  ]);
 
   return (
     <CustomerContext.Provider value={contextValue}>
