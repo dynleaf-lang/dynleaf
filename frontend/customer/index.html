@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrderEase | Premium Food Ordering</title>
+    <!-- Google Fonts - Premium Selection -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!-- Add custom styles -->
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: 'Inter', 'Outfit', sans-serif;
+        background-color: #F8FAFC;
+        color: #1E293B;
+        line-height: 1.5;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      
+      #root {
+        min-height: 100vh;
+      }
+
+      h1, h2, h3, h4, h5, h6 {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        line-height: 1.2;
+        font-weight: 600;
+      }
+
+      /* Replace Clash Display with Plus Jakarta Sans, a modern alternative */
+      @font-face {
+        font-family: 'Clash Display';
+        src: local('Plus Jakarta Sans');
+        font-weight: 400 900;
+        font-display: swap;
+        font-style: normal;
+      }
+      
+      /* Fallback font declaration */
+      .clash-display {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 8px;
+      }
+      
+      ::-webkit-scrollbar-thumb {
+        background: #E03151;
+        border-radius: 8px;
+        transition: background 0.2s ease;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background: #C41E3A;
+      }
+      
+      /* Selection styling */
+      ::selection {
+        background-color: rgba(224, 49, 81, 0.1);
+        color: #E03151;
+      }
+
+      /* Premium loading & transition effects */
+      @keyframes shimmer {
+        0% {
+          background-position: -468px 0;
+        }
+        100% {
+          background-position: 468px 0;
+        }
+      }
+
+      .shimmer {
+        background: #f6f7f8;
+        background-image: linear-gradient(
+          to right,
+          #f6f7f8 0%,
+          #edeef1 20%,
+          #f6f7f8 40%,
+          #f6f7f8 100%
+        );
+        background-repeat: no-repeat;
+        background-size: 800px 104px;
+        display: inline-block;
+        position: relative;
+        animation-duration: 1.5s;
+        animation-fill-mode: forwards;
+        animation-iteration-count: infinite;
+        animation-name: shimmer;
+        animation-timing-function: linear;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
