@@ -8,37 +8,430 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
   const { addToCart } = useCart();
   const [showOptions, setShowOptions] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState({});
+  const [quantity, setQuantity] = useState(1);
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [activeTab, setActiveTab] = useState("size");
 
   // Handle adding product to cart
   const handleAddToCart = () => {
-    if (product.options && product.options.length > 0) {
-      // If product has options, show options modal
+    if (
+      product.options?.length > 0 ||
+      product.sizes?.length > 0 ||
+      product.extras?.length > 0 ||
+      product.addons?.length > 0
+    ) {
+      // If product has customization options, show options modal
       setShowOptions(true);
     } else {
       // If no options, add directly to cart
-      addToCart(product, 1, []);
+      addToCart(product, quantity, []);
     }
   };
 
   // Handle option selection
-  const handleOptionChange = (optionName, value) => {
+  const handleOptionChange = (category, optionName, value) => {
     setSelectedOptions((prev) => ({
       ...prev,
-      [optionName]: value,
+      [category]: {
+        ...prev[category],
+        [optionName]: value,
+      },
     }));
   };
 
   // Add to cart with selected options
   const handleAddWithOptions = () => {
-    const options = Object.entries(selectedOptions).map(([name, value]) => ({
-      name,
-      value,
-    }));
+    const formattedOptions = [];
 
-    addToCart(product, 1, options);
+    // Format all selected options from different categories
+    Object.entries(selectedOptions).forEach(([category, options]) => {
+      Object.entries(options).forEach(([name, value]) => {
+        if (Array.isArray(value)) {
+          value.forEach((val) => {
+            formattedOptions.push({ category, name, value: val });
+          });
+        } else if (value) {
+          formattedOptions.push({ category, name, value });
+        }
+      });
+    });
+
+    // Add special instructions if any
+    if (specialInstructions.trim()) {
+      formattedOptions.push({
+        category: "instructions",
+        name: "Special Instructions",
+        value: specialInstructions,
+      });
+    }
+
+    addToCart(product, quantity, formattedOptions);
     setShowOptions(false);
     setSelectedOptions({});
+    setQuantity(1);
+    setSpecialInstructions("");
+    setActiveTab("size");
   };
+
+  // Increase quantity
+  const handleIncreaseQuantity = () => {
+    setQuantity((prev) => prev + 1);
+  };
+
+  // Decrease quantity
+  const handleDecreaseQuantity = () => {
+    if (quantity > 1) {
+      setQuantity((prev) => prev - 1);
+    }
+  };
+
+  // Calculate total price including selected options
+  const calculateTotalPrice = () => {
+    let total = product.price * quantity;
+
+    // Add prices from all selected options
+    Object.entries(selectedOptions).forEach(([category, options]) => {
+      Object.entries(options).forEach(([name, value]) => {
+        if (Array.isArray(value)) {
+          // For multi-select options
+          value.forEach((val) => {
+            const optionGroup = getOptionGroupByCategory(category);
+            if (optionGroup) {
+              const option = optionGroup.values.find(
+                (opt) => opt.value === val
+              );
+              if (option && option.price) {
+                total += option.price * quantity;
+              }
+            }
+          });
+        } else {
+          // For single-select options
+          const optionGroup = getOptionGroupByCategory(category);
+          if (optionGroup) {
+            const option = optionGroup.values.find(
+              (opt) => opt.value === value
+            );
+            if (option && option.price) {
+              total += option.price * quantity;
+            }
+          }
+        }
+      });
+    });
+
+    return total.toFixed(2);
+  };
+
+  // Helper function to get option group by category
+  const getOptionGroupByCategory = (category) => {
+    switch (category) {
+      case "size":
+        return product.sizes ? { values: product.sizes } : null;
+      case "extras":
+        return product.extras ? { values: product.extras } : null;
+      case "addons":
+        return product.addons ? { values: product.addons } : null;
+      case "options":
+        return product.options ? { values: product.options } : null;
+      default:
+        return null;
+    }
+  };
+
+  // Render option groups based on activeTab
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case "size":
+        return renderOptionSection(
+          "size",
+          "Choose Size",
+          product.sizes || [],
+          false
+        );
+      case "extras":
+        return renderOptionSection(
+          "extras",
+          "Select Extras",
+          product.extras || [],
+          true
+        );
+      case "addons":
+        return renderOptionSection(
+          "addons",
+          "Add Ons",
+          product.addons || [],
+          true
+        );
+      case "options":
+        return (
+          <div className="options-container">
+            {product.options &&
+              product.options.map((optionGroup, index) =>
+                renderOptionGroup(optionGroup, index)
+              )}
+          </div>
+        );
+      case "instructions":
+        return (
+          <div style={{ marginBottom: "16px" }}>
+            <p
+              style={{
+                fontWeight: "bold",
+                margin: "0 0 8px 0",
+                fontSize: "16px",
+              }}
+            >
+              Special Instructions
+            </p>
+            <textarea
+              placeholder="Add special instructions here... (optional)"
+              value={specialInstructions}
+              onChange={(e) => setSpecialInstructions(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: theme.borderRadius.md,
+                border: `1px solid ${theme.colors.border}`,
+                minHeight: "100px",
+                resize: "vertical",
+              }}
+            />
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Render option section (size, extras, addons)
+  const renderOptionSection = (category, title, options, multiple) => {
+    if (!options || options.length === 0) {
+      return (
+        <div style={{ padding: "12px 0" }}>
+          <p>No {title.toLowerCase()} available for this item.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ marginBottom: "16px" }}>
+        <p
+          style={{
+            fontWeight: "bold",
+            margin: "0 0 8px 0",
+            fontSize: "16px",
+          }}
+        >
+          {title}
+          {category === "size" && (
+            <span style={{ color: theme.colors.danger }}>{` *`}</span>
+          )}
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          {options.map((option, idx) => (
+            <label
+              key={idx}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "12px",
+                border: `1px solid ${
+                  multiple
+                    ? theme.colors.border
+                    : selectedOptions[category]?.[title] === option.value
+                    ? theme.colors.primary
+                    : theme.colors.border
+                }`,
+                borderRadius: theme.borderRadius.md,
+                cursor: "pointer",
+                backgroundColor: multiple
+                  ? "white"
+                  : selectedOptions[category]?.[title] === option.value
+                  ? `${theme.colors.primaryLight}`
+                  : "white",
+              }}
+            >
+              <input
+                type={multiple ? "checkbox" : "radio"}
+                name={`${category}-${title}`}
+                value={option.value}
+                checked={
+                  multiple
+                    ? (selectedOptions[category]?.[title] || []).includes(
+                        option.value
+                      )
+                    : selectedOptions[category]?.[title] === option.value
+                }
+                onChange={() => {
+                  if (multiple) {
+                    const current = selectedOptions[category]?.[title] || [];
+                    const newValues = current.includes(option.value)
+                      ? current.filter((v) => v !== option.value)
+                      : [...current, option.value];
+
+                    handleOptionChange(category, title, newValues);
+                  } else {
+                    handleOptionChange(category, title, option.value);
+                  }
+                }}
+                style={{ marginRight: "8px" }}
+              />
+
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: theme.typography.fontWeights.medium }}>
+                  {option.value}
+                </span>
+                {option.description && (
+                  <p
+                    style={{
+                      margin: "2px 0 0 0",
+                      fontSize: theme.typography.sizes.xs,
+                      color: theme.colors.text.secondary,
+                    }}
+                  >
+                    {option.description}
+                  </p>
+                )}
+              </div>
+
+              {option.price > 0 && (
+                <span
+                  style={{
+                    color: theme.colors.secondary,
+                    fontWeight: "bold",
+                  }}
+                >
+                  +${option.price.toFixed(2)}
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render a regular option group
+  const renderOptionGroup = (optionGroup, index) => (
+    <div key={index} style={{ marginBottom: "16px" }}>
+      <p
+        style={{
+          fontWeight: "bold",
+          margin: "0 0 8px 0",
+          fontSize: "16px",
+        }}
+      >
+        {optionGroup.name}
+        {optionGroup.required && (
+          <span style={{ color: theme.colors.danger }}>{` *`}</span>
+        )}
+      </p>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+        }}
+      >
+        {optionGroup.values.map((option, optIdx) => (
+          <label
+            key={optIdx}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "12px",
+              border: `1px solid ${theme.colors.border}`,
+              borderRadius: theme.borderRadius.md,
+              cursor: "pointer",
+              backgroundColor: "white",
+            }}
+          >
+            <input
+              type={optionGroup.multiple ? "checkbox" : "radio"}
+              name={optionGroup.name}
+              value={option.value}
+              checked={
+                optionGroup.multiple
+                  ? (selectedOptions.options?.[optionGroup.name] || []).includes(
+                      option.value
+                    )
+                  : selectedOptions.options?.[optionGroup.name] === option.value
+              }
+              onChange={() => {
+                if (optionGroup.multiple) {
+                  const current = selectedOptions.options?.[optionGroup.name] || [];
+                  const newValues = current.includes(option.value)
+                    ? current.filter((v) => v !== option.value)
+                    : [...current, option.value];
+
+                  handleOptionChange("options", optionGroup.name, newValues);
+                } else {
+                  handleOptionChange("options", optionGroup.name, option.value);
+                }
+              }}
+              style={{ marginRight: "8px" }}
+            />
+
+            <div style={{ flex: 1 }}>
+              <span style={{ fontWeight: theme.typography.fontWeights.medium }}>
+                {option.value}
+              </span>
+              {option.description && (
+                <p
+                  style={{
+                    margin: "2px 0 0 0",
+                    fontSize: theme.typography.sizes.xs,
+                    color: theme.colors.text.secondary,
+                  }}
+                >
+                  {option.description}
+                </p>
+              )}
+            </div>
+
+            {option.price > 0 && (
+              <span
+                style={{
+                  color: theme.colors.secondary,
+                  fontWeight: "bold",
+                }}
+              >
+                +${option.price.toFixed(2)}
+              </span>
+            )}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Define tabs for the modal
+  const tabs = [
+    { id: "size", label: "Size", icon: "straighten" },
+    { id: "extras", label: "Extras", icon: "add_circle" },
+    { id: "addons", label: "Add-ons", icon: "lunch_dining" },
+    { id: "options", label: "Options", icon: "tune" },
+    { id: "instructions", label: "Instructions", icon: "edit_note" },
+  ];
+
+  // Show only tabs that have content
+  const availableTabs = tabs.filter((tab) => {
+    if (tab.id === "size") return product.sizes?.length > 0;
+    if (tab.id === "extras") return product.extras?.length > 0;
+    if (tab.id === "addons") return product.addons?.length > 0;
+    if (tab.id === "options") return product.options?.length > 0;
+    if (tab.id === "instructions") return true; // Always show instructions
+    return false;
+  });
 
   return (
     <>
@@ -246,7 +639,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         </div>
       </motion.article>
 
-      {/* Product Options Modal */}
+      {/* Improved Product Options Modal */}
       <AnimatePresence>
         {showOptions && (
           <>
@@ -270,142 +663,292 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
             />
 
             <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.8, opacity: 0 }}
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
               style={{
                 position: "fixed",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
+                bottom: 0,
+                left: 0,
+                right: 0,
                 backgroundColor: "white",
                 zIndex: 1001,
-                borderRadius: theme.borderRadius.lg,
-                padding: "24px",
-                width: "90%",
-                maxWidth: "400px",
-                maxHeight: "80vh",
+                borderTopLeftRadius: theme.borderRadius.xl,
+                borderTopRightRadius: theme.borderRadius.xl,
+                maxHeight: "85vh",
                 overflowY: "auto",
+                boxShadow: theme.shadows.xl,
               }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <h3 style={{ margin: "0 0 16px 0" }}>
-                {product.title} - Options
-              </h3>
-
-              {product.options &&
-                product.options.map((optionGroup, index) => (
-                  <div key={index} style={{ marginBottom: "16px" }}>
-                    <p
+              {/* Modal Header */}
+              <div
+                style={{
+                  padding: "20px 24px",
+                  borderBottom: `1px solid ${theme.colors.border}`,
+                  position: "sticky",
+                  top: 0,
+                  backgroundColor: "white",
+                  zIndex: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "64px",
+                      height: "64px",
+                      borderRadius: theme.borderRadius.lg,
+                      overflow: "hidden",
+                      backgroundColor: theme.colors.background,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <img
+                      src={product.image}
+                      alt={product.title}
                       style={{
-                        fontWeight: "bold",
-                        margin: "0 0 8px 0",
-                        fontSize: "16px",
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <h3
+                      style={{
+                        margin: "0 0 4px 0",
+                        fontWeight: theme.typography.fontWeights.bold,
+                        fontSize: theme.typography.sizes.xl,
                       }}
                     >
-                      {optionGroup.name}
-                      {optionGroup.required && (
-                        <span
-                          style={{ color: theme.colors.danger }}
-                        >{` *`}</span>
-                      )}
+                      {product.title}
+                    </h3>
+                    <p
+                      style={{
+                        margin: 0,
+                        color: theme.colors.text.secondary,
+                        fontSize: theme.typography.sizes.sm,
+                      }}
+                    >
+                      {product.subtitle}
                     </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowOptions(false)}
+                  style={{
+                    backgroundColor: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "8px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  aria-label="Close"
+                >
+                  <span className="material-icons" style={{ fontSize: "24px" }}>
+                    close
+                  </span>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div style={{ padding: "0 24px" }}>
+                {/* Navigation Tabs */}
+                {availableTabs.length > 1 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      overflowX: "auto",
+                      gap: "8px",
+                      padding: "16px 0",
+                      borderBottom: `1px solid ${theme.colors.border}`,
+                      position: "sticky",
+                      top: "105px",
+                      backgroundColor: "white",
+                      zIndex: 5,
+                    }}
+                  >
+                    {availableTabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          padding: "10px 16px",
+                          backgroundColor:
+                            activeTab === tab.id
+                              ? theme.colors.primaryLight
+                              : "transparent",
+                          border: "none",
+                          borderRadius: theme.borderRadius.lg,
+                          cursor: "pointer",
+                          color:
+                            activeTab === tab.id
+                              ? theme.colors.primary
+                              : theme.colors.text.secondary,
+                          fontWeight:
+                            activeTab === tab.id
+                              ? theme.typography.fontWeights.bold
+                              : theme.typography.fontWeights.medium,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span
+                          className="material-icons"
+                          style={{
+                            fontSize: "20px",
+                            marginBottom: "4px",
+                          }}
+                        >
+                          {tab.icon}
+                        </span>
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tab Content */}
+                <div style={{ padding: "16px 0" }}>{renderTabContent()}</div>
+              </div>
+
+              {/* Quantity and Add to Cart Section */}
+              <div
+                style={{
+                  padding: "16px 24px",
+                  borderTop: `1px solid ${theme.colors.border}`,
+                  position: "sticky",
+                  bottom: 0,
+                  backgroundColor: "white",
+                  zIndex: 10,
+                }}
+              >
+                {/* Quantity Selector */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "16px",
+                    }}
+                  >
+                    <p style={{ margin: 0, fontWeight: "bold" }}>Quantity</p>
 
                     <div
                       style={{
                         display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
+                        alignItems: "center",
+                        border: `1px solid ${theme.colors.border}`,
+                        borderRadius: theme.borderRadius.md,
+                        overflow: "hidden",
                       }}
                     >
-                      {optionGroup.values.map((option, optIdx) => (
-                        <label
-                          key={optIdx}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            padding: "8px",
-                            border: `1px solid ${theme.colors.border}`,
-                            borderRadius: theme.borderRadius.md,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type={optionGroup.multiple ? "checkbox" : "radio"}
-                            name={optionGroup.name}
-                            value={option.value}
-                            checked={
-                              optionGroup.multiple
-                                ? (selectedOptions[optionGroup.name] || []).includes(
-                                    option.value
-                                  )
-                                : selectedOptions[optionGroup.name] === option.value
-                            }
-                            onChange={() => {
-                              if (optionGroup.multiple) {
-                                const current = selectedOptions[optionGroup.name] || [];
-                                const newValues = current.includes(option.value)
-                                  ? current.filter((v) => v !== option.value)
-                                  : [...current, option.value];
+                      <button
+                        onClick={handleDecreaseQuantity}
+                        disabled={quantity <= 1}
+                        style={{
+                          width: "36px",
+                          height: "36px",
+                          backgroundColor: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: theme.colors.text.primary,
+                          opacity: quantity <= 1 ? 0.5 : 1,
+                        }}
+                      >
+                        <span className="material-icons">remove</span>
+                      </button>
 
-                                handleOptionChange(optionGroup.name, newValues);
-                              } else {
-                                handleOptionChange(optionGroup.name, option.value);
-                              }
-                            }}
-                            style={{ marginRight: "8px" }}
-                          />
-                          <span>{option.value}</span>
-                          {option.price > 0 && (
-                            <span
-                              style={{
-                                marginLeft: "auto",
-                                color: theme.colors.primary,
-                                fontWeight: "bold",
-                              }}
-                            >
-                              +${option.price.toFixed(2)}
-                            </span>
-                          )}
-                        </label>
-                      ))}
+                      <div
+                        style={{
+                          width: "48px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {quantity}
+                      </div>
+
+                      <button
+                        onClick={handleIncreaseQuantity}
+                        style={{
+                          width: "36px",
+                          height: "36px",
+                          backgroundColor: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color : theme.colors.text.primary,
+                        }}
+                      >
+                        <span className="material-icons">add</span>
+                      </button>
                     </div>
                   </div>
-                ))}
 
-              <div
-                style={{
-                  marginTop: "24px",
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: "12px",
-                }}
-              >
-                <button
-                  onClick={() => setShowOptions(false)}
-                  style={{
-                    padding: "10px 16px",
-                    border: `1px solid ${theme.colors.border}`,
-                    borderRadius: theme.borderRadius.md,
-                    backgroundColor: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
+                  <div
+                    style={{
+                      fontWeight: theme.typography.fontWeights.bold,
+                      fontSize: theme.typography.sizes.lg,
+                      color: theme.colors.secondary,
+                    }}
+                  >
+                    ${calculateTotalPrice()}
+                  </div>
+                </div>
 
+                {/* Add to Cart Button */}
                 <button
                   onClick={handleAddWithOptions}
                   style={{
-                    padding: "10px 24px",
+                    width: "100%",
+                    padding: "14px",
                     backgroundColor: theme.colors.primary,
                     color: "white",
                     border: "none",
                     borderRadius: theme.borderRadius.md,
                     fontWeight: "bold",
+                    fontSize: theme.typography.sizes.md,
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
                   }}
                 >
-                  Add to Cart
+                  <span className="material-icons">shopping_cart</span>
+                  Add to Cart - ${calculateTotalPrice()}
                 </button>
               </div>
             </motion.div>

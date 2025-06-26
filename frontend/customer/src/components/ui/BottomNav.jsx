@@ -1,8 +1,40 @@
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { theme } from "../../data/theme";
+import { useCart } from "../../context/CartContext";
 
-const BottomNav = ({ activeTab = "menu", onTabChange }) => {
+// Loading indicator component
+const LoadingIndicator = ({ size = "small" }) => {
+  const sizes = {
+    small: { width: 16, height: 16, borderWidth: 1.5 },
+    medium: { width: 24, height: 24, borderWidth: 2 },
+    large: { width: 32, height: 32, borderWidth: 3 }
+  };
+  
+  const { width, height, borderWidth } = sizes[size];
+  
+  return (
+    <div
+      style={{
+        width: `${width}px`,
+        height: `${height}px`,
+        borderRadius: '50%',
+        border: `${borderWidth}px solid rgba(0,0,0,0.1)`,
+        borderTopColor: theme.colors.primary,
+        animation: 'spin 1s linear infinite',
+      }}
+    />
+  );
+};
+
+const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
+  const { cartItems } = useCart();
+  const [loadingTab, setLoadingTab] = useState(null);
+  const [error, setError] = useState(null);
+
+  // Calculate the cart items count for badge
+  const cartItemsCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+
   const navItems = [
     {
       id: "menu",
@@ -18,7 +50,8 @@ const BottomNav = ({ activeTab = "menu", onTabChange }) => {
       id: "cart",
       icon: "shopping_cart",
       label: "Cart",
-      badge: true
+      badge: cartItemsCount > 0,
+      badgeCount: cartItemsCount
     },
     {
       id: "orders",
@@ -32,80 +65,207 @@ const BottomNav = ({ activeTab = "menu", onTabChange }) => {
     }
   ];
 
-  const handleTabClick = (tabId) => {
-    if (onTabChange) {
-      onTabChange(tabId);
+  const handleTabClick = async (tabId) => {
+    // Create a subtle vibration for physical feedback on mobile devices
+    if ('vibrate' in navigator) {
+      navigator.vibrate(5);
+    }
+    
+    // If tab is cart, directly open the cart modal
+    if (tabId === 'cart') {
+      if (onOpenCart) onOpenCart();
+      return;
+    }
+    
+    // Show loading indicator for the clicked tab
+    setLoadingTab(tabId);
+    setError(null);
+    
+    try {
+      // Simulate a small delay to show loading state (remove in production)
+      if (process.env.NODE_ENV !== 'production') {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      if (onTabChange) {
+        onTabChange(tabId);
+      }
+    } catch (err) {
+      console.error(`Error navigating to ${tabId}:`, err);
+      setError({ tab: tabId, message: "Navigation failed" });
+    } finally {
+      setLoadingTab(null);
     }
   };
 
+  // Animation variants
+  const tabVariants = {
+    active: {
+      scale: 1.05,
+      transition: {
+        type: "spring",
+        stiffness: 500,
+        damping: 30
+      }
+    },
+    inactive: {
+      scale: 1
+    }
+  };
+
+  // Style for error indicator
+  const errorStyle = {
+    position: 'absolute',
+    bottom: '-5px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: '5px',
+    height: '5px',
+    borderRadius: '50%',
+    backgroundColor: theme.colors.danger
+  };
+
   return (
-    <nav style={{
+    <nav className="bottom-navigation" style={{
       position: "fixed",
       bottom: 0,
       left: 0,
       right: 0,
       backgroundColor: "#FFFFFF",
-      boxShadow: "0 -2px 10px rgba(0,0,0,0.1)",
+      boxShadow: "0 -4px 10px rgba(0,0,0,0.07)",
       zIndex: 1000,
-      padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
-      borderTopLeftRadius: theme.borderRadius.lg,
-      borderTopRightRadius: theme.borderRadius.lg
+      padding: `${theme.spacing.sm} ${theme.spacing.sm}`,
+      borderTopLeftRadius: theme.borderRadius.xl,
+      borderTopRightRadius: theme.borderRadius.xl,
+      backdropFilter: "blur(10px)",
+      WebkitBackdropFilter: "blur(10px)",
+      transition: "transform 0.3s ease"
     }}>
+      <style jsx global>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+      `}</style>
       <div style={{
         display: "flex",
         justifyContent: "space-around",
-        maxWidth: "600px",
+        maxWidth: "500px",
         margin: "0 auto"
       }}>
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              style={{
+                position: 'absolute',
+                top: -45,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: theme.colors.danger,
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: theme.borderRadius.md,
+                fontSize: theme.typography.sizes.sm,
+                boxShadow: theme.shadows.md,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {error.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
         {navItems.map((item) => (
           <motion.button
             key={item.id}
-            whileTap={{ scale: 0.9 }}
+            whileTap={{ scale: 0.85 }}
+            variants={tabVariants}
+            animate={activeTab === item.id ? "active" : "inactive"}
             style={{
-              backgroundColor: "transparent",
+              backgroundColor: activeTab === item.id ? `${theme.colors.primary}15` : "transparent",
               border: "none",
               cursor: "pointer",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              padding: theme.spacing.xs,
+              padding: `${theme.spacing.xs} ${theme.spacing.xs}`,
+              borderRadius: theme.borderRadius.lg,
               width: "20%",
               position: "relative",
-              color: activeTab === item.id ? theme.colors.primary : theme.colors.text.secondary
+              color: activeTab === item.id ? theme.colors.primary : theme.colors.text.secondary,
+              userSelect: "none",
+              WebkitTapHighlightColor: "transparent",
+              touchAction: "manipulation",
+              transition: "all 0.2s ease"
             }}
             onClick={() => handleTabClick(item.id)}
             aria-label={item.label}
+            aria-pressed={activeTab === item.id}
+            role="tab"
+            disabled={loadingTab === item.id}
           >
             <div style={{ position: "relative" }}>
-              <span className="material-icons" style={{ fontSize: "24px" }}>
-                {item.icon}
-              </span>
+              {loadingTab === item.id ? (
+                <div style={{ 
+                  height: '26px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center' 
+                }}>
+                  <LoadingIndicator />
+                </div>
+              ) : (
+                <span className="material-icons" style={{ 
+                  fontSize: activeTab === item.id ? "26px" : "24px", 
+                  transition: "all 0.2s ease",
+                  filter: activeTab === item.id ? "drop-shadow(0 2px 3px rgba(0,0,0,0.1))" : "none",
+                  animation: loadingTab ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                }}>
+                  {item.icon}
+                </span>
+              )}
+              
               {item.badge && (
                 <span
                   style={{
                     position: "absolute",
                     top: "-5px",
-                    right: "-5px",
+                    right: "-8px",
                     backgroundColor: theme.colors.primary,
                     color: "white",
                     borderRadius: "50%",
-                    width: "16px",
-                    height: "16px",
-                    fontSize: "10px",
+                    minWidth: "18px",
+                    height: "18px",
+                    padding: "0 4px",
+                    fontSize: "11px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontWeight: "bold"
+                    fontWeight: "bold",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                    border: "1.5px solid white"
                   }}
                 >
-                  2
+                  {item.badgeCount || ""}
                 </span>
               )}
+              
+              {error?.tab === item.id && <div style={errorStyle} />}
             </div>
             <span style={{
-              fontSize: theme.typography.sizes.xs,
-              marginTop: "2px",
-              fontWeight: activeTab === item.id ? theme.typography.fontWeights.medium : theme.typography.fontWeights.regular
+              fontSize: "0.7rem",
+              marginTop: "4px",
+              fontWeight: activeTab === item.id ? theme.typography.fontWeights.bold : theme.typography.fontWeights.regular,
+              letterSpacing: "0.01em",
+              opacity: activeTab === item.id ? 1 : 0.9,
+              transition: "all 0.2s ease"
             }}>
               {item.label}
             </span>
@@ -114,14 +274,14 @@ const BottomNav = ({ activeTab = "menu", onTabChange }) => {
                 layoutId="navigation-underline"
                 style={{
                   position: "absolute",
-                  bottom: 0,
-                  left: "25%",
-                  right: "25%",
+                  bottom: "0px",
+                  left: "15%",
+                  right: "15%",
                   height: "3px",
                   backgroundColor: theme.colors.primary,
                   borderRadius: "3px"
                 }}
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                transition={{ type: "spring", stiffness: 500, damping: 30 }}
               />
             )}
           </motion.button>

@@ -5,7 +5,7 @@ import ProductGrid from './ProductGrid';
 import CategoryFilter from './CategoryFilter';
 import SearchBar from './SearchBar';
 import CartButton from './CartButton';
-import Cart from './Cart';
+import EnhancedCart from './EnhancedCart';
 import { theme } from '../../data/theme';
 
 const MenuView = () => {
@@ -240,7 +240,7 @@ const MenuView = () => {
       <CartButton onClick={() => setIsCartOpen(true)} />
       
       {/* Cart Modal */}
-      <Cart isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
+      <EnhancedCart isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} />
     </div>
   );
 };

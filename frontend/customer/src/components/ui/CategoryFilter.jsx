@@ -1,126 +1,309 @@
-import React, { memo } from "react";
+import React, { memo, useRef, useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { theme } from "../../data/theme";
+import { useResponsive } from "../../context/ResponsiveContext";
 
-const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTablet, isDesktop }) => (
-  <nav aria-label="Food categories" style={{ marginBottom: theme.spacing.xl }}>
-    <ul
-      style={{
-        display: "flex",
-        gap: isDesktop ? "16px" : "12px",
-        overflowX: isDesktop ? "visible" : "auto",
-        padding: isDesktop ? theme.spacing.md : `${theme.spacing.sm} 0`,
-        margin: 0,
-        listStyleType: "none",
-        userSelect: "none",
-        flexWrap: isDesktop ? "wrap" : "nowrap",
-      }}
-    >
+const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTablet, isDesktop }) => {
+  const scrollRef = useRef(null);
+  const containerRef = useRef(null);
+  const [isDraggable, setIsDraggable] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(true);
+  const [showMoreIndicator, setShowMoreIndicator] = useState(false);
+  const { isMobile } = useResponsive();
+  
+  // Calculate container width to fit exactly 5 items on mobile
+  const containerStyle = useMemo(() => {
+    if (isMobile && categories.length > 5) {
+      // Calculate width to fit exactly 5 items
+      const itemWidth = 80; // Width of each category item
+      const gap = 10; // Gap between items
+      const totalWidth = itemWidth * 5 + gap * 4; // 5 items and 4 gaps
       
-      {/* Render other categories */}
-      {categories.map((category) => {
-        const isSelected = selectedCategory === category.id;  
+      return {
+        maxWidth: `${totalWidth}px`,
+        margin: '0 auto',
+        overflow: 'hidden',
+        position: 'relative'
+      };
+    } else {
+      return {};
+    }
+  }, [categories.length, isMobile]);
+
+  useEffect(() => {
+    // Make categories draggable if there are more than 5
+    setIsDraggable(categories.length > 5);
+    setShowMoreIndicator(categories.length > 5);
+    
+    // Hide scroll indicator after 5 seconds
+    const timer = setTimeout(() => {
+      setShowScrollIndicator(false);
+    }, 5000);
+    
+    return () => clearTimeout(timer);
+  }, [categories.length]);
+
+  // Scroll selected category into view when it changes
+  useEffect(() => {
+    if (scrollRef.current && !isDesktop) {
+      const container = scrollRef.current;
+      const selectedItem = container.querySelector(`[data-category-id="${selectedCategory}"]`);
+      
+      if (selectedItem) {
+        // Calculate position to center the item
+        const containerWidth = container.offsetWidth;
+        const itemWidth = selectedItem.offsetWidth;
+        const itemLeft = selectedItem.offsetLeft;
+        const scrollPosition = itemLeft - (containerWidth / 2) + (itemWidth / 2);
         
-        return (
-          <li key={category.id || category.name}>
-            <motion.button
-              onClick={() => onSelectCategory(category.id)}
-              aria-pressed={isSelected}
-              whileTap={{ scale: 0.95 }}
-              style={{
-                padding: "0",
-                borderRadius: theme.borderRadius.xl,
-                border: `1px solid ${isSelected ? theme.colors.primary : theme.colors.border}`,
-                cursor: "pointer",
-                backgroundColor: isSelected ? `${theme.colors.primary}10` : theme.colors.card,
-                boxShadow: isSelected ? `0 8px 16px ${theme.colors.primary}30` : theme.shadows.sm,
-                minWidth: isDesktop ? "110px" : "90px",
-                transition: `all ${theme.transitions.medium}`,
-                outlineOffset: "2px",
-                overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
+        container.scrollTo({
+          left: scrollPosition,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [selectedCategory, isDesktop]);
+
+  // Haptic feedback for category selection
+  const handleCategoryClick = (categoryId) => {
+    if (isDragging) return;
+    
+    if ('vibrate' in navigator) {
+      navigator.vibrate(5);
+    }
+    
+    onSelectCategory(categoryId);
+  };
+
+  return (
+    <nav 
+      aria-label="Food categories" 
+      style={{ 
+        marginBottom: theme.spacing.lg,
+        position: "relative"
+      }}
+      ref={containerRef}
+    >
+      <div style={containerStyle}>
+        {!isDesktop && showMoreIndicator && (
+          <div style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: '40px',
+            background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.9))',
+            zIndex: 5,
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end'
+          }}>
+            <span 
+              className="material-icons" 
+              style={{ 
+                color: theme.colors.primary,
+                opacity: 0.8,
+                fontSize: '18px'
               }}
-              whileHover={
-                !isSelected
-                  ? {
-                      boxShadow: theme.shadows.md,
-                      backgroundColor: theme.colors.background,
-                      scale: 1.03,
-                      border: `1px solid ${theme.colors.primary}30`,
-                    }
-                  : {}
-              }
             >
-              <div
-                style={{
-                  borderRadius: `${theme.borderRadius.xl} ${theme.borderRadius.xl} 0 0`,
-                  backgroundColor: isSelected ? theme.colors.primary : "transparent",
-                  width: "100%",
-                  height: "4px",
-                  transition: `all ${theme.transitions.medium}`,
-                }}
-              />
-              <div
-                style={{
-                  padding: "12px 8px 8px 8px",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "8px",
-                }}
-              >
-                <div
+              chevron_right
+            </span>
+          </div>
+        )}
+        <motion.ul
+          ref={scrollRef}
+          drag={isDraggable && !isDesktop ? "x" : false}
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.1}
+          onDragStart={() => setIsDragging(true)}
+          onDragEnd={() => setTimeout(() => setIsDragging(false), 100)}
+          style={{
+            display: "flex",
+            gap: isDesktop ? "16px" : "10px",
+            overflowX: isDesktop ? "visible" : "auto",
+            padding: isDesktop 
+              ? theme.spacing.md 
+              : `${theme.spacing.sm} ${theme.spacing.xs}`,
+            margin: 0,
+            listStyleType: "none",
+            userSelect: "none",
+            flexWrap: isDesktop ? "wrap" : "nowrap",
+            cursor: isDraggable && !isDesktop ? "grab" : "default",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none", /* Firefox */
+            msOverflowStyle: "none", /* IE and Edge */
+            "&::-webkit-scrollbar": {
+              display: "none" /* Chrome, Safari, Opera */
+            }
+          }}
+          className={isDragging ? "grabbing" : ""}
+          initial={isDesktop ? {} : { x: 0 }}
+          animate={isDesktop ? {} : { x: [-5, 0] }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+        >
+          {/* Render categories */}
+          {categories.map((category) => {
+            const isSelected = selectedCategory === category.id;  
+            
+            return (
+              <li key={category.id || category.name}>
+                <motion.button
+                  onClick={() => handleCategoryClick(category.id)}
+                  aria-pressed={isSelected}
+                  whileTap={{ scale: 0.92 }}
+                  data-category-id={category.id}
                   style={{
-                    width: isDesktop ? "50px" : "44px",
-                    height: isDesktop ? "50px" : "44px",
-                    borderRadius: "50%",
-                    backgroundColor: isSelected ? `${theme.colors.primary}15` : theme.colors.background,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    padding: "8px",
+                    padding: "0",
+                    borderRadius: theme.borderRadius.xl,
+                    border: `${isMobile ? '1.5px' : '1px'} solid ${isSelected 
+                      ? theme.colors.primary 
+                      : theme.colors.border}`,
+                    cursor: "pointer",
+                    backgroundColor: isSelected 
+                      ? `${theme.colors.primary}12` 
+                      : theme.colors.card,
+                    boxShadow: isSelected 
+                      ? `0 6px 14px ${theme.colors.primary}25` 
+                      : theme.shadows.sm,
+                    minWidth: isDesktop ? "110px" : isMobile ? "80px" : "90px",
+                    maxWidth: isDesktop ? "110px" : isMobile ? "80px" : "90px",
+                    width: isMobile ? "80px" : "auto",
                     transition: `all ${theme.transitions.medium}`,
+                    outlineOffset: "2px",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    WebkitTapHighlightColor: "transparent",
+                    touchAction: "manipulation"
                   }}
+                  whileHover={
+                    !isSelected
+                      ? {
+                          boxShadow: theme.shadows.md,
+                          backgroundColor: theme.colors.background,
+                          scale: 1.03,
+                          border: `${isMobile ? '1.5px' : '1px'} solid ${theme.colors.primary}30`,
+                        }
+                      : {}
+                  }
                 >
-                  <motion.img
-                    src={category.image}
-                    alt={category.name}
+                  <div
                     style={{
+                      borderRadius: `${theme.borderRadius.xl} ${theme.borderRadius.xl} 0 0`,
+                      backgroundColor: isSelected ? theme.colors.primary : "transparent",
                       width: "100%",
-                      height: "100%",
-                      objectFit: "contain",
+                      height: isMobile ? "3px" : "4px",
                       transition: `all ${theme.transitions.medium}`,
-                      filter: isSelected ? "none" : "grayscale(30%)",
-                    }}
-                    whileHover={{ rotate: 10, scale: 1.1 }}
-                    animate={{
-                      scale: isSelected ? 1.05 : 1,
                     }}
                   />
-                </div>
-                <span
-                  style={{
-                    fontWeight: isSelected
-                      ? theme.typography.fontWeights.bold
-                      : theme.typography.fontWeights.semibold,
-                    fontSize: isDesktop ? theme.typography.sizes.sm : theme.typography.sizes.xs,
-                    color: isSelected ? theme.colors.primary : theme.colors.text.secondary,
-                    letterSpacing: "0.3px",
-                    paddingBottom: "4px",
-                  }}
-                >
-                  {category.name}
-                </span>
-              </div>
-            </motion.button>
-          </li>
-        );
-      })}
-    </ul>
-  </nav>
-);
+                  <div
+                    style={{
+                      padding: isMobile ? "8px 4px 6px 4px" : "12px 8px 8px 8px",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: isMobile ? "6px" : "8px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: isDesktop ? "50px" : isMobile ? "40px" : "44px",
+                        height: isDesktop ? "50px" : isMobile ? "40px" : "44px",
+                        borderRadius: "50%",
+                        backgroundColor: isSelected 
+                          ? `${theme.colors.primary}15` 
+                          : theme.colors.background,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        padding: isMobile ? "6px" : "8px",
+                        transition: `all ${theme.transitions.medium}`,
+                        boxShadow: isSelected ? `0 2px 8px ${theme.colors.primary}20` : "none"
+                      }}
+                    >
+                      <motion.img
+                        src={category.image}
+                        alt={category.name}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "contain",
+                          transition: `all ${theme.transitions.medium}`,
+                          filter: isSelected ? "none" : "grayscale(25%)",
+                        }}
+                        whileHover={{ rotate: 10, scale: 1.1 }}
+                        animate={{
+                          scale: isSelected ? 1.05 : 1,
+                        }}
+                      />
+                    </div>
+                    <span
+                      style={{
+                        fontWeight: isSelected
+                          ? theme.typography.fontWeights.bold
+                          : theme.typography.fontWeights.semibold,
+                        fontSize: isDesktop 
+                          ? theme.typography.sizes.sm 
+                          : isMobile ? "0.65rem" : theme.typography.sizes.xs,
+                        color: isSelected ? theme.colors.primary : theme.colors.text.secondary,
+                        letterSpacing: "0.3px",
+                        paddingBottom: isMobile ? "2px" : "4px",
+                        textAlign: "center",
+                        lineHeight: 1.2,
+                        maxWidth: isMobile ? "62px" : "80px",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
+                      }}
+                    >
+                      {category.name}
+                    </span>
+                  </div>
+                </motion.button>
+              </li>
+            );
+          })}
+        </motion.ul>
+      </div>
+      
+      {isDraggable && !isDesktop && showScrollIndicator && (
+        <motion.div 
+          style={{ 
+            display: "flex", 
+            justifyContent: "center", 
+            marginTop: "2px",
+            position: "absolute",
+            bottom: "-20px",
+            left: 0,
+            right: 0,
+            opacity: 0.75,
+            pointerEvents: "none"
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.75 }}
+          exit={{ opacity: 0 }}
+        >
+          <small style={{
+            fontSize: "0.7rem",
+            color: theme.colors.text.secondary,
+            backgroundColor: theme.colors.background,
+            padding: "2px 8px",
+            borderRadius: "12px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.1)"
+          }}>
+            <span className="material-icons" style={{ fontSize: "10px", verticalAlign: "middle" }}>
+              swipe
+            </span>
+            {" "}Swipe to see {categories.length - 5} more
+          </small>
+        </motion.div>
+      )}
+    </nav>
+  );
+};
 
 // Add prop comparison function to prevent unnecessary re-renders
 const arePropsEqual = (prevProps, nextProps) => {

@@ -60,6 +60,61 @@ export const dummyData = {
       name: 'Drinks',
       image: 'https://cdn-icons-png.flaticon.com/512/2405/2405469.png'
     },
+    {
+      id: 'soups',
+      name: 'Soups',
+      image: 'https://cdn-icons-png.flaticon.com/512/2276/2276931.png'
+    },
+    {
+      id: 'salads',
+      name: 'Salads',
+      image: 'https://cdn-icons-png.flaticon.com/512/2515/2515183.png'
+    },
+    {
+      id: 'burgers',
+      name: 'Burgers',
+      image: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png'
+    },
+    {
+      id: 'pizza',
+      name: 'Pizza',
+      image: 'https://cdn-icons-png.flaticon.com/512/3132/3132693.png'
+    },
+    {
+      id: 'pasta',
+      name: 'Pasta',
+      image: 'https://cdn-icons-png.flaticon.com/512/2276/2276589.png'
+    },
+    {
+      id: 'seafood',
+      name: 'Seafood',
+      image: 'https://cdn-icons-png.flaticon.com/512/3082/3082040.png'
+    },
+    {
+      id: 'breakfast',
+      name: 'Breakfast',
+      image: 'https://cdn-icons-png.flaticon.com/512/1147/1147805.png'
+    },
+    {
+      id: 'lunch',
+      name: 'Lunch',
+      image: 'https://cdn-icons-png.flaticon.com/512/1147/1147940.png'
+    },
+    {
+      id: 'dinner',
+      name: 'Dinner',
+      image: 'https://cdn-icons-png.flaticon.com/512/1147/1147801.png'
+    },
+    {
+      id: 'snacks',
+      name: 'Snacks',
+      image: 'https://cdn-icons-png.flaticon.com/512/2515/2515325.png'
+    },
+    {
+      id: 'sides',
+      name: 'Sides',
+      image: 'https://cdn-icons-png.flaticon.com/512/2515/2515183.png'
+    }
   ],
   
   // Menu items
