@@ -5,7 +5,7 @@ import { theme } from "../../data/theme";
 const AddButton = ({ onClick, isTablet, isDesktop }) => (
   <motion.button
     type="button"
-    onClick={onClick}
+    onClick={(e) => onClick(e)} // Pass the event to parent component
     whileTap={{ scale: 0.9 }}
     whileHover={{
       scale: 1.05,
@@ -15,7 +15,7 @@ const AddButton = ({ onClick, isTablet, isDesktop }) => (
       backgroundColor: theme.colors.primary,
       border: "none",
       borderRadius: theme.borderRadius.md,
-      padding: isDesktop ? "10px 18px" : "8px 16px",
+      padding: isDesktop ? "10px 18px" : "8px 10px",
       color: theme.colors.text.light,
       fontWeight: theme.typography.fontWeights.semibold,
       fontSize: isDesktop ? theme.typography.sizes.md : theme.typography.sizes.sm,

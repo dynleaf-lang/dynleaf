@@ -302,9 +302,157 @@ export const dummyData = {
   ]
 };
 
-// Mock orders storage
-export const mockOrders = {
-  orders: [],
+// Mock orders for display in OrdersView
+export const mockOrders = [
+  {
+    _id: 'order-1687845602756',
+    items: [
+      { 
+        menuItemId: 'item1', 
+        name: 'Garlic Butter Shrimp Pasta', 
+        quantity: 2, 
+        price: 18.99,
+        selectedOptions: [
+          { name: 'Spice Level', value: 'Medium', price: 0 }
+        ]
+      },
+      { 
+        menuItemId: 'item4', 
+        name: 'Caesar Salad', 
+        quantity: 1, 
+        price: 9.99,
+        selectedOptions: [
+          { name: 'Size', value: 'Regular', price: 0 },
+          { name: 'Dressing', value: 'On the side', price: 0 }
+        ]
+      }
+    ],
+    customerInfo: {
+      name: 'John Smith',
+      phone: '555-123-4567',
+      email: 'john.smith@example.com'
+    },
+    orderType: 'dineIn',
+    totalAmount: 47.97,
+    status: 'completed',
+    note: 'Please bring extra napkins.',
+    createdAt: '2023-06-27T08:30:22.756Z'
+  },
+  {
+    _id: 'order-1688045685547',
+    items: [
+      { 
+        menuItemId: 'item9', 
+        name: 'Margherita Pizza', 
+        quantity: 1, 
+        price: 14.99
+      },
+      { 
+        menuItemId: 'item12', 
+        name: 'Tiramisu', 
+        quantity: 2, 
+        price: 7.99
+      }
+    ],
+    customerInfo: {
+      name: 'Jane Doe',
+      phone: '555-987-6543',
+      email: 'jane.doe@example.com',
+      address: '123 Main St, Apt 4B, Cityville'
+    },
+    orderType: 'takeaway',
+    totalAmount: 30.97,
+    status: 'processing',
+    createdAt: '2023-06-29T15:48:05.547Z'
+  },
+  {
+    _id: 'order-1688156892347',
+    items: [
+      { 
+        menuItemId: 'item5', 
+        name: 'Beef Burger', 
+        quantity: 1, 
+        price: 12.99,
+        selectedOptions: [
+          { name: 'Cheese', value: 'Cheddar', price: 1.50 },
+          { name: 'Add Bacon', value: 'Yes', price: 2.00 }
+        ]
+      },
+      { 
+        menuItemId: 'item6', 
+        name: 'French Fries', 
+        quantity: 1, 
+        price: 4.99
+      },
+      { 
+        menuItemId: 'item7', 
+        name: 'Chocolate Milkshake', 
+        quantity: 1, 
+        price: 5.99
+      }
+    ],
+    customerInfo: {
+      name: 'Robert Johnson',
+      phone: '555-789-0123'
+    },
+    orderType: 'dineIn',
+    totalAmount: 27.47,
+    status: 'pending',
+    note: 'Allergic to nuts, please be careful with preparation.',
+    createdAt: '2023-06-30T22:34:52.347Z'
+  },
+  {
+    _id: 'order-1688242239478',
+    items: [
+      { 
+        menuItemId: 'item2', 
+        name: 'Grilled Salmon', 
+        quantity: 2, 
+        price: 22.99
+      },
+      { 
+        menuItemId: 'item3', 
+        name: 'Roasted Vegetables', 
+        quantity: 1, 
+        price: 8.99
+      }
+    ],
+    customerInfo: {
+      name: 'Emily Wilson',
+      phone: '555-456-7890',
+      email: 'emily.wilson@example.com',
+      address: '456 Oak Avenue, Townsville'
+    },
+    orderType: 'delivery',
+    totalAmount: 54.97,
+    status: 'completed',
+    createdAt: '2023-07-01T19:17:19.478Z'
+  },
+  {
+    _id: 'order-1688325643219',
+    items: [
+      { 
+        menuItemId: 'item8', 
+        name: 'Vegetable Stir Fry', 
+        quantity: 1, 
+        price: 13.99
+      }
+    ],
+    customerInfo: {
+      name: 'Michael Brown',
+      phone: '555-234-5678'
+    },
+    orderType: 'dineIn',
+    totalAmount: 13.99,
+    status: 'cancelled',
+    note: 'Changed my mind about the order.',
+    createdAt: '2023-07-02T18:27:23.219Z'
+  }
+];
+
+// Mock orders utility functions
+// Export mock order utility functions
+export const mockOrderUtils = {
   addOrder: function(order) {
     const newOrder = {
       ...order,
@@ -312,14 +460,14 @@ export const mockOrders = {
       createdAt: new Date().toISOString(),
       status: 'pending'
     };
-    this.orders.push(newOrder);
+    mockOrders.push(newOrder);
     return newOrder;
   },
   getOrderById: function(id) {
-    return this.orders.find(order => order._id === id);
+    return mockOrders.find(order => order._id === id);
   },
   updateOrderStatus: function(id, status) {
-    const order = this.orders.find(order => order._id === id);
+    const order = mockOrders.find(order => order._id === id);
     if (order) {
       order.status = status;
     }

@@ -421,7 +421,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
                 transition: 'all 0.2s ease'
               }}
             >
-              <span class="material-icons" style={{ fontSize: '18px',  color: theme.colors.primary }}>remove</span>
+              <span className="material-icons" style={{ fontSize: '18px',  color: theme.colors.primary }}>remove</span>
             </button>
             
             <div style={{
@@ -464,7 +464,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
                 opacity: isUpdating ? 0.7 : 1
               }}
             >
-               <span class="material-icons" style={{ fontSize: '18px',  color: theme.colors.primary }}>add</span>
+               <span className="material-icons" style={{ fontSize: '18px',  color: theme.colors.primary }}>add</span>
             </button>
           </div>
         </div>
@@ -1000,7 +1000,7 @@ const CartComponent = ({ isOpen, onClose }) => {
                     if (svg) svg.style.stroke = theme.colors.text.secondary;
                   }}
                 >
-                  <span class="material-icons" style={{ fontSize: '25px', color: theme.colors.text.secondary }}>close</span>
+                  <span className="material-icons" style={{ fontSize: '25px', color: theme.colors.text.secondary }}>close</span>
                 </button>
               )}
             </div>

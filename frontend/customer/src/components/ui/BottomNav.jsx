@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { theme } from "../../data/theme";
 import { useCart } from "../../context/CartContext";
@@ -28,9 +28,23 @@ const LoadingIndicator = ({ size = "small" }) => {
 };
 
 const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
-  const { cartItems } = useCart();
+  const { cartItems, cartAnimation } = useCart();
   const [loadingTab, setLoadingTab] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null);  const [pulsingTab, setPulsingTab] = useState(null);
+
+  // Effect to handle cart animation
+  useEffect(() => {
+    if (cartAnimation.isAnimating) {
+      setPulsingTab("cart");
+      
+      // Reset pulsing effect after animation
+      const timer = setTimeout(() => {
+        setPulsingTab(null);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [cartAnimation.isAnimating]);
 
   // Calculate the cart items count for badge
   const cartItemsCount = cartItems.reduce((total, item) => total + item.quantity, 0);
@@ -140,8 +154,7 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
       backdropFilter: "blur(10px)",
       WebkitBackdropFilter: "blur(10px)",
       transition: "transform 0.3s ease"
-    }}>
-      <style jsx global>{`
+    }}>      <style jsx="true" global="true">{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
@@ -149,6 +162,15 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
+        }
+        @keyframes pop {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.2); }
+          100% { transform: scale(1); }
+        }
+        @keyframes colorShift {
+          0%, 100% { color: ${theme.colors.primary}; }
+          50% { color: ${theme.colors.secondary}; }
         }
       `}</style>
       <div style={{
@@ -204,11 +226,11 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
               WebkitTapHighlightColor: "transparent",
               touchAction: "manipulation",
               transition: "all 0.2s ease"
-            }}
-            onClick={() => handleTabClick(item.id)}
+            }}            onClick={() => handleTabClick(item.id)}
             aria-label={item.label}
             aria-pressed={activeTab === item.id}
             role="tab"
+            data-tab-id={item.id}
             disabled={loadingTab === item.id}
           >
             <div style={{ position: "relative" }}>
@@ -220,20 +242,43 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
                   justifyContent: 'center' 
                 }}>
                   <LoadingIndicator />
-                </div>
-              ) : (
-                <span className="material-icons" style={{ 
-                  fontSize: activeTab === item.id ? "26px" : "24px", 
-                  transition: "all 0.2s ease",
-                  filter: activeTab === item.id ? "drop-shadow(0 2px 3px rgba(0,0,0,0.1))" : "none",
-                  animation: loadingTab ? 'pulse 1.5s ease-in-out infinite' : 'none'
-                }}>
+                </div>              ) : (
+                <motion.span 
+                  className="material-icons" 
+                  animate={{ 
+                    scale: pulsingTab === item.id ? [1, 1.3, 1] : 1,
+                    color: pulsingTab === item.id ? [
+                      theme.colors.primary, 
+                      theme.colors.secondary, 
+                      theme.colors.primary
+                    ] : activeTab === item.id ? theme.colors.primary : theme.colors.text.secondary
+                  }}
+                  transition={{ 
+                    duration: 0.6,
+                    ease: "easeInOut"
+                  }}
+                  style={{ 
+                    fontSize: activeTab === item.id ? "26px" : "24px", 
+                    transition: "all 0.2s ease",
+                    filter: activeTab === item.id ? "drop-shadow(0 2px 3px rgba(0,0,0,0.1))" : "none",
+                    animation: loadingTab ? 'pulse 1.5s ease-in-out infinite' : 'none'
+                  }}
+                >
                   {item.icon}
-                </span>
+                </motion.span>
               )}
-              
-              {item.badge && (
-                <span
+                {item.badge && (
+                <motion.span
+                  animate={{
+                    scale: pulsingTab === item.id ? [1, 1.4, 1] : 1,
+                    backgroundColor: pulsingTab === item.id ? 
+                      [theme.colors.primary, theme.colors.secondary, theme.colors.primary] : 
+                      theme.colors.primary
+                  }}
+                  transition={{
+                    duration: 0.6,
+                    ease: "easeInOut"
+                  }}
                   style={{
                     position: "absolute",
                     top: "-5px",
@@ -254,7 +299,7 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
                   }}
                 >
                   {item.badgeCount || ""}
-                </span>
+                </motion.span>
               )}
               
               {error?.tab === item.id && <div style={errorStyle} />}

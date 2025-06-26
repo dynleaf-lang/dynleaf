@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { theme } from "../../data/theme";
 import { useResponsive } from "../../context/ResponsiveContext";
 
-const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, tableNumber, profileSrc }) => {
+const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, tableNumber, profileSrc, onExpand }) => {
   const { isDesktop, isTablet } = useResponsive();
   const [isExpanded, setIsExpanded] = useState(true);
   
@@ -60,9 +60,12 @@ const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, 
       description: "Customize your experience"
     }
   ];
-
   const toggleExpand = () => {
-    setIsExpanded(!isExpanded);
+    const newExpandedState = !isExpanded;
+    setIsExpanded(newExpandedState);
+    if (onExpand) {
+      onExpand(newExpandedState);
+    }
   };
 
   const handleTabClick = (tabId) => {
@@ -215,7 +218,7 @@ const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, 
                 `${theme.spacing.md} ${theme.spacing.lg} ${theme.spacing.md} ${theme.spacing.md}` : 
                 `${theme.spacing.md} 0`,
               borderRadius: isExpanded ? 
-                `0 ${theme.borderRadius.full} ${theme.borderRadius.full} 0` : 
+                `0 ${theme.borderRadius.pill} ${theme.borderRadius.pill} 0` : 
                 theme.borderRadius.md,
               marginLeft: isExpanded ? 0 : theme.spacing.sm,
               marginRight: isExpanded ? 0 : theme.spacing.sm,

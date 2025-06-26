@@ -189,7 +189,7 @@ const MenuView = () => {
       </div>
       
       {/* Search Bar */}
-      <div style={{ padding: '0 16px 16px 16px' }}>
+      <div style={{ padding: '0px 0px 10px' }}>
         <SearchBar 
           value={searchQuery}
           onChange={setSearchQuery}
@@ -207,7 +207,7 @@ const MenuView = () => {
       </div>
       
       {/* Menu Items Grid */}
-      <div style={{ padding: '0 16px' }}>
+      <div style={{ padding: '0 0px' }}>
         {filteredItems.length > 0 ? (
           <ProductGrid products={filteredItems} />
         ) : (

@@ -7,14 +7,18 @@ import { theme } from "../../data/theme";
 const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, tableNumber }) => {
   const { isMobile, isTablet, isDesktop } = useResponsive();
   const [activeTab, setActiveTab] = useState("menu");
+  const [isSideNavExpanded, setIsSideNavExpanded] = useState(true);
 
   // Skip desktop layout on mobile screens
   if (isMobile) {
     return children;
   }
-
   const handleTabChange = (tab) => {
     setActiveTab(tab);
+  };
+  
+  const handleSideNavExpand = (expanded) => {
+    setIsSideNavExpanded(expanded);
   };
 
   return (
@@ -25,18 +29,15 @@ const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, table
         background: theme.colors.background,
         position: "relative",
       }}
-    >
-      {/* Side Navigation for tablet/desktop */}
-      <SideNav
+    >      {/* Side Navigation for tablet/desktop */}      <SideNav
         activeTab={activeTab}
         onTabChange={handleTabChange}
         restaurantName={restaurantName}
         branchName={branchName}
         tableNumber={tableNumber}
         profileSrc={profileSrc}
-      />
-
-      {/* Main Content Area */}
+        onExpand={handleSideNavExpand}
+      />{/* Main Content Area */}
       <main
         style={{
           flex: 1,
@@ -44,7 +45,8 @@ const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, table
           transition: "margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
           display: "flex",
           flexDirection: "column",
-          maxWidth: "100vw",
+          maxWidth: "95vw",
+          paddingLeft: !isSideNavExpanded ? 'inherit' : '210px'
         }}
       >
         {/* Header */}

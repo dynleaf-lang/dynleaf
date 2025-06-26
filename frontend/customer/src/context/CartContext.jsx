@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRestaurant } from './RestaurantContext';
-import { mockOrders } from '../data/dummyData';
+import { mockOrders, mockOrderUtils } from '../data/dummyData';
 
 // Create context
 const CartContext = createContext(null);
@@ -15,6 +15,11 @@ export const CartProvider = ({ children }) => {
   const [currentOrder, setCurrentOrder] = useState(null);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderError, setOrderError] = useState(null);
+  const [cartAnimation, setCartAnimation] = useState({
+    isAnimating: false,
+    item: null,
+    position: { x: 0, y: 0 }
+  });
 
   // Load cart from localStorage
   useEffect(() => {
@@ -51,9 +56,30 @@ export const CartProvider = ({ children }) => {
       console.error('Error saving cart to localStorage:', error);
     }
   }, [cartItems]);
-
   // Add item to cart
-  const addToCart = (item, quantity = 1, selectedOptions = []) => {
+  const addToCart = (item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
+    // Trigger animation if source position is provided
+    if (sourcePosition) {
+      setCartAnimation({
+        isAnimating: true,
+        item: {
+          ...item,
+          quantity,
+          selectedOptions
+        },
+        position: sourcePosition
+      });
+      
+      // Reset animation state after animation completes
+      setTimeout(() => {
+        setCartAnimation({
+          isAnimating: false,
+          item: null,
+          position: { x: 0, y: 0 }
+        });
+      }, 1000); // Animation duration
+    }
+    
     setCartItems(prevItems => {
       // Check if the item is already in the cart with the same options
       const existingItemIndex = prevItems.findIndex(cartItem => {
@@ -190,10 +216,8 @@ export const CartProvider = ({ children }) => {
           email: customerInfo.email || '',
           phone: customerInfo.phone || ''
         }
-      };
-
-      // Use our mock order system instead of API
-      const createdOrder = mockOrders.addOrder(orderData);
+      };      // Use our mock order system instead of API
+      const createdOrder = mockOrderUtils.addOrder(orderData);
       
       if (createdOrder) {
         setCurrentOrder(createdOrder);
@@ -224,7 +248,7 @@ export const CartProvider = ({ children }) => {
       // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      const order = mockOrders.getOrderById(orderId);
+      const order = mockOrderUtils.getOrderById(orderId);
       
       if (!order) {
         throw new Error('Order not found');
@@ -240,7 +264,6 @@ export const CartProvider = ({ children }) => {
       setOrderLoading(false);
     }
   };
-
   // Provide context value
   const contextValue = {
     cartItems,
@@ -257,7 +280,8 @@ export const CartProvider = ({ children }) => {
     currentOrder,
     orderLoading,
     orderError,
-    checkOrderStatus
+    checkOrderStatus,
+    cartAnimation
   };
 
   return (

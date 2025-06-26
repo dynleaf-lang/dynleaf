@@ -1,4 +1,4 @@
-import { dummyData, mockOrders } from '../data/dummyData';
+import { dummyData, mockOrders, mockOrderUtils } from '../data/dummyData';
 import authService from './auth';
 
 // Mock API implementation using dummy data
@@ -113,19 +113,19 @@ export const api = {
   orders: {
     create: async (orderData) => {
       await new Promise(resolve => setTimeout(resolve, 800)); // Simulate delay
-      return mockOrders.addOrder(orderData);
+      return mockOrderUtils.addOrder(orderData);
     },
     getByTable: async (tableId) => {
       await new Promise(resolve => setTimeout(resolve, 300)); // Simulate delay
-      return mockOrders.orders.filter(order => order.tableId === tableId);
+      return mockOrders.filter(order => order.tableId === tableId);
     },
     getById: async (orderId) => {
       await new Promise(resolve => setTimeout(resolve, 300)); // Simulate delay
-      return mockOrders.getOrderById(orderId);
+      return mockOrderUtils.getOrderById(orderId);
     },
     updateStatus: async (orderId, status) => {
       await new Promise(resolve => setTimeout(resolve, 300)); // Simulate delay
-      return mockOrders.updateOrderStatus(orderId, status);
+      return mockOrderUtils.updateOrderStatus(orderId, status);
     }
   }
 };

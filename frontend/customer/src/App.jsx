@@ -7,6 +7,7 @@ import NetworkInfoBar from "./components/debug/NetworkInfoBar";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck";
+import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 
 const App = () => {
 	return (
@@ -17,6 +18,7 @@ const App = () => {
 					<ConnectionStatusModal />
 					<NetworkErrorHandler />
 					<OrderEaseApp />
+					<CartAnimationEffect />
 					<NetworkInfoBar />
 				</CartProvider>
 			</RestaurantProvider>

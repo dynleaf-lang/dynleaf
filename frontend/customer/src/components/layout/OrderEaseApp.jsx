@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from "framer-motion";
 
 // Import components
 import Header from "../ui/Header";
-import QRCodeScanner from "../ui/QRCodeScanner";
+import PreLoader from "../ui/PreLoader";
 import QRInstructions from "../ui/QRInstructions";
 import MenuView from "../ui/MenuView";
+import OrdersView from "../ui/OrdersView";
 import BottomNav from "../ui/BottomNav";
 import DesktopLayout from "./DesktopLayout";
 import EnhancedCart from "../ui/EnhancedCart";
@@ -75,28 +76,12 @@ const OrderEaseApp = () => {
 
   // Use conditional rendering instead of early returns
   return (
-    <>
-      {/* Case 1: Not initialized and loading with params */}
+    <>      {/* Case 1: Not initialized and loading with params */}
       {!initialized && loading && hasParamsRef.current && (
-        <div className="container-fluid d-flex flex-column align-items-center justify-content-center" style={{
-          minHeight: "100vh",
-          backgroundColor: theme.colors.background
-        }}>
-          <div className="material-icons" style={{ 
-            fontSize: "48px", 
-            animation: "spin 1.5s linear infinite",
-            color: theme.colors.primary,
-            marginBottom: "20px"
-          }}>
-            refresh
-          </div>
-          <p>Loading restaurant information...</p>
-        </div>
-      )}
-
-      {/* Case 2: Not initialized and need QR scan */}
+        <PreLoader />
+      )}{/* Case 2: Not initialized and need to show pre-loader */}
       {!initialized && !hasParamsRef.current && (
-        <QRCodeScanner />
+        <PreLoader />
       )}
 
       {/* Case 3: Not initialized and error loading */}
@@ -234,8 +219,7 @@ const OrderEaseApp = () => {
                       </div>
                     </motion.div>
                   )}
-                  
-                  {activeTab === "orders" && (
+                    {activeTab === "orders" && (
                     <motion.div
                       key="orders"
                       initial={{ opacity: 0 }}
@@ -243,113 +227,7 @@ const OrderEaseApp = () => {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <div style={{
-                        padding: theme.spacing.md
-                      }}>
-                        <h3 style={{
-                          fontSize: theme.typography.sizes.xl,
-                          fontWeight: theme.typography.fontWeights.semibold,
-                          marginBottom: theme.spacing.lg,
-                          color: theme.colors.text.primary
-                        }}>
-                          Your Orders
-                        </h3>
-                        
-                        {/* Status tabs */}
-                        <div style={{
-                          display: "flex",
-                          overflowX: "auto",
-                          gap: theme.spacing.sm,
-                          marginBottom: theme.spacing.lg,
-                          paddingBottom: theme.spacing.xs
-                        }}>
-                          {["All", "Active", "Completed", "Cancelled"].map((status, index) => (
-                            <button
-                              key={status}
-                              style={{
-                                padding: `${theme.spacing.sm} ${theme.spacing.md}`,
-                                backgroundColor: index === 0 ? theme.colors.primary : theme.colors.background,
-                                color: index === 0 ? "white" : theme.colors.text.secondary,
-                                border: "none",
-                                borderRadius: theme.borderRadius.md,
-                                fontSize: theme.typography.sizes.sm,
-                                fontWeight: theme.typography.fontWeights.medium,
-                                whiteSpace: "nowrap"
-                              }}
-                            >
-                              {status}
-                            </button>
-                          ))}
-                        </div>
-                        
-                        {/* Example order card */}
-                        <div style={{
-                          backgroundColor: "#FFF",
-                          borderRadius: theme.borderRadius.lg,
-                          padding: theme.spacing.md,
-                          marginBottom: theme.spacing.md,
-                          boxShadow: theme.shadows.sm
-                        }}>
-                          <div style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: theme.spacing.sm
-                          }}>
-                            <div style={{ fontWeight: theme.typography.fontWeights.semibold }}>
-                              Order #1234
-                            </div>
-                            <div style={{
-                              backgroundColor: "#d1f5d3",
-                              color: theme.colors.success,
-                              padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
-                              borderRadius: theme.borderRadius.pill,
-                              fontSize: theme.typography.sizes.xs,
-                              fontWeight: theme.typography.fontWeights.medium
-                            }}>
-                              Delivered
-                            </div>
-                          </div>
-                          <div style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginBottom: theme.spacing.sm
-                          }}>
-                            <div style={{ color: theme.colors.text.secondary, fontSize: theme.typography.sizes.sm }}>
-                              Today, 2:30 PM
-                            </div>
-                            <div style={{ fontWeight: theme.typography.fontWeights.semibold }}>
-                              $24.99
-                            </div>
-                          </div>
-                          <div style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: theme.spacing.sm,
-                            color: theme.colors.text.secondary,
-                            fontSize: theme.typography.sizes.sm,
-                            marginBottom: theme.spacing.md
-                          }}>
-                            <span className="material-icons" style={{ fontSize: "16px" }}>
-                              lunch_dining
-                            </span>
-                            <span>3 items</span>
-                          </div>
-                          <button style={{
-                            width: "100%",
-                            padding: theme.spacing.sm,
-                            backgroundColor: "transparent",
-                            border: `1px solid ${theme.colors.border}`,
-                            borderRadius: theme.borderRadius.md,
-                            color: theme.colors.text.primary,
-                            fontWeight: theme.typography.fontWeights.medium
-                          }}>
-                            View Details
-                          </button>
-                        </div>
-                        
-                        {/* More order cards would go here */}
-                      </div>
+                      <OrdersView />
                     </motion.div>
                   )}
                   
@@ -630,8 +508,7 @@ const OrderEaseApp = () => {
                     </div>
                   </motion.div>
                 )}
-                
-                {activeTab === "orders" && (
+                  {activeTab === "orders" && (
                   <motion.div
                     key="orders"
                     initial={{ opacity: 0 }}
@@ -639,39 +516,7 @@ const OrderEaseApp = () => {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <div style={{ 
-                      display: "flex", 
-                      flexDirection: "column",
-                      alignItems: "center", 
-                      justifyContent: "center",
-                      padding: theme.spacing.xl,
-                      minHeight: "50vh",
-                      background: theme.colors.card,
-                      borderRadius: theme.borderRadius.lg,
-                      boxShadow: theme.shadows.sm
-                    }}>
-                      <span className="material-icons" style={{ 
-                        fontSize: "48px", 
-                        color: theme.colors.text.secondary,
-                        marginBottom: theme.spacing.md
-                      }}>
-                        receipt_long
-                      </span>
-                      <h2 style={{
-                        fontSize: theme.typography.sizes["2xl"],
-                        marginBottom: theme.spacing.md
-                      }}>
-                        Your Orders
-                      </h2>
-                      <p style={{ 
-                        textAlign: "center", 
-                        color: theme.colors.text.secondary,
-                        maxWidth: "500px",
-                        fontSize: theme.typography.sizes.md
-                      }}>
-                        Order history will appear here with enhanced details and tracking information.
-                      </p>
-                    </div>
+                    <OrdersView isDesktop={true} />
                   </motion.div>
                 )}
                 

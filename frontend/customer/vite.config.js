@@ -12,6 +12,9 @@ export default defineConfig({
   resolve: {
     extensions: ['.js', '.jsx', '.json']
   },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
+  },
   server: {
     host: '0.0.0.0',   // Listen on all network interfaces
     port: 5173,        // Default Vite port

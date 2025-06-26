@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AddButton from "./AddButton";
 import { theme } from "../../data/theme";
@@ -11,9 +11,41 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
   const [quantity, setQuantity] = useState(1);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [activeTab, setActiveTab] = useState("size");
+  const addBtnRef = useRef(null);  // Handle adding product to cart
+  const handleAddToCart = (event) => {
+    // Get the button's position for animation
+    let sourcePosition = null;
+    
+    // Determine source position for animation
+    // Try multiple approaches to get the most accurate position
+    if (event && event.clientX && event.clientY) {
+      // 1. Use the click position if available (most accurate)
+      sourcePosition = {
+        x: event.clientX,
+        y: event.clientY
+      }; 
+    } else if (addBtnRef.current) {
+      // 2. Use the button's position
+      const rect = addBtnRef.current.getBoundingClientRect();
+      sourcePosition = {
+        x: rect.left + rect.width/2,
+        y: rect.top + rect.height/2
+      }; 
+    } else if (event && event.currentTarget) {
+      // 3. Use the event's currentTarget
+      const rect = event.currentTarget.getBoundingClientRect();
+      sourcePosition = {
+        x: rect.left + rect.width/2,
+        y: rect.top + rect.height/2
+      }; 
+    } else {
+      // 4. Fallback to a position in the middle of the screen
+      sourcePosition = {
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 3
+      }; 
+    }
 
-  // Handle adding product to cart
-  const handleAddToCart = () => {
     if (
       product.options?.length > 0 ||
       product.sizes?.length > 0 ||
@@ -23,8 +55,8 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       // If product has customization options, show options modal
       setShowOptions(true);
     } else {
-      // If no options, add directly to cart
-      addToCart(product, quantity, []);
+      // If no options, add directly to cart with animation
+      addToCart(product, quantity, [], sourcePosition);
     }
   };
 
@@ -38,7 +70,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       },
     }));
   };
-
   // Add to cart with selected options
   const handleAddWithOptions = () => {
     const formattedOptions = [];
@@ -63,9 +94,20 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         name: "Special Instructions",
         value: specialInstructions,
       });
+    }    // Get modal center position for animation
+    const modal = document.querySelector('.options-modal');
+    let sourcePosition = null;
+    
+    if (modal) {
+      const rect = modal.getBoundingClientRect();
+      sourcePosition = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2
+      };
+      console.log("Modal position for animation:", sourcePosition);
     }
 
-    addToCart(product, quantity, formattedOptions);
+    addToCart(product, quantity, formattedOptions, sourcePosition);
     setShowOptions(false);
     setSelectedOptions({});
     setQuantity(1);
@@ -618,22 +660,14 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                 >
                   ${product.price.toFixed(2)}
                 </span>
-                <span
-                  style={{
-                    marginLeft: "8px",
-                    fontSize: theme.typography.sizes.xs,
-                    color: theme.colors.text.muted,
-                    textDecoration: "line-through",
-                  }}
-                >
-                  ${(product.price * 1.2).toFixed(2)}
-                </span>
+                 
+              </div>              <div ref={addBtnRef} className="add-button-container">
+                <AddButton
+                  onClick={handleAddToCart}
+                  isTablet={isTablet}
+                  isDesktop={isDesktop}
+                />
               </div>
-              <AddButton
-                onClick={handleAddToCart}
-                isTablet={isTablet}
-                isDesktop={isDesktop}
-              />
             </div>
           </div>
         </div>

@@ -120,7 +120,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                 alignItems: "center",
                 gap: theme.spacing.sm,
                 padding: `${theme.spacing.sm} ${theme.spacing.md}`,
-                borderRadius: theme.borderRadius.full,
+                borderRadius: theme.borderRadius.pill,
                 border: `1px solid ${theme.colors.border}`,
                 backgroundColor: "#FFFFFF",
                 color: theme.colors.text.secondary,

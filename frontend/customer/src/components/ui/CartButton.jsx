@@ -1,21 +1,45 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { theme } from '../../data/theme';
 
 const CartButton = ({ onClick }) => {
-  const { cartItems, cartTotal } = useCart();
-  
-  // Calculate total quantity of items in cart
+  const { cartItems, cartTotal, cartAnimation } = useCart();
+  const [isPulsing, setIsPulsing] = useState(false);
+    // Calculate total quantity of items in cart
   const itemCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+  
+  // Trigger pulse animation when item is added to cart
+  useEffect(() => {
+    if (cartAnimation.isAnimating) {
+      setIsPulsing(true);
+      
+      // Reset pulse animation after it completes
+      const timer = setTimeout(() => {
+        setIsPulsing(false);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [cartAnimation.isAnimating]);
 
-  return (
-    <motion.button
+  return (    <motion.button
       onClick={onClick}
       whileTap={{ scale: 0.95 }}
       initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+      animate={{ 
+        opacity: 1, 
+        y: 0,
+        scale: isPulsing ? [1, 1.15, 1] : 1,
+      }}
+      transition={{ 
+        duration: 0.3,
+        scale: {
+          duration: 0.5,
+          ease: "easeInOut"
+        }
+      }}
+      aria-label="Open cart"
       style={{
         position: 'fixed',
         bottom: '80px',

@@ -134,9 +134,9 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
             WebkitOverflowScrolling: "touch",
             scrollbarWidth: "none", /* Firefox */
             msOverflowStyle: "none", /* IE and Edge */
-            "&::-webkit-scrollbar": {
-              display: "none" /* Chrome, Safari, Opera */
-            }
+            // "&::-Webkit-Scrollbar": {
+            //   display: "none" /* Chrome, Safari, Opera */
+            // }
           }}
           className={isDragging ? "grabbing" : ""}
           initial={isDesktop ? {} : { x: 0 }}
