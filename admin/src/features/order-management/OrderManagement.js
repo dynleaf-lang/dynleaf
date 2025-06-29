@@ -54,7 +54,9 @@ import {
   FaTimes,
   FaClock,
   FaSpinner,
-  FaTruck
+  FaTruck,
+  FaUtensils,
+  FaShoppingBag
 } from 'react-icons/fa';
 import { format, parseISO } from 'date-fns';
 
@@ -66,8 +68,8 @@ const OrderStatus = {
 };
 
 const OrderType = {
-  'Dine-In': { color: 'info', icon: null, label: 'Dine-In' },
-  'Takeout': { color: 'secondary', icon: null, label: 'Takeout' },
+  'Dine-In': { color: 'info', icon: FaUtensils, label: 'Dine-In' },
+  'Takeout': { color: 'warning', icon: FaShoppingBag, label: 'Takeout' },
   'Delivery': { color: 'primary', icon: FaTruck, label: 'Delivery' }
 };
 
@@ -92,8 +94,8 @@ const OrderManagement = () => {
   const [sortConfig, setSortConfig] = useState({
     key: 'orderDate',
     direction: 'desc',
-  });
-  const [activeTab, setActiveTab] = useState('all');
+  });  const [activeTab, setActiveTab] = useState('all');
+  const [activeOrderType, setActiveOrderType] = useState('all');
 
   const {
     orders: rawOrders,
@@ -121,13 +123,12 @@ const OrderManagement = () => {
       applyFilters();
     }
   }, [user]);
-  
-  // Filter orders when search term, filters, or orders list changes
+    // Filter orders when search term, filters, or orders list changes
   useEffect(() => {
     if (orders && orders.length > 0) {
       filterOrders();
     }
-  }, [searchTerm, statusFilter, orderTypeFilter, dateRange, orders, sortConfig, activeTab]);
+  }, [searchTerm, statusFilter, orderTypeFilter, dateRange, orders, sortConfig, activeTab, activeOrderType]);
 
   // Handle restaurant selection change
   const handleRestaurantChange = async (e) => {
@@ -180,14 +181,22 @@ const OrderManagement = () => {
     setSearchTerm('');
     await getAllOrders();
   };
-
   // Client-side filtering and sorting
   const filterOrders = () => {
     let filtered = [...orders];
     
-    // Filter by active tab
+    // Filter by active status tab
     if (activeTab !== 'all') {
       filtered = filtered.filter(order => order.orderStatus.toLowerCase() === activeTab);
+    }
+    
+    // Filter by active order type tab
+    if (activeOrderType !== 'all') {
+      filtered = filtered.filter(order => {
+        // Handle different case formats (OrderType vs orderType)
+        const orderType = order.OrderType || order.orderType || '';
+        return orderType.toLowerCase() === activeOrderType.toLowerCase();
+      });
     }
 
     // Apply search term filter
@@ -304,28 +313,68 @@ const OrderManagement = () => {
   const formatCurrency = (amount) => {
     return formatCurrencyByCountry(amount, countryCode);
   };
+    // Count orders by type
+  const countOrdersByType = (type) => {
+    if (!Array.isArray(orders)) return 0;
+    
+    return orders.filter(order => {
+      const orderType = order.OrderType || order.orderType || '';
+      return orderType.toLowerCase() === type.toLowerCase();
+    }).length;
+  };
   
-  // Get the title based on user role and branch assignment
+  // Get total orders count
+  const getTotalOrdersCount = () => {
+    return Array.isArray(orders) ? orders.length : 0;
+  };
+    // Get the title based on user role and branch assignment
   const getTitle = () => {
+    let baseTitle = '';
+    
+    // Determine the base title based on user role
     if (user.role === 'Super_Admin') {
       if (selectedRestaurant && selectedBranch) {
         const restaurantName = restaurants.find(r => r._id === selectedRestaurant)?.name || '';
         const branchName = branches.find(b => b._id === selectedBranch)?.name || '';
-        return `${restaurantName} - ${branchName} Orders`;
+        baseTitle = `${restaurantName} - ${branchName}`;
       } else if (selectedRestaurant) {
         const restaurantName = restaurants.find(r => r._id === selectedRestaurant)?.name || '';
-        return `${restaurantName} Orders`;
+        baseTitle = `${restaurantName}`;
       } else {
-        return 'All Orders';
+        baseTitle = 'All';
       }
     } else if (user.branchId) {
-      return 'Branch Orders';
+      baseTitle = 'Branch';
     } else {
       return 'Order Management';
     }
+    
+    // Add order type if it's specified
+    if (activeOrderType !== 'all') {
+      const orderTypeInfo = {
+        'dine-in': { icon: <FaUtensils className="text-info mr-1" />, label: 'Dine-In' },
+        'takeout': { icon: <FaShoppingBag className="text-warning mr-1" />, label: 'Takeout' },
+        'delivery': { icon: <FaTruck className="text-primary mr-1" />, label: 'Delivery' }
+      };
+      
+      const typeInfo = orderTypeInfo[activeOrderType];
+      if (typeInfo) {
+        return (
+          <span className="d-flex align-items-center">
+            {baseTitle} {' '}
+            <span className="ml-2 mr-1">|</span>
+            <span className="d-flex align-items-center ml-1">
+              {typeInfo.icon}
+              {typeInfo.label} Orders
+            </span>
+          </span>
+        );
+      }
+    }
+    
+    return `${baseTitle} Orders`;
   };
-  
-  // Render order status badge
+    // Render order status badge
   const renderStatusBadge = (status) => {
     const statusInfo = OrderStatus[status] || { color: 'secondary', icon: null, label: status };
     const IconComponent = statusInfo.icon;
@@ -337,8 +386,7 @@ const OrderManagement = () => {
       </Badge>
     );
   };
-  
-  // Render order type badge
+    // Render order type badge
   const renderOrderTypeBadge = (type) => {
     const typeInfo = OrderType[type] || { color: 'secondary', icon: null, label: type };
     const IconComponent = typeInfo.icon;
@@ -389,9 +437,8 @@ const OrderManagement = () => {
                   </Col>
                 </Row>
               </CardHeader>
-              <CardBody>
-                {/* Status Tab Navigation */}
-                <Nav tabs className="mb-4">
+              <CardBody>                {/* Status Tab Navigation */}
+                <Nav tabs className="mb-3">
                   <NavItem>
                     <NavLink
                       className={activeTab === 'all' ? 'active' : ''}
@@ -444,7 +491,61 @@ const OrderManagement = () => {
                       Cancelled
                     </NavLink>
                   </NavItem>
-                </Nav>
+                </Nav>                  {/* Order Type Tabs */}
+                <div className="mb-4">
+                  <h5 className="mb-3 font-weight-bold">Filter by Order Type</h5>
+                  <Nav tabs className="mb-3">
+                    <NavItem>
+                      <NavLink
+                        className={activeOrderType === 'all' ? 'active' : ''}
+                        onClick={() => setActiveOrderType('all')}
+                      >
+                        <Badge color="secondary" pill className="mr-1">
+                          {getTotalOrdersCount()}
+                        </Badge>
+                        All Types
+                      </NavLink>
+                    </NavItem>
+                    <NavItem>
+                      <NavLink
+                        className={activeOrderType === 'dine-in' ? 'active' : ''}
+                        onClick={() => setActiveOrderType('dine-in')}
+                      >
+                        <FaUtensils className="mr-1 text-info" />
+                        <Badge color="info" pill className="mr-1">
+                          {countOrdersByType('dine-in')}
+                        </Badge>
+                        Dine-In
+                      </NavLink>
+                    </NavItem>
+                    <NavItem>
+                      <NavLink
+                        className={activeOrderType === 'takeout' ? 'active' : ''}
+                        onClick={() => setActiveOrderType('takeout')}
+                      >
+                        <FaShoppingBag className="mr-1 text-warning" />
+                        <Badge color="warning" pill className="mr-1">
+                          {countOrdersByType('takeout')}
+                        </Badge>
+                        Takeout
+                      </NavLink>
+                    </NavItem>
+                    {countOrdersByType('delivery') > 0 && (
+                      <NavItem>
+                        <NavLink
+                          className={activeOrderType === 'delivery' ? 'active' : ''}
+                          onClick={() => setActiveOrderType('delivery')}
+                        >
+                          <FaTruck className="mr-1 text-primary" />
+                          <Badge color="primary" pill className="mr-1">
+                            {countOrdersByType('delivery')}
+                          </Badge>
+                          Delivery
+                        </NavLink>
+                      </NavItem>
+                    )}
+                  </Nav>
+                </div>
 
                 {/* Filters Panel */}
                 <Collapse isOpen={showFilters}>
@@ -512,22 +613,48 @@ const OrderManagement = () => {
                               <option value="Cancelled">Cancelled</option>
                             </Input>
                           </FormGroup>
-                        </Col>
-                        <Col lg="3" md="6" className="mb-3">
+                        </Col>                        <Col lg="3" md="6" className="mb-3">
                           <FormGroup>
                             <Label for="orderTypeFilter">Order Type</Label>
-                            <Input
-                              type="select"
-                              name="orderTypeFilter"
-                              id="orderTypeFilter"
-                              value={orderTypeFilter}
-                              onChange={(e) => setOrderTypeFilter(e.target.value)}
-                            >
-                              <option value="">All Types</option>
-                              <option value="Dine-In">Dine-In</option>
-                              <option value="Takeout">Takeout</option>
-                              <option value="Delivery">Delivery</option>
-                            </Input>
+                            <InputGroup>
+                              <InputGroupAddon addonType="prepend">
+                                <InputGroupText className="bg-white">
+                                  {orderTypeFilter === 'Dine-In' && <FaUtensils className="text-info" />}
+                                  {orderTypeFilter === 'Takeout' && <FaShoppingBag className="text-warning" />}
+                                  {orderTypeFilter === 'Delivery' && <FaTruck className="text-primary" />}
+                                  {orderTypeFilter === '' && <FaFilter className="text-muted" />}
+                                </InputGroupText>
+                              </InputGroupAddon>
+                              <Input
+                                type="select"
+                                name="orderTypeFilter"
+                                id="orderTypeFilter"
+                                value={orderTypeFilter}
+                                onChange={(e) => {
+                                  setOrderTypeFilter(e.target.value);
+                                  // Also update the active order type tab to match
+                                  if (e.target.value) {
+                                    setActiveOrderType(e.target.value.toLowerCase());
+                                  } else {
+                                    setActiveOrderType('all');
+                                  }
+                                }}
+                                className={
+                                  orderTypeFilter === 'Dine-In' 
+                                    ? 'border-info' 
+                                    : orderTypeFilter === 'Takeout'
+                                      ? 'border-warning'
+                                      : orderTypeFilter === 'Delivery'
+                                        ? 'border-primary'
+                                        : ''
+                                }
+                              >
+                                <option value="">All Types</option>
+                                <option value="Dine-In">Dine-In</option>
+                                <option value="Takeout">Takeout</option>
+                                <option value="Delivery">Delivery</option>
+                              </Input>
+                            </InputGroup>
                           </FormGroup>
                         </Col>
                         <Col lg="3" md="6" className="mb-3">
@@ -670,96 +797,105 @@ const OrderManagement = () => {
                             <th scope="col">Restaurant/Branch</th>
                           )}
                           <th scope="col">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredOrders.map((order) => (
-                          <tr key={order._id}>
-                            <td>
-                              <span className="font-weight-bold">{order.orderId}</span>
-                            </td>
-                            <td>
-                              {order.customerId ? (
-                                typeof order.customerId === 'object' ? (
-                                  <div>
-                                    <div className="font-weight-bold">{order.customerId.name}</div>
-                                    <small>{order.customerId.phone}</small>
-                                  </div>
-                                ) : (
-                                  <span className="text-muted">ID: {order.customerId}</span>
-                                )
-                              ) : (
-                                <span className="text-muted">Unknown</span>
-                              )}
-                            </td>
-                            <td>
-                              <div>
-                                <div>{formatDate(order.orderDate)}</div>
-                              </div>
-                            </td>
-                            <td>
-                              <Badge color="info" pill>
-                                {order.items.length}
-                              </Badge>
-                            </td>
-                            <td>
-                              <span className="font-weight-bold">
-                                {formatCurrency(order.totalAmount)}
-                              </span>
-                            </td>
-                            <td>
-                              {renderOrderTypeBadge(order.OrderType)}
-                            </td>
-                            <td>
-                              {renderStatusBadge(order.orderStatus)}
-                            </td>
-                            {user.role === 'Super_Admin' && (
+                        </tr>                      </thead>                      <tbody>                        {filteredOrders.map(order => {
+                          const orderType = order.OrderType || order.orderType || '';
+                          
+                          return (
+                            <tr 
+                              key={order._id}
+                              className={activeOrderType !== 'all' ? 'table-active' : ''}
+                              style={{
+                                borderLeft: orderType === 'Dine-In' ? '2px solid #5e72e4' : 
+                                          orderType === 'Takeout' ? '2px solid #fb6340' : 
+                                          orderType === 'Delivery' ? '2px solid #11cdef' : ''
+                              }}
+                            >
                               <td>
-                                {order.restaurantId && typeof order.restaurantId === 'object' ? (
-                                  <div className="d-flex flex-column">
-                                    <Badge color="info" className="mb-1">
-                                      {order.restaurantId.name}
-                                    </Badge>
-                                    {order.branchId && typeof order.branchId === 'object' && (
-                                      <Badge color="secondary">
-                                        {order.branchId.name}
-                                      </Badge>
-                                    )}
-                                  </div>
+                                <span className="font-weight-bold">{order.orderId}</span>
+                              </td>
+                              <td>
+                                {order.customerId ? (
+                                  typeof order.customerId === 'object' ? (
+                                    <div>
+                                      <div className="font-weight-bold">{order.customerId.name}</div>
+                                      <small>{order.customerId.phone}</small>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted">ID: {order.customerId}</span>
+                                  )
                                 ) : (
-                                  <small className="text-muted">
-                                    {order.restaurantId ? `Restaurant ID: ${order.restaurantId}` : 'N/A'}
-                                    <br />
-                                    {order.branchId ? `Branch ID: ${order.branchId}` : 'N/A'}
-                                  </small>
+                                  <span className="text-muted">Unknown</span>
                                 )}
                               </td>
-                            )}
-                            <td>
-                              <UncontrolledDropdown>
-                                <DropdownToggle color="secondary" size="sm" className="btn-icon-only">
-                                  <i className="fas fa-ellipsis-v"></i>
-                                </DropdownToggle>
-                                <DropdownMenu right>
-                                  <DropdownItem onClick={() => handleViewDetails(order)}>
-                                    <FaEye className="text-primary mr-2" /> View Details
-                                  </DropdownItem>
-                                  {order.orderStatus !== 'Completed' && order.orderStatus !== 'Cancelled' && (
-                                    <DropdownItem onClick={() => handleOpenStatusModal(order)}>
-                                      <FaEdit className="text-info mr-2" /> Update Status
-                                    </DropdownItem>
+                              <td>
+                                <div>
+                                  <div>{formatDate(order.orderDate)}</div>
+                                </div>
+                              </td>
+                              <td>
+                                <Badge color="info" pill>
+                                  {order.items.length}
+                                </Badge>
+                              </td>
+                              <td>
+                                <span className="font-weight-bold">
+                                  {formatCurrency(order.totalAmount)}
+                                </span>
+                              </td>
+                              <td>
+                                {renderOrderTypeBadge(order.OrderType)}
+                              </td>
+                              <td>
+                                {renderStatusBadge(order.orderStatus)}
+                              </td>
+                              {user.role === 'Super_Admin' && (
+                                <td>
+                                  {order.restaurantId && typeof order.restaurantId === 'object' ? (
+                                    <div className="d-flex flex-column">
+                                      <Badge color="info" className="mb-1">
+                                        {order.restaurantId.name}
+                                      </Badge>
+                                      {order.branchId && typeof order.branchId === 'object' && (
+                                        <Badge color="secondary">
+                                          {order.branchId.name}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <small className="text-muted">
+                                      {order.restaurantId ? `Restaurant ID: ${order.restaurantId}` : 'N/A'}
+                                      <br />
+                                      {order.branchId ? `Branch ID: ${order.branchId}` : 'N/A'}
+                                    </small>
                                   )}
-                                  <DropdownItem onClick={() => handleGenerateInvoice(order)}>
-                                    <FaFilePdf className="text-danger mr-2" /> Generate Invoice
-                                  </DropdownItem>
-                                  <DropdownItem onClick={() => handleOpenDeleteModal(order)}>
-                                    <FaTrashAlt className="text-danger mr-2" /> Delete
-                                  </DropdownItem>
-                                </DropdownMenu>
-                              </UncontrolledDropdown>
-                            </td>
-                          </tr>
-                        ))}
+                                </td>
+                              )}
+                              <td>
+                                <UncontrolledDropdown>
+                                  <DropdownToggle color="secondary" size="sm" className="btn-icon-only">
+                                    <i className="fas fa-ellipsis-v"></i>
+                                  </DropdownToggle>
+                                  <DropdownMenu right>
+                                    <DropdownItem onClick={() => handleViewDetails(order)}>
+                                      <FaEye className="text-primary mr-2" /> View Details
+                                    </DropdownItem>
+                                    {order.orderStatus !== 'Completed' && order.orderStatus !== 'Cancelled' && (
+                                      <DropdownItem onClick={() => handleOpenStatusModal(order)}>
+                                        <FaEdit className="text-info mr-2" /> Update Status
+                                      </DropdownItem>
+                                    )}
+                                    <DropdownItem onClick={() => handleGenerateInvoice(order)}>
+                                      <FaFilePdf className="text-danger mr-2" /> Generate Invoice
+                                    </DropdownItem>
+                                    <DropdownItem onClick={() => handleOpenDeleteModal(order)}>
+                                      <FaTrashAlt className="text-danger mr-2" /> Delete
+                                    </DropdownItem>
+                                  </DropdownMenu>
+                                </UncontrolledDropdown>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </Table>
                   </div>
@@ -768,17 +904,59 @@ const OrderManagement = () => {
             </Card>
           </Col>
         </Row>
-      </Container>
-
-      {/* Order Details Modal */}
+      </Container>      {/* Order Details Modal */}
       <Modal isOpen={showOrderDetails} toggle={() => setShowOrderDetails(false)} size="lg">
-        <ModalHeader toggle={() => setShowOrderDetails(false)} className="bg-info text-white">
+        <ModalHeader 
+          toggle={() => setShowOrderDetails(false)} 
+          className="bg-info text-white"
+        >
           <i className="fas fa-file-alt mr-2"></i>
           Order Details
         </ModalHeader>
         <ModalBody>
           {selectedOrder && (
             <div>
+              <Row className="mb-4">
+                <Col xs="12">
+                  <Alert 
+                    color={
+                      selectedOrder.OrderType === 'Dine-In' ? 'info' : 
+                      selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                      'primary'
+                    }
+                    className="mb-0"
+                  >
+                    {selectedOrder.OrderType === 'Dine-In' && (
+                      <div className="d-flex align-items-center">
+                        <FaUtensils className="mr-2" />
+                        <div>
+                          <strong>Dine-In Order</strong>
+                          <div><small>Customer is dining in the restaurant</small></div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedOrder.OrderType === 'Takeout' && (
+                      <div className="d-flex align-items-center">
+                        <FaShoppingBag className="mr-2" />
+                        <div>
+                          <strong>Takeout Order</strong>
+                          <div><small>Customer will pick up their order</small></div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedOrder.OrderType === 'Delivery' && (
+                      <div className="d-flex align-items-center">
+                        <FaTruck className="mr-2" />
+                        <div>
+                          <strong>Delivery Order</strong>
+                          <div><small>Order will be delivered to customer</small></div>
+                        </div>
+                      </div>
+                    )}
+                  </Alert>
+                </Col>
+              </Row>
+
               <Row className="mb-4">
                 <Col md="6">
                   <h4 className="mb-3">Order Information</h4>
@@ -801,7 +979,7 @@ const OrderManagement = () => {
                         <td>{renderOrderTypeBadge(selectedOrder.OrderType)}</td>
                       </tr>
                       <tr>
-                        <th scope="row">Table:</th>
+                        <th scope="row">{selectedOrder.OrderType === 'Dine-In' ? 'Table:' : 'Pickup/Delivery #:'}</th>
                         <td>{selectedOrder.tableId || 'N/A'}</td>
                       </tr>
                     </tbody>
@@ -925,9 +1103,7 @@ const OrderManagement = () => {
             <FaFilePdf className="mr-2" /> Generate Invoice
           </Button>
         </ModalFooter>
-      </Modal>
-
-      {/* Status Update Modal */}
+      </Modal>      {/* Status Update Modal */}
       <Modal isOpen={showStatusModal} toggle={() => setShowStatusModal(false)}>
         <ModalHeader toggle={() => setShowStatusModal(false)} className="bg-info text-white">
           <i className="fas fa-edit mr-2"></i>
@@ -936,14 +1112,41 @@ const OrderManagement = () => {
         <ModalBody>
           {selectedOrder && (
             <Form>
+              <Alert 
+                color={
+                  selectedOrder.OrderType === 'Dine-In' ? 'info' : 
+                  selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                  'primary'
+                }
+                className="mb-3"
+              >
+                <div className="d-flex align-items-center">
+                  {selectedOrder.OrderType === 'Dine-In' && <FaUtensils className="mr-2" />}
+                  {selectedOrder.OrderType === 'Takeout' && <FaShoppingBag className="mr-2" />}
+                  {selectedOrder.OrderType === 'Delivery' && <FaTruck className="mr-2" />}
+                  <div>
+                    <strong>{selectedOrder.OrderType} Order #{selectedOrder.orderId}</strong>
+                    <div><small>{formatDate(selectedOrder.orderDate)}</small></div>
+                  </div>
+                </div>
+              </Alert>
+
               <FormGroup>
-                <Label for="orderStatus">Order Status</Label>
+                <Label for="orderStatus">
+                  <strong>Order Status</strong>
+                </Label>
                 <Input
                   type="select"
                   name="orderStatus"
                   id="orderStatus"
                   value={newStatus}
                   onChange={(e) => setNewStatus(e.target.value)}
+                  className={
+                    newStatus === 'Pending' ? 'border-warning' : 
+                    newStatus === 'Processing' ? 'border-primary' :
+                    newStatus === 'Completed' ? 'border-success' :
+                    newStatus === 'Cancelled' ? 'border-danger' : ''
+                  }
                 >
                   <option value="Pending">Pending</option>
                   <option value="Processing">Processing</option>
@@ -951,12 +1154,24 @@ const OrderManagement = () => {
                   <option value="Cancelled">Cancelled</option>
                 </Input>
               </FormGroup>
-              <p className="text-muted">
-                <strong>Current Status:</strong> {selectedOrder.orderStatus}
-              </p>
-              <Alert color="info">
-                <i className="fas fa-info-circle mr-2"></i>
-                Changing the status will notify relevant staff members.
+              
+              <div className="d-flex align-items-center mb-3">
+                <span className="mr-2">Current Status:</span> 
+                {renderStatusBadge(selectedOrder.orderStatus)}
+              </div>
+              
+              <Alert 
+                color="secondary"
+                className="mb-0"
+              >
+                <div className="d-flex align-items-center">
+                  <i className="fas fa-info-circle mr-2"></i>
+                  {selectedOrder.OrderType === 'Dine-In' 
+                    ? 'Updating status for Dine-In order will notify wait staff.' 
+                    : selectedOrder.OrderType === 'Takeout' 
+                    ? 'Updating status for Takeout order will notify pickup counter.' 
+                    : 'Updating status will notify delivery personnel.'}
+                </div>
               </Alert>
             </Form>
           )}
@@ -969,9 +1184,7 @@ const OrderManagement = () => {
             {loading ? <Spinner size="sm" /> : 'Update Status'}
           </Button>
         </ModalFooter>
-      </Modal>
-
-      {/* Delete Confirmation Modal */}
+      </Modal>      {/* Delete Confirmation Modal */}
       <Modal isOpen={showDeleteConfirm} toggle={() => setShowDeleteConfirm(false)}>
         <ModalHeader toggle={() => setShowDeleteConfirm(false)} className="bg-danger text-white">
           <i className="fas fa-exclamation-triangle mr-2"></i>
@@ -980,8 +1193,35 @@ const OrderManagement = () => {
         <ModalBody>
           {selectedOrder && (
             <>
-              <p>Are you sure you want to delete order <strong>#{selectedOrder.orderId}</strong>?</p>
-              <p className="mb-0"><strong>Warning:</strong> This action cannot be undone.</p>
+              <Alert 
+                color={
+                  selectedOrder.OrderType === 'Dine-In' ? 'info' : 
+                  selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                  'primary'
+                }
+                className="mb-3"
+              >
+                <div className="d-flex align-items-center">
+                  {selectedOrder.OrderType === 'Dine-In' && <FaUtensils className="mr-2" />}
+                  {selectedOrder.OrderType === 'Takeout' && <FaShoppingBag className="mr-2" />}
+                  {selectedOrder.OrderType === 'Delivery' && <FaTruck className="mr-2" />}
+                  <div>
+                    <strong>{selectedOrder.OrderType} Order #{selectedOrder.orderId}</strong>
+                    <div><small>{formatDate(selectedOrder.orderDate)}</small></div>
+                  </div>
+                </div>
+              </Alert>
+              
+              <Alert color="danger" className="mt-3">
+                <p className="mb-0"><strong>Warning:</strong> Are you sure you want to delete this {selectedOrder.OrderType.toLowerCase()} order? This action cannot be undone.</p>
+              </Alert>
+              
+              <p className="text-muted">
+                <small>
+                  <i className="fas fa-info-circle mr-1"></i>
+                  Deleting the order will remove it from your records and reports.
+                </small>
+              </p>
             </>
           )}
         </ModalBody>

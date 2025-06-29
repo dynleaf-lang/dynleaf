@@ -20,7 +20,7 @@ export default defineConfig({
     port: 5173,        // Default Vite port
     strictPort: false,  // Try another port if 5173 is in use
     proxy: {
-      // Proxy API requests to the backend server on port 5000
+      // Proxy API requests to the backend server on port 5001
       '/api': {
         target: 'http://localhost:5001',
         changeOrigin: true,

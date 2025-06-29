@@ -5,6 +5,9 @@ import { theme } from "../../data/theme";
 import { useCart } from "../../context/CartContext";
 
 const ProductCard = ({ product, isTablet, isDesktop }) => {
+
+  
+
   const { addToCart } = useCart();
   const [showOptions, setShowOptions] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState({});
@@ -53,8 +56,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       product.addons?.length > 0
     ) {
       // If product has customization options, show options modal
-      setShowOptions(true);
-    } else {
+      setShowOptions(true);    } else {
       // If no options, add directly to cart with animation
       addToCart(product, quantity, [], sourcePosition);
     }

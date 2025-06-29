@@ -54,12 +54,17 @@ app.use(cors({
 const { seedDefaultTaxes } = require('./models/Tax');
 
 // Connect to MongoDB with updated options
-mongoose.connect(process.env.MONGODB_URI, {
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/food-menu';
+console.log(`[DEBUG] Connecting to MongoDB: ${MONGODB_URI.replace(/:([^:@]{4}).*@/, ':****@')}`);
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s
+  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
 })
 .then(() => {
-  console.log('MongoDB connected successfully');
+  console.log('[DEBUG] MongoDB connected successfully');
   
   // Now that the database is connected, seed the tax data
   seedDefaultTaxes().then(() => {
@@ -69,7 +74,13 @@ mongoose.connect(process.env.MONGODB_URI, {
   });
 })
 .catch(err => {
-  console.error('MongoDB connection error:', err);
+  console.error('[DEBUG] MongoDB connection error:', err);
+  console.error('[DEBUG] MongoDB connection error details:', {
+    name: err.name,
+    code: err.code,
+    codeName: err.codeName,
+    message: err.message
+  });
   process.exit(1);
 });
 
@@ -99,12 +110,32 @@ const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const floorRoutes = require('./routes/floorRoutes');
 
+// Import public routes for customer application
+const publicTableRoutes = require('./routes/publicTableRoutes');
+const publicMenuRoutes = require('./routes/publicMenuRoutes');
+const publicBranchRoutes = require('./routes/publicBranchRoutes');
+const publicOrderRoutes = require('./routes/publicOrderRoutes');
+
+// Import diagnostic routes
+const diagnosticRoutes = require('./routes/diagnosticRoutes');
+const schemaInfoRoutes = require('./routes/schemaInfoRoutes');
+
 // Serve static files from the public directory
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 // Simple route for API health check
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Public API health check
+app.get('/api/public/health', (req, res) => {
+  console.log('[DEBUG] Public API health check accessed');
+  res.json({
+    status: 'ok',
+    message: 'Public API is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Register API routes
@@ -119,6 +150,24 @@ app.use('/api/taxes', taxRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/floors', floorRoutes);
+
+// Debug request logging middleware for public routes
+app.use('/api/public', (req, res, next) => {
+  console.log(`[DEBUG] Public API Request: ${req.method} ${req.url}`);
+  next();
+});
+
+// Register public API routes for the customer application
+app.use('/api/public/tables', publicTableRoutes);
+app.use('/api/public/menus', publicMenuRoutes);
+app.use('/api/public/branches', publicBranchRoutes);
+app.use('/api/public/orders', publicOrderRoutes);
+
+// Register diagnostic routes (only available in development mode)
+if (process.env.NODE_ENV !== 'production') {
+    app.use('/api/diagnostics', diagnosticRoutes);
+    app.use('/api/schema-info', schemaInfoRoutes);
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

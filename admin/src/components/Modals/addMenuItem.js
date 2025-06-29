@@ -343,10 +343,19 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         setShowSuccessAlert(false);
         setShowErrorAlert(false);
          
+          // Validate required fields
+        if (!menuItem.name || !menuItem.categoryId) {
+            setErrorMessage("Please fill in all required fields: name and category are required.");
+            setShowErrorAlert(true);
+            return;
+        }
         
-        // Validate required fields
-        if (!menuItem.name || (!menuItem.price && (!menuItem.sizeVariants || menuItem.sizeVariants.length === 0)) || !menuItem.categoryId) {
-            setErrorMessage("Please fill in all required fields. Either a base price or size variants are required.");
+        // Validate that either a valid price or size variants are provided
+        const hasValidPrice = menuItem.price && parseFloat(menuItem.price) > 0;
+        const hasSizeVariants = menuItem.sizeVariants && menuItem.sizeVariants.length > 0;
+        
+        if (!hasValidPrice && !hasSizeVariants) {
+            setErrorMessage("Either a base price greater than zero or at least one size variant is required.");
             setShowErrorAlert(true);
             return;
         }

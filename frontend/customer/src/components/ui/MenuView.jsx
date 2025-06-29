@@ -14,19 +14,25 @@ const MenuView = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   
+  // Add debugging to help troubleshoot menu issues
+  console.log('MenuView - Available categories:', categories);
+  console.log('MenuView - MenuItems count:', menuItems.length);
+  console.log('MenuView - Selected category:', selectedCategory);
+  
   // Memoized handler for category selection to avoid recreating function on each render
   const handleCategorySelect = useCallback((categoryId) => {
     setSelectedCategory(categoryId);
   }, []);
-  
-  // Filter menu items based on category and search query
+    // Filter menu items based on category and search query
   const filteredItems = menuItems
     .filter(item => {
       // If 'all' category is selected, show all items
       if (selectedCategory === 'all') return true;
       
-      // Otherwise, filter by category
-      return item.categoryId === selectedCategory;
+      // Otherwise, filter by category - check both categoryId and category fields
+      // This handles both old and new formats from our API changes
+      return item.categoryId === selectedCategory || 
+             (item.category && item.category === selectedCategory);
     })
     .filter(item => {
       // If there's a search query, filter by title or description

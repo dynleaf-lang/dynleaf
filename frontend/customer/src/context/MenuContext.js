@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../utils/api';
 import { useRestaurant } from './RestaurantContext';
+import { ensureCategories, categorizeMenuItem } from '../utils/categoryMiddleware';
 
 // Create the context
 const MenuContext = createContext();
@@ -16,7 +17,7 @@ export const useMenu = () => {
 
 // Provider component
 export const MenuProvider = ({ children }) => {
-  const { restaurant, branch, initialized } = useRestaurant();
+  const { restaurant, branch, initialized, categories: restaurantCategories } = useRestaurant();
   
   // State
   const [menuItems, setMenuItems] = useState([]);
@@ -25,11 +26,12 @@ export const MenuProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [filteredItems, setFilteredItems] = useState([]);
-  
   // Fetch menu items whenever restaurant or branch changes
   useEffect(() => {
     const fetchMenuItems = async () => {
       if (!restaurant || !branch) return;
+      
+      console.log("MenuContext - Restaurant Categories:", restaurantCategories);
       
       try {
         setLoading(true);
@@ -40,16 +42,22 @@ export const MenuProvider = ({ children }) => {
           branch._id
         );
         
+        console.log("MenuData raw:", menuData);
+        
         // Process menu items to match the expected format
         const processedMenuItems = menuData.map(item => ({
-          id: item._id,
-          title: item.name,
-          subtitle: item.description || '',
+          id: item._id || item.id, // Handle both formats
+          title: item.name || item.title, // Handle both formats
+          subtitle: item.description || item.subtitle || '',
           description: item.description || '',
           price: item.price,
-          image: item.imageUrl || 'https://via.placeholder.com/300',
-          category: item.categoryId ? item.categoryId.name : 'Uncategorized',
-          categoryId: item.categoryId ? item.categoryId._id : null,
+          image: item.imageUrl || item.image || 'https://via.placeholder.com/300',          // Extract category data
+          category: item.categoryId ? 
+                    (typeof item.categoryId === 'object' ? item.categoryId.name : categorizeMenuItem(item)) 
+                    : categorizeMenuItem(item),
+          categoryId: item.categoryId ? 
+                      (typeof item.categoryId === 'object' ? item.categoryId._id : item.categoryId) 
+                      : null,
           available: item.available !== false,
           popular: item.popular || false,
           restaurantId: item.restaurantId,
@@ -57,16 +65,32 @@ export const MenuProvider = ({ children }) => {
           options: item.options || []
         }));
         
-        setMenuItems(processedMenuItems);
-        
-        // Extract unique categories
-        const uniqueCategories = ['All', ...new Set(
+        setMenuItems(processedMenuItems);        // Extract unique categories from menu items
+        const uniqueCategoriesFromItems = ['All', ...new Set(
           processedMenuItems
             .filter(item => item.category)
             .map(item => item.category)
         )];
         
-        setCategories(uniqueCategories);
+        console.log('Categories from items:', uniqueCategoriesFromItems);
+          // Ensure we have a complete set of categories
+        let finalCategories;
+        
+        // Try to use restaurant categories if available
+        if (restaurantCategories && restaurantCategories.length > 1) {
+          console.log('Using restaurant categories:', restaurantCategories);
+          finalCategories = restaurantCategories.map(cat => cat.name);
+        } else {
+          console.log('Using categories extracted from items:', uniqueCategoriesFromItems);
+          finalCategories = uniqueCategoriesFromItems;
+        }
+        
+        // Apply our middleware to ensure we have proper categories
+        const enhancedCategories = ensureCategories(finalCategories);
+        console.log('Final enhanced categories:', enhancedCategories);
+        
+        // Set the categories with our ensured list
+        setCategories(enhancedCategories);
         
         // Apply initial filtering
         if (selectedCategory === 'All') {
@@ -86,13 +110,19 @@ export const MenuProvider = ({ children }) => {
       fetchMenuItems();
     }
   }, [restaurant, branch, initialized]);
-  
-  // Filter items when category changes
+    // Filter items when category changes
   useEffect(() => {
     if (selectedCategory === 'All') {
       setFilteredItems(menuItems);
     } else {
-      setFilteredItems(menuItems.filter(item => item.category === selectedCategory));
+      // Case insensitive comparison for more robust filtering
+      const selected = selectedCategory.toLowerCase();
+      setFilteredItems(menuItems.filter(item => 
+        item.category && item.category.toLowerCase() === selected
+      ));
+      console.log(`Filtered to ${selected} category:`, 
+        menuItems.filter(item => item.category && item.category.toLowerCase() === selected)
+      );
     }
   }, [selectedCategory, menuItems]);
   

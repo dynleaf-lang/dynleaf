@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRestaurant } from './RestaurantContext';
-import { mockOrders, mockOrderUtils } from '../data/dummyData';
+import { api } from '../utils/apiClient';
 
 // Create context
 const CartContext = createContext(null);
@@ -178,8 +178,7 @@ export const CartProvider = ({ children }) => {
     setCartItems([]);
     localStorage.removeItem('cart');
   };
-
-  // Submit order - using mock system instead of API
+  // Submit order using the real API
   const placeOrder = async (customerInfo = {}) => {
     if (cartItems.length === 0) {
       setOrderError('Your cart is empty');
@@ -195,29 +194,43 @@ export const CartProvider = ({ children }) => {
       setOrderLoading(true);
       setOrderError(null);
 
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      // Calculate subtotal and tax for the order
+      const subtotal = cartItems.reduce((sum, item) => {
+        return sum + (item.price * item.quantity);
+      }, 0);
+      
+      // Assume default tax rate of 10% if not specified
+      const taxRate = restaurant.defaultTaxRate || 0.1;
+      const taxAmount = subtotal * taxRate;
+      
+      // Prepare order data according to the API schema
       const orderData = {
         restaurantId: restaurant._id,
         branchId: branch._id,
         tableId: table ? table._id : null,
         items: cartItems.map(item => ({
-          menuItemId: item.id,
-          name: item.title,
+          menuItemId: item.id || item._id,
+          name: item.title || item.name,
           quantity: item.quantity,
           price: item.price,
-          options: item.selectedOptions || []
+          notes: item.selectedOptions ? JSON.stringify(item.selectedOptions) : '',
+          subtotal: item.price * item.quantity
         })),
-        totalAmount: cartTotal,
-        note: orderNote,
         customerInfo: {
           name: customerInfo.name || 'Guest',
           email: customerInfo.email || '',
           phone: customerInfo.phone || ''
-        }
-      };      // Use our mock order system instead of API
-      const createdOrder = mockOrderUtils.addOrder(orderData);
+        },
+        orderType: table ? 'dine-in' : 'takeaway',
+        paymentMethod: 'cash', // Default to cash payment
+        status: 'pending',
+        notes: orderNote,
+        taxAmount: taxAmount,
+        subtotal: subtotal,
+        total: subtotal + taxAmount
+      };
+        // Call the public API to create the order
+      const createdOrder = await api.public.orders.create(orderData);
       
       if (createdOrder) {
         setCurrentOrder(createdOrder);
@@ -235,8 +248,7 @@ export const CartProvider = ({ children }) => {
       setOrderLoading(false);
     }
   };
-
-  // Check order status - using mock system instead of API
+  // Check order status using public API
   const checkOrderStatus = async (orderId) => {
     if (!orderId) {
       return null;
@@ -245,10 +257,8 @@ export const CartProvider = ({ children }) => {
     try {
       setOrderLoading(true);
       
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const order = mockOrderUtils.getOrderById(orderId);
+      // Call the public API to get order status
+      const order = await api.public.orders.getById(orderId);
       
       if (!order) {
         throw new Error('Order not found');

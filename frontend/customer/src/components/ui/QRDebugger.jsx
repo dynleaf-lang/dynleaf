@@ -1,5 +1,6 @@
 import React from 'react';
 import { useRestaurant } from '../../context/RestaurantContext';
+import ServerStatusChecker from '../debug/ServerStatusChecker';
 
 const QRDebugger = () => {
   const { 
@@ -16,7 +17,7 @@ const QRDebugger = () => {
 
   // Get API URL configuration
   const baseUrl = window.location.origin;
-  const apiEndpoint = `${window.location.protocol}//${window.location.hostname}:5000/api`;
+  const apiEndpoint = `${window.location.protocol}//${window.location.hostname}:5001`;
 
   return (
     <div style={{ 
@@ -63,8 +64,7 @@ const QRDebugger = () => {
           isRetrying: {String(isRetrying)}
         </pre>
       </div>
-      
-      <div style={{ marginBottom: '10px' }}>
+        <div style={{ marginBottom: '10px' }}>
         <strong>Network Configuration:</strong>
         <pre style={{ 
           backgroundColor: '#f1f1f1', 
@@ -75,32 +75,55 @@ const QRDebugger = () => {
           baseUrl: {baseUrl}<br />
           apiEndpoint: {apiEndpoint}<br />
           online: {String(navigator.onLine)}<br />
+          API URL: {import.meta.env.VITE_API_BASE_URL || 'Not set in .env'}
         </pre>
       </div>
-      
-      <button 
-        onClick={() => {
-          console.log('URL Parameters:', { restaurantId, branchId, tableId });
-          console.log('Context State:', { 
-            initialized, loading, error, 
-            restaurant: restaurant ? { id: restaurant._id, name: restaurant.name } : null,
-            branch: branch ? { id: branch._id, name: branch.name } : null,
-            table: table ? { id: table._id, number: table.tableNumber } : null
-          });
-          console.log('Network:', { online: navigator.onLine });
-          alert('Debug info logged to console');
-        }}
-        style={{
-          backgroundColor: '#0d6efd',
-          color: 'white',
-          border: 'none',
-          padding: '8px 16px',
-          borderRadius: '4px',
-          cursor: 'pointer'
-        }}
-      >
-        Log to Console
-      </button>
+
+      <ServerStatusChecker baseUrl="http://localhost:5001" />
+        <div style={{ display: 'flex', gap: '10px' }}>
+        <button 
+          onClick={() => {
+            console.log('URL Parameters:', { restaurantId, branchId, tableId });
+            console.log('Context State:', { 
+              initialized, loading, error, 
+              restaurant: restaurant ? { id: restaurant._id, name: restaurant.name } : null,
+              branch: branch ? { id: branch._id, name: branch.name } : null,
+              table: table ? { id: table._id, number: table.tableNumber } : null
+            });
+            console.log('Network:', { online: navigator.onLine });
+            alert('Debug info logged to console');
+          }}
+          style={{
+            backgroundColor: '#0d6efd',
+            color: 'white',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Log to Console
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Manual retry initiated with params:', { restaurantId, branchId, tableId });
+            // Import the useRestaurant hook to get the retryLastRequest function
+            // This is a direct call to window.location to reload with current params
+            window.location.reload();
+          }}
+          style={{
+            backgroundColor: '#198754',
+            color: 'white',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Reload Page
+        </button>
+      </div>
     </div>
   );
 };

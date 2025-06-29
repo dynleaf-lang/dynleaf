@@ -149,9 +149,20 @@ const authorize = (...roles) => {
     };
 };
 
+// Middleware for public access (skips authentication)
+const publicAccess = (req, res, next) => {
+    // Add empty user object to avoid undefined errors in routes
+    req.user = {
+        role: 'public',
+        isPublic: true
+    };
+    next();
+};
+
 module.exports = {
     protect,
     authorize,
     authenticateJWT,
-    authorizeAdmin
+    authorizeAdmin,
+    publicAccess
 };

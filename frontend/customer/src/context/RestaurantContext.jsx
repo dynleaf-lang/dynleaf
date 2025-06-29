@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { api } from '../utils/apiClient';
 import { dummyData } from '../data/dummyData';
+import createMockRestaurantData from '../utils/createMockRestaurantData';
+import { getCachedData, setCachedData, clearCache } from '../utils/cacheHelper';
+import { promiseWithTimeout } from '../utils/promiseWithTimeout';
 
 // Create the context
 const RestaurantContext = createContext(null);
@@ -17,6 +21,7 @@ const RestaurantProvider = ({ children }) => {
   const [initialized, setInitialized] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [cacheEnabled, setCacheEnabled] = useState(true); // Default to using cache
   
   // Use refs to prevent unnecessary effect re-executions
   const initializationRef = useRef(false);
@@ -48,67 +53,203 @@ const RestaurantProvider = ({ children }) => {
     // Return matching icon or default icon
     return categoryIcons[categoryName] || 'https://cdn-icons-png.flaticon.com/512/1147/1147801.png';
   }, []);
-  
-  // Function to load specific restaurant data (using dummy data)
-  const loadSpecificRestaurantData = useCallback(async (restaurantId, branchId, tableId) => {
-    try {
-      console.log(`Loading dummy restaurant data`);
-      setLoading(true);
-      setError(null);
-      
-      // Simulate API load time
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Set all data from our dummy data
-      setRestaurant(dummyData.restaurant);
-      setBranch(dummyData.branch);
-      setTable(dummyData.table);
-      setMenuItems(dummyData.menuItems);
-      setCategories(dummyData.categories);
-      
-      setInitialized(true);
-      console.log('Dummy restaurant data initialized successfully');
-    } catch (err) {
-      console.error('Error loading dummy data:', err);
-      setError('Failed to load restaurant data');
-      setInitialized(false);
-    } finally {
-      setLoading(false);
+
+  /**
+   * Helper function to get a placeholder image for menu items
+   */
+  const getPlaceholderImage = useCallback((foodName = '') => {
+    return `https://via.placeholder.com/150?text=${encodeURIComponent(foodName)}`;
+  }, []);
+
+  /**
+   * Generate fallback data when real data cannot be fetched
+   */
+  const useFallbackData = useCallback((restaurantId, branchId, tableId) => {
+    console.log('Using fallback mock data for restaurant', restaurantId);
+    
+    // Create mock data with the provided IDs
+    const mockData = createMockRestaurantData(restaurantId, branchId, tableId);
+    
+    // Set restaurant data from mock data
+    setRestaurant(mockData.restaurant);
+    setBranch(mockData.branch);
+    setTable(mockData.table);
+    setMenuItems(mockData.menuItems);
+    
+    // Set categories, ensuring "All" category exists
+    const allCategories = [...mockData.categories];
+    const hasAllCategory = allCategories.some(cat => cat.name === 'All');
+    if (!hasAllCategory) {
+      allCategories.unshift({
+        id: 'all',
+        name: 'All',
+        image: 'https://cdn-icons-png.flaticon.com/512/6134/6134645.png'
+      });
+    }
+    setCategories(allCategories);
+    
+    // Set initialized to true but keep the error message
+    setInitialized(true);
+    console.warn('Using fallback mock data due to API failure');
+  }, []);
+
+  /**
+   * Clear application cache and reload fresh data
+   */
+  const clearCacheAndReload = useCallback(() => {
+    // Clear the API response cache
+    clearCache();
+    console.log('Cache cleared, reloading fresh data...');
+    
+    // Reset states
+    setRetryCount(0);
+    setError(null);
+    
+    // Force reload restaurant data
+    const urlParams = new URLSearchParams(window.location.search);
+    const restaurantId = urlParams.get('restaurantId');
+    const branchId = urlParams.get('branchId');
+    const tableId = urlParams.get('tableId');
+    
+    if (restaurantId && branchId && tableId) {
+      loadRestaurantData(restaurantId, branchId, tableId);
+    } else {
+      setError('Missing required parameters (restaurantId, branchId, tableId)');
     }
   }, []);
+  
+  /**
+   * Toggle caching on/off
+   */
+  const toggleCaching = useCallback(() => {
+    setCacheEnabled(prev => !prev);
+    console.log(`Caching ${!cacheEnabled ? 'enabled' : 'disabled'}`);
+  }, [cacheEnabled]);
+  /**
+   * Main function to load restaurant data
+   */
+  const loadRestaurantData = useCallback(async (restaurantId, branchId, tableId) => {
+    if (!restaurantId || !branchId || !tableId) {
+      console.error('Missing required parameters for loading restaurant data');
+      setError('Missing required parameters. Please scan a valid QR code.');
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    console.log('Loading restaurant data...');
+    
+    try {
+      // Fetch all data with a timeout
+      const fetchDataPromise = Promise.all([
+        api.public.branches.getById(branchId),
+        api.public.tables.getById(tableId),
+        api.public.menus.getByBranch(branchId),
+        api.public.menus.getCategories(branchId)
+      ]);
+      
+      // Apply timeout to the Promise.all call
+      const [branchData, tableData, menuItemsData, categoriesData] = await promiseWithTimeout(
+        fetchDataPromise,
+        15000,
+        'Request timed out'
+      );
+        // Set restaurant and branch data
+      setRestaurant(branchData.restaurant || null);
+      setBranch(branchData);
+      setTable(tableData);
+      setMenuItems(menuItemsData || []);
+      
+      // Process and set categories using our helper
+      const processedCategories = processCategories(categoriesData);
+      setCategories(processedCategories);
+      
+      setInitialized(true);
+      console.log('Restaurant data initialized successfully');
+      
+      // Reset retry count on successful load
+      if (retryCount > 0) {
+        setRetryCount(0);
+      }
+    } catch (err) {
+      console.error('Error loading restaurant data:', err);
+      // Create a more user-friendly error message
+      const errorMessage = `Failed to load restaurant data: ${err.message}`;
+      setError(errorMessage);
+      
+      // If we've reached max retry count (3) and still failing, use fallback data
+      if (retryCount >= 2) {
+        console.warn(`Max retry count (${retryCount}) reached, using fallback data`);
+        useFallbackData(restaurantId, branchId, tableId);
+      } else {
+        setInitialized(false);
+        // Increment retry count for the retry mechanism
+        setRetryCount(prevCount => prevCount + 1);
+      }
+    } finally {
+      setLoading(false);
+      setIsRetrying(false);
+    }
+  }, [retryCount, useFallbackData, cacheEnabled]);
   
   // Function to retry last failed request
   const retryLastRequest = useCallback(() => {
     setIsRetrying(true);
-    loadSpecificRestaurantData();
-  }, [loadSpecificRestaurantData]);
+    
+    // Get URL parameters for the retry
+    const urlParams = new URLSearchParams(window.location.search);
+    const restaurantId = urlParams.get('restaurantId');
+    const branchId = urlParams.get('branchId');
+    const tableId = urlParams.get('tableId');
+    
+    if (restaurantId && branchId && tableId) {
+      loadRestaurantData(restaurantId, branchId, tableId);
+    } else {
+      setIsRetrying(false);
+      setError('Missing required parameters for retry');
+    }
+  }, [loadRestaurantData]);
   
-  // Function to load from QR code (using dummy data)
-  const loadFromQrCode = useCallback(async (qrCodeData) => {
+  /**
+   * Process QR code data and load restaurant information
+   * @param {string} qrCodeData - The scanned QR code data
+   */
+  const loadFromQrCode = useCallback((qrCodeData) => {
     try {
+      console.log('Processing QR code data:', qrCodeData);
       setLoading(true);
       setError(null);
       
-      // Simulate API load time
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // Extract parameters from QR code
+      // QR code should contain a URL with restaurantId, branchId, tableId
+      // e.g., https://example.com?restaurantId=123&branchId=456&tableId=789
+      const url = new URL(qrCodeData);
+      const params = new URLSearchParams(url.search);
       
-      // Set all data from our dummy data
-      setRestaurant(dummyData.restaurant);
-      setBranch(dummyData.branch);
-      setTable(dummyData.table);
-      setMenuItems(dummyData.menuItems);
-      setCategories(dummyData.categories);
+      const restaurantId = params.get('restaurantId');
+      const branchId = params.get('branchId');
+      const tableId = params.get('tableId');
       
-      setInitialized(true);
-      console.log('Dummy restaurant data initialized from QR code successfully');
-    } catch (err) {
-      console.error('Error loading dummy data from QR:', err);
-      setError('Failed to load restaurant data');
-    } finally {
+      if (!restaurantId || !branchId || !tableId) {
+        throw new Error('Invalid QR code. Missing required parameters.');
+      }
+      
+      // Update the browser URL to include these parameters
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('restaurantId', restaurantId);
+      currentUrl.searchParams.set('branchId', branchId);
+      currentUrl.searchParams.set('tableId', tableId);
+      window.history.replaceState({}, '', currentUrl);
+      
+      // Load restaurant data with the extracted parameters
+      loadRestaurantData(restaurantId, branchId, tableId);
+    } catch (error) {
+      console.error('Error processing QR code:', error);
+      setError(`Failed to process QR code: ${error.message}`);
       setLoading(false);
     }
-  }, []);
-  
+  }, [loadRestaurantData]);
+
   // Initialize from URL parameters if available
   useEffect(() => {
     // Skip if already initialized, currently loading, or already initializing
@@ -119,24 +260,74 @@ const RestaurantProvider = ({ children }) => {
     
     const initFromUrlParams = async () => {
       try {
-        // Use dummy data directly
-        setLoading(true);
+        // Get URL parameters for restaurant, branch and table
+        const urlParams = new URLSearchParams(window.location.search);
+        const restaurantId = urlParams.get('restaurantId');
+        const branchId = urlParams.get('branchId');
+        const tableId = urlParams.get('tableId');
         
-        // Simulate API load time
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // Set all data from our dummy data
-        setRestaurant(dummyData.restaurant);
-        setBranch(dummyData.branch);
-        setTable(dummyData.table);
-        setMenuItems(dummyData.menuItems);
-        setCategories(dummyData.categories);
-        
-        setInitialized(true);
-        console.log('Dummy restaurant data initialized from URL successfully');
-        return true;
+        // If we have all the required parameters, initialize with them
+        if (restaurantId && branchId && tableId) {
+          setLoading(true);
+          console.log('Loading restaurant data from URL parameters...');          try {
+            // Fetch all data with a timeout
+            const fetchDataPromise = Promise.all([
+              api.public.branches.getById(branchId),
+              api.public.tables.getById(tableId),
+              api.public.menus.getByBranch(branchId),
+              api.public.menus.getCategories(branchId)
+            ]);
+            
+            // Apply timeout to the Promise.all call
+            const [branchData, tableData, menuItemsData, categoriesData] = await promiseWithTimeout(
+              fetchDataPromise,
+              15000,
+              'Request timed out'
+            );
+            
+            // Set restaurant and branch data
+            setRestaurant(branchData.restaurant || null);
+            setBranch(branchData);
+            setTable(tableData);
+            setMenuItems(menuItemsData || []);
+            
+            // Add "All" category if not already present
+            const allCategories = categoriesData || [];
+            const hasAllCategory = allCategories.some(cat => cat.name === 'All');
+            if (!hasAllCategory) {
+              allCategories.unshift({
+                id: 'all',
+                name: 'All',
+                image: 'https://cdn-icons-png.flaticon.com/512/6134/6134645.png'
+              });
+            }
+            setCategories(allCategories);
+            
+            setInitialized(true);
+            console.log('Restaurant data initialized from URL successfully');
+            return true;
+          } catch (error) {
+            console.error('Error fetching data:', error);
+            setError(`Failed to load restaurant data: ${error.message}`);
+            
+            // If we've reached max retry count (3) and still failing, use fallback data
+            if (retryCount >= 2) {
+              console.warn(`Max retry count (${retryCount}) reached, using fallback data`);
+              useFallbackData(restaurantId, branchId, tableId);
+            } else {
+              setInitialized(false);
+              // Increment retry count for the retry mechanism
+              setRetryCount(prevCount => prevCount + 1);
+            }
+            return false;
+          }
+        } else {
+          // If we don't have URL parameters, don't initialize yet
+          console.log('No URL parameters found for initialization');
+          return false;
+        }
       } catch (error) {
-        console.error('Error initializing with dummy data:', error);
+        console.error('Error initializing with URL parameters:', error);
         setError('Failed to load restaurant data');
         return false;
       } finally {
@@ -148,7 +339,7 @@ const RestaurantProvider = ({ children }) => {
       }
     };
     
-    // Initialize with dummy data
+    // Initialize with URL parameters
     initFromUrlParams();
     
   }, []); // No dependencies to avoid render loops
@@ -181,6 +372,38 @@ const RestaurantProvider = ({ children }) => {
     }
   }, []);
   
+  /**
+   * Process categories to ensure consistent format for menu filtering
+   * @param {Array} categoriesData - Raw categories from API
+   * @returns {Array} - Processed categories with consistent IDs
+   */
+  const processCategories = useCallback((categoriesData = []) => {
+    // Start with provided data or empty array
+    const allCategories = categoriesData || [];
+    console.log('Processing categories:', allCategories);
+    
+    // Add "All" category if not already present
+    const hasAllCategory = allCategories.some(cat => 
+      cat.name === 'All' || cat.id === 'all' || cat._id === 'all'
+    );
+    
+    if (!hasAllCategory) {
+      allCategories.unshift({
+        _id: 'all', // Use _id to match backend format
+        id: 'all',  // Keep id for legacy compatibility
+        name: 'All',
+        image: 'https://cdn-icons-png.flaticon.com/512/6134/6134645.png'
+      });
+    }
+    
+    // Ensure each category has both id and _id for consistency
+    return allCategories.map(cat => ({
+      ...cat,
+      id: cat.id || cat._id || `cat-${Math.random().toString(36).substr(2, 9)}`,
+      _id: cat._id || cat.id || `cat-${Math.random().toString(36).substr(2, 9)}`
+    }));
+  }, []);
+
   // Memoize the context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({
     restaurant,
@@ -194,8 +417,10 @@ const RestaurantProvider = ({ children }) => {
     retryCount,
     isRetrying,
     loadFromQrCode,
-    loadSpecificRestaurantData,
-    retryLastRequest
+    loadRestaurantData,
+    retryLastRequest,
+    toggleCaching,
+    clearCacheAndReload
   }), [
     restaurant,
     branch,
@@ -208,8 +433,10 @@ const RestaurantProvider = ({ children }) => {
     retryCount,
     isRetrying,
     loadFromQrCode,
-    loadSpecificRestaurantData,
-    retryLastRequest
+    loadRestaurantData,
+    retryLastRequest,
+    toggleCaching,
+    clearCacheAndReload
   ]);
   
   return (

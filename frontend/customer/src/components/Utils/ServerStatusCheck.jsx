@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../../utils/api';
+import { api } from '../../utils/apiClient';
 
 const ServerStatusCheck = () => {
   const [isChecking, setIsChecking] = useState(true);
   const [serverStatus, setServerStatus] = useState('checking');
   const [retryCount, setRetryCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
-  
-  useEffect(() => {
+    useEffect(() => {
     const checkServerStatus = async () => {
       try {
         setIsChecking(true);
-        const response = await api.health.check();
+        // Use the public API health endpoint instead of the generic one
+        const response = await api.public.health();
         
         if (response && response.status === 'ok') {
           setServerStatus('connected');

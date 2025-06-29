@@ -6,7 +6,7 @@ export const products = [
     title: "Cheeseburger",
     subtitle: "Wendy's Burger",
     price: 2.5,
-    image: "https://i.ibb.co/F0s3FHQ/cheese-burger.png",
+    image: "https://hadeelfoods.com/cdn/shop/files/5001-SHELALCHEESEDAILY10KG.webp?v=1734843159&width=360",
     category: "Classic",
   },
   {

@@ -3,14 +3,14 @@ import { motion } from 'framer-motion';
 import { useRestaurant } from '../../context/RestaurantContext';
 import { theme } from '../../data/theme';
 import QRDebugger from './QRDebugger';
+import { debugRestaurantData } from '../../utils/debugUtils';
 
 const QRInstructions = () => {
-  const { error, retryLastRequest, loadSpecificRestaurantData } = useRestaurant();
+  const { error, retryLastRequest, loadRestaurantData } = useRestaurant();
   
   // Check if we're in development mode
   const isDev = process.env.NODE_ENV === 'development';
-  
-  // Automatically check for URL parameters on component mount
+    // Automatically check for URL parameters on component mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const restaurantId = urlParams.get('restaurantId');
@@ -19,9 +19,18 @@ const QRInstructions = () => {
     
     if (restaurantId && branchId) {
       console.log('QRInstructions: Found URL parameters, attempting to load restaurant data');
-      loadSpecificRestaurantData(restaurantId, branchId, tableId || null);
+      loadRestaurantData(restaurantId, branchId, tableId || null);
     }
-  }, [loadSpecificRestaurantData]);
+  }, [loadRestaurantData]);
+  
+  // Debug restaurant data
+  const { restaurant, branch } = useRestaurant();
+  useEffect(() => {
+    // Debug the restaurant data whenever it changes
+    if (restaurant || branch) {
+      debugRestaurantData(restaurant, branch);
+    }
+  }, [restaurant, branch]);
   
   // Get the URL parameters
   const urlParams = new URLSearchParams(window.location.search);

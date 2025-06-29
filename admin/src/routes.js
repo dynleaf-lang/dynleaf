@@ -114,7 +114,7 @@ var routes = [
     icon: "ni ni-money-coins text-purple",
     component: <TaxManagement />,
     layout: "/admin",
-    roles: ["Super_Admin", "Branch_Manager"], // Only Super_Admin or branch_manager can see this route
+    roles: ["Super_Admin"], // Only Super_Admin can see this route
   },
   {
     path: "/tables/qr/:tableId",

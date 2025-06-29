@@ -70,23 +70,36 @@ const MenuItemSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true,
-    },
-    sizeVariants: {
+    },    sizeVariants: {
         type: [SizeVariantSchema],
-        default: [],
-        validate: {
-            validator: function(variants) {
-                // If there's no base price, at least one size variant is required
-                if (this.price === undefined || this.price === null) {
-                    return variants.length > 0;
-                }
-                return true;
-            },
-            message: "At least one size variant is required if no base price is provided"
-        }
+        default: []
     }
 }, {
     timestamps: true,
 });
+
+// Add a custom pre-validate hook to enforce our business logic
+MenuItemSchema.pre('validate', function(next) {
+    // Check if we have a valid price (not undefined, null, or zero)
+    const hasValidPrice = this.price !== undefined && this.price !== null && this.price > 0;
+    
+    // Check if we have size variants
+    const hasSizeVariants = this.sizeVariants && this.sizeVariants.length > 0;
+    
+    // If we don't have a valid price and no size variants, throw a validation error
+    if (!hasValidPrice && !hasSizeVariants) {
+        this.invalidate('sizeVariants', 'Either a valid price or at least one size variant is required');
+        return next(new Error('Either a valid price or at least one size variant is required'));
+    }
+    
+    // Everything is valid
+    return next();
+});
+
+// Import debug middleware
+const { menuItemSchemaDebug } = require('../middleware/menuItemDebugMiddleware');
+
+// Apply debug middleware to schema
+menuItemSchemaDebug(MenuItemSchema);
 
 module.exports = mongoose.model('MenuItem', MenuItemSchema);

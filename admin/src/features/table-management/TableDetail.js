@@ -128,8 +128,8 @@ const TableDetail = () => {
     if (!table) return "";
     
     // Create a URL or unique identifier for the table
-    const baseUrl = window.location.origin;
-    return `${baseUrl}/menu?tableId=${table._id}&tableName=${encodeURIComponent(table.TableName)}`;
+    const baseUrl = process.env.CUSTOMER_BASE_URL || 'http://localhost:5173'; // Default to local dev URL if not set
+    return `${baseUrl}/menu?tableId=${table._id}&restaurantId=${table.restaurantId}&branchId=${table.branchId}`;
   }, [table]);
 
   // Download QR code as PNG

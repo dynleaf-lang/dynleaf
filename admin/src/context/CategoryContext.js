@@ -202,9 +202,7 @@ const CategoryProvider = ({ children }) => {
             console.error('Error uploading category image:', error);
             return { success: false, error: error.response?.data?.message || error.message };
         }
-    }, [token]);
-
-    // Function to create a new category
+    }, [token]);    // Function to create a new category
     const createCategory = useCallback(async (categoryData) => {
         try {
             const config = token ? {
@@ -245,16 +243,21 @@ const CategoryProvider = ({ children }) => {
             
             const response = await axios.post('/api/categories', dataToSend, config);
             
+            // Update categories list
             setCategories(prevCategories => [...prevCategories, response.data]);
-            setFilteredCategories(prevFiltered => [...prevFiltered, response.data]);
+            
+            // Also update the tree to keep it in sync - uncommenting this might be necessary in rare cases 
+            // but generally we'll refetch the tree explicitly 
+            // if (dataToSend.restaurantId) {
+            //     fetchCategoryTree(dataToSend.restaurantId, dataToSend.branchId || null);
+            // }
+            
             return response.data;
         } catch (error) {
             console.error('Error creating category:', error);
             throw error;
         }
-    }, [token, user, isSuperAdmin]);
-
-    // Function to update a category
+    }, [token, user, isSuperAdmin]);    // Function to update a category
     const updateCategory = useCallback(async (id, categoryData) => {
         try {
             const config = token ? {
@@ -266,18 +269,19 @@ const CategoryProvider = ({ children }) => {
             
             const response = await axios.put(`/api/categories/${id}`, categoryData, config);
             
+            // Update the categories list
             setCategories(prevCategories =>
                 prevCategories.map(category => category._id === id ? response.data : category)
             );
+            
+            // We don't update the tree here as we'll call fetchCategoryTree explicitly in the component
             
             return { success: true, data: response.data };
         } catch (error) {
             console.error('Error updating category:', error);
             return { success: false, error: error.response?.data?.message || error.message };
         }
-    }, [token]);
-
-    // Function to delete a category
+    }, [token]);    // Function to delete a category
     const deleteCategory = useCallback(async (id) => {
         try {
             // First find the category to get its image URL if needed
@@ -306,6 +310,8 @@ const CategoryProvider = ({ children }) => {
             
             // Update state to remove the deleted category
             setCategories(prevCategories => prevCategories.filter(category => category._id !== id));
+            
+            // We don't update the tree here as we'll call fetchCategoryTree explicitly in the component
             
             return { success: true };
         } catch (error) {

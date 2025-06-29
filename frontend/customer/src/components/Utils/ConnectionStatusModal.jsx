@@ -5,89 +5,173 @@ import { api } from '../../utils/api';
 const ConnectionStatusModal = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [message, setMessage] = useState('');
-  const [backendPort, setBackendPort] = useState('5000');
+  const [backendPort, setBackendPort] = useState('5001');
   const [connectionStatus, setConnectionStatus] = useState('checking');
   const [autoRetryCount, setAutoRetryCount] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
   
   // Define common server ports for Node.js apps
-  const commonPorts = [5000, 3000, 8080, 4000, 9000];
-  
-  // Check the connection status when component mounts
+  const commonPorts = [5001, 3000, 8080, 4000, 9000];
+  // Check the connection status only when component mounts
   useEffect(() => {
+    // Initial connection check - only run once on component mount
     checkConnection();
+    
+    // No background interval checks anymore - only check on first load
     
     // Set up global error handler for network errors
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
       try {
         const response = await originalFetch(...args);
-        // If we get a response, reset the connection status modal
-        if (response.ok && isVisible) {
-          setIsVisible(false);
+        
+        // If we get a successful response from any endpoint
+        if (response.ok) {
+          // Check if this is a request to the health endpoint
+          const url = args[0].toString();
+          const isHealthCheck = url.includes('/health');
+          
+          // For successful health checks, always update status
+          // For other requests, update if currently in error state
+          if (isHealthCheck || connectionStatus === 'error') {
+            console.log('Network request succeeded - updating connection status to connected');
+            setConnectionStatus('connected');
+            setLastUpdated(new Date());
+            setMessage('Connection restored successfully.');
+              // Close modal immediately after successful connection
+            if (isVisible) {
+              setIsVisible(false);
+            }
+          }
         }
+        
         return response;
       } catch (error) {
         // If the error is a network error, show the connection status modal
-        if (error.message && error.message.includes('Failed to fetch') || 
-            error.message && error.message.includes('Network Error')) {
+        if (error.message && (error.message.includes('Failed to fetch') || 
+                            error.message.includes('Network Error'))) {
+          console.log('Fetch failed with network error:', error.message);
           handleConnectionError();
         }
         throw error;
       }
     };
-    
-    // Clean up
+      // Clean up
     return () => {
       window.fetch = originalFetch;
+      // No interval to clear anymore
     };
-  }, []);
-  
-  // Periodically check connection if modal is visible
-  useEffect(() => {
-    let interval;
-    if (isVisible) {
-      interval = setInterval(() => {
-        checkConnection(true);
-        setAutoRetryCount(prev => prev + 1);
-      }, 5000);
-    }
     
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    // We intentionally don't include dependencies like isVisible and connectionStatus
+    // here because we don't want to recreate the fetch override when they change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+    // No longer periodically check connection - only retry on manual button press
+  useEffect(() => {
+    // Reset retry count when modal is hidden
+    if (!isVisible) {
+      setAutoRetryCount(0);
+    }
   }, [isVisible]);
-  
-  // Handle connection error
+    // Handle connection error
   const handleConnectionError = () => {
-    setIsVisible(true);
-    setConnectionStatus('error');
-    setMessage('Connection to the server failed. The server might be down or incorrectly configured.');
-    checkConnection(true);
+    // Only update if we're not already showing an error
+    // This prevents repeatedly setting the same error state
+    if (connectionStatus !== 'error') {
+      console.log('Handling connection error - setting error state');
+      setIsVisible(true);
+      setConnectionStatus('error');
+      setLastUpdated(new Date());
+      setMessage('Connection to the server failed. The server might be down or incorrectly configured.');
+      
+      // No automatic reconnection attempt - wait for manual retry
+    }
   };
-  
-  // Check connection to backend
+    // Check connection to backend
   const checkConnection = async (silent = false) => {
+    // Only update UI if not in silent mode
     if (!silent) {
       setConnectionStatus('checking');
+      setLastUpdated(new Date());
     }
     
     try {
-      const result = await api.health.check();
-      if (result.status === 'ok') {
+      // Direct fetch instead of using api client to bypass any interceptors
+      // that might mask the true connection status
+      const directResponse = await fetch(`${window.location.protocol}//${window.location.hostname}:5001/api/public/health`, {
+        method: 'GET',
+        cache: 'no-cache',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      // Check direct fetch response
+      if (directResponse.ok) {
+        const directResult = await directResponse.json();
+        
+        if (directResult && directResult.status === 'ok') {
+          console.log('Direct connection successful:', directResult);
+          
+          // Now try the api client version
+          const apiResult = await api.public.health();
+          console.log('API client connection result:', apiResult);
+          
+          // Update state to connected
+          setConnectionStatus('connected');
+          setLastUpdated(new Date());
+          
+          // Store successful port in localStorage
+          const port = '5001'; // Use 5001 as the default port
+          localStorage.setItem('apiPort', port);
+          setBackendPort(port);
+          
+          // Update message to confirm connection
+          setMessage('Successfully connected to the backend server.');
+            // Close modal immediately after successful connection
+          if (connectionStatus === 'error' || (connectionStatus === 'checking' && isVisible)) {
+            // Set to false immediately without delay
+            setIsVisible(false);
+          }
+          
+          return true;
+        }
+      }
+      
+      // Fall back to api client if direct fetch failed
+      const result = await api.public.health();
+      if (result && result.status === 'ok') {
+        console.log('API client connection successful:', result);
         setConnectionStatus('connected');
+        setLastUpdated(new Date());
+        
         // Store successful port in localStorage
-        const port = window.location.port || '3000';
+        const port = '5001'; // Use 5001 as the default port
         localStorage.setItem('apiPort', port);
         setBackendPort(port);
         
-        // Close modal after a short delay if connection is restored
-        setTimeout(() => setIsVisible(false), 1500);
+        // Update message to confirm connection
+        setMessage('Successfully connected to the backend server.');
+          // Update visibility - close modal immediately after success
+        if (connectionStatus === 'error' || (connectionStatus === 'checking' && isVisible)) {
+          // Close modal immediately on success
+          setIsVisible(false);
+        }
         return true;
       } else {
+        console.log('Server reported not healthy:', result);
         throw new Error('Server not healthy');
       }
     } catch (error) {
-      setConnectionStatus('error');
+      console.log('Connection error:', error);
+      
+      // Only update state if this isn't a silent check or if we're not already in error state
+      if (connectionStatus !== 'error' || !silent) {
+        setConnectionStatus('error');
+        setLastUpdated(new Date());
+      }
+      
+      // Only show the modal if not in silent mode
       if (!silent) {
         setIsVisible(true);
       }
@@ -96,9 +180,9 @@ const ConnectionStatusModal = () => {
       try {
         const url = window.location.href;
         const urlObj = new URL(url);
-        setBackendPort(urlObj.port || '3000');
+        setBackendPort(urlObj.port || '5001');
       } catch (e) {
-        setBackendPort('5000');
+        setBackendPort('5001');
       }
       
       return false;
@@ -107,22 +191,50 @@ const ConnectionStatusModal = () => {
   
   // Try a specific backend port
   const tryPort = async (port) => {
+    setConnectionStatus('checking');
+    setLastUpdated(new Date());
     setMessage(`Trying to connect on port ${port}...`);
     try {
-      const response = await fetch(`http://${window.location.hostname}:${port}/api/health`, {
-        method: 'HEAD',
+      const response = await fetch(`http://${window.location.hostname}:${port}/api/public/health`, {
+        method: 'GET', // Using GET to ensure we get response data
         cache: 'no-cache',
-        timeout: 2000
+        headers: {
+          'Accept': 'application/json',
+        }
       });
       
-      if (response.ok) {
+      // Process the response to check if it's valid
+      let responseData;
+      try {
+        responseData = await response.json();
+      } catch (jsonError) {
+        console.log(`Port ${port} returned invalid JSON:`, jsonError);
+        // Continue with checking just the response.ok value
+      }
+      
+      if (response.ok && (!responseData || responseData.status === 'ok')) {
+        console.log(`Port ${port} connection successful with response:`, responseData);
+        
+        // Update the UI to show connected state
+        setConnectionStatus('connected');
+        setLastUpdated(new Date());
         setMessage(`Connection successful on port ${port}!`);
+        
+        // Store the successful port
         localStorage.setItem('apiPort', port.toString());
-        setTimeout(() => window.location.reload(), 1000);
+        setBackendPort(port.toString());
+          // Reload immediately
+        window.location.reload();
         return true;
+      } else {
+        console.log(`Port ${port} response not OK or status not 'ok':`, responseData);
+        setConnectionStatus('error');
+        setLastUpdated(new Date());
       }
     } catch (e) {
       console.log(`Port ${port} connection failed:`, e.message);
+      setConnectionStatus('error');
+      setLastUpdated(new Date());
     }
     return false;
   };
@@ -130,6 +242,7 @@ const ConnectionStatusModal = () => {
   // Try all common ports
   const tryAllPorts = async () => {
     setMessage('Trying to find the server on different ports...');
+    setLastUpdated(new Date());
     let found = false;
     
     for (const port of commonPorts) {
@@ -140,13 +253,26 @@ const ConnectionStatusModal = () => {
     
     if (!found) {
       setMessage('Could not find the server on any common port. Make sure the backend server is running.');
+      setLastUpdated(new Date());
     }
   };
-  
+  // Force the modal to reflect the current connection status accurately
+  useEffect(() => {
+    // Debug log to track status changes
+    console.log(`Connection status changed to: ${connectionStatus}`, { visible: isVisible });
+    
+    // If status changes to connected, immediately hide the modal
+    if (connectionStatus === 'connected' && isVisible) {
+      // Close immediately
+      setIsVisible(false);
+    }
+  }, [connectionStatus, isVisible]);
+
   return (
     <AnimatePresence>
       {isVisible && (
         <motion.div
+          key={`status-${connectionStatus}-${lastUpdated.getTime()}`}
           initial={{ opacity: 0, y: -50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9 }}
@@ -156,9 +282,12 @@ const ConnectionStatusModal = () => {
             left: 0,
             right: 0,
             zIndex: 9999,
-            backgroundColor: connectionStatus === 'connected' ? '#d4edda' : '#f8d7da',
-            borderBottom: `1px solid ${connectionStatus === 'connected' ? '#c3e6cb' : '#f5c6cb'}`,
-            color: connectionStatus === 'connected' ? '#155724' : '#721c24',
+            backgroundColor: connectionStatus === 'connected' ? '#d4edda' : 
+                           connectionStatus === 'checking' ? '#fff3cd' : '#f8d7da',
+            borderBottom: `1px solid ${connectionStatus === 'connected' ? '#c3e6cb' : 
+                         connectionStatus === 'checking' ? '#ffeeba' : '#f5c6cb'}`,
+            color: connectionStatus === 'connected' ? '#155724' : 
+                  connectionStatus === 'checking' ? '#856404' : '#721c24',
             padding: '15px 20px',
             boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
             transition: 'all 0.3s ease'
@@ -188,6 +317,11 @@ const ConnectionStatusModal = () => {
                            `Unable to connect to the backend server (port ${backendPort}). Check if the server is running.`)}
               </p>
               
+              {/* Show the timestamp of the last status change */}
+              <p style={{ margin: '5px 0 0', fontSize: '12px', opacity: 0.7 }}>
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </p>
+              
               {autoRetryCount > 0 && connectionStatus !== 'connected' && (
                 <p style={{ fontSize: '12px', marginTop: '5px', opacity: 0.8 }}>
                   Auto-retry attempts: {autoRetryCount}
@@ -197,20 +331,26 @@ const ConnectionStatusModal = () => {
             
             <div style={{ display: 'flex', gap: '10px' }}>
               {connectionStatus !== 'connected' && (
-                <>
-                  <button
-                    onClick={() => checkConnection()}
+                <>                  <button
+                    onClick={() => {
+                      // Force a full refresh check
+                      setConnectionStatus('checking');
+                      setAutoRetryCount(prev => prev + 1);
+                      checkConnection();
+                    }}
                     style={{
                       padding: '8px 15px',
-                      backgroundColor: '#007bff',
+                      backgroundColor: '#28a745',
                       color: 'white',
                       border: 'none',
                       borderRadius: '4px',
                       cursor: 'pointer',
-                      fontSize: '14px'
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                   >
-                    Try Again
+                    Check Connection
                   </button>
                   
                   <button
@@ -259,7 +399,7 @@ const ConnectionStatusModal = () => {
               <strong>Troubleshooting tips:</strong>
               <ul style={{ paddingLeft: '20px', margin: '5px 0' }}>
                 <li>Make sure the backend server (Node.js) is running</li>
-                <li>Check if the backend is using a different port (default is 5000)</li>
+                <li>Check if the backend is using a different port (default is 5001)</li>
                 <li>Verify that CORS is properly configured on the server</li>
                 <li>Check for any firewall or network restrictions</li>
               </ul>

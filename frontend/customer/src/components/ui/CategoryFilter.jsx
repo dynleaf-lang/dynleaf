@@ -11,10 +11,60 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [showMoreIndicator, setShowMoreIndicator] = useState(false);
   const { isMobile } = useResponsive();
+    // Make sure categories is an array to prevent errors
+  const safeCategories = Array.isArray(categories) ? categories : [{ id: 'all', name: 'All' }];
+  console.log('CategoryFilter - Received categories:', safeCategories);
   
+  // Process categories to handle parent-child relationships
+  const processedCategories = useMemo(() => {
+    if (!Array.isArray(safeCategories) || safeCategories.length === 0) {
+      return [{ id: 'all', name: 'All' }];
+    }
+    
+    // First, ensure the "All" category is at the beginning
+    const hasAllCategory = safeCategories.some(cat => cat.id === 'all' || cat._id === 'all' || cat.name === 'All');
+    
+    let result = [...safeCategories];
+    
+    // Add "All" category if it doesn't exist
+    if (!hasAllCategory) {
+      result = [{ id: 'all', name: 'All' }, ...result];
+    }
+    
+    // Process parent-child relationships for visual indicators
+    result = result.map(category => {
+      const categoryId = category.id || category._id;
+      const hasChildren = safeCategories.some(cat => 
+        cat.parentCategory && 
+        (cat.parentCategory === categoryId || 
+         cat.parentCategory?._id === categoryId)
+      );
+      
+      // Find the parent category object if this category has a parent
+      let parentCategory = null;
+      if (category.parentCategory) {
+        const parentId = typeof category.parentCategory === 'object' 
+          ? category.parentCategory._id 
+          : category.parentCategory;
+          
+        parentCategory = safeCategories.find(cat => 
+          (cat.id === parentId || cat._id === parentId)
+        );
+      }
+      
+      return {
+        ...category,
+        hasChildren,
+        parentCategory,
+        parentName: parentCategory ? parentCategory.name : null
+      };
+    });
+    
+    return result;
+  }, [safeCategories]);
   // Calculate container width to fit exactly 5 items on mobile
   const containerStyle = useMemo(() => {
-    if (isMobile && categories.length > 5) {
+    if (isMobile && processedCategories.length > 5) {
       // Calculate width to fit exactly 5 items
       const itemWidth = 80; // Width of each category item
       const gap = 10; // Gap between items
@@ -29,12 +79,10 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
     } else {
       return {};
     }
-  }, [categories.length, isMobile]);
-
-  useEffect(() => {
+  }, [processedCategories.length, isMobile]);  useEffect(() => {
     // Make categories draggable if there are more than 5
-    setIsDraggable(categories.length > 5);
-    setShowMoreIndicator(categories.length > 5);
+    setIsDraggable(processedCategories.length > 5);
+    setShowMoreIndicator(processedCategories.length > 5);
     
     // Hide scroll indicator after 5 seconds
     const timer = setTimeout(() => {
@@ -42,7 +90,7 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
     }, 5000);
     
     return () => clearTimeout(timer);
-  }, [categories.length]);
+  }, [processedCategories.length]);
 
   // Scroll selected category into view when it changes
   useEffect(() => {
@@ -142,18 +190,24 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
           initial={isDesktop ? {} : { x: 0 }}
           animate={isDesktop ? {} : { x: [-5, 0] }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-        >
-          {/* Render categories */}
-          {categories.map((category) => {
-            const isSelected = selectedCategory === category.id;  
+        >          {/* Render categories */}
+          {processedCategories.map((category) => {
+            // Ensure we have a valid ID for selection
+            const categoryId = category.id || category._id || category.name;
+            const isSelected = selectedCategory === categoryId;  
+            // Check if this is a child category or has children
+            const isChildCategory = !!category.parentCategory;
+            const hasChildren = category.hasChildren;
             
             return (
-              <li key={category.id || category.name}>
+              <li key={categoryId || category.name}>
                 <motion.button
-                  onClick={() => handleCategoryClick(category.id)}
+                  onClick={() => handleCategoryClick(categoryId)}
                   aria-pressed={isSelected}
                   whileTap={{ scale: 0.92 }}
-                  data-category-id={category.id}
+                  data-category-id={categoryId}
+                  data-parent-category={isChildCategory ? (typeof category.parentCategory === 'object' ? category.parentCategory._id : category.parentCategory) : null}
+                  data-has-children={hasChildren ? 'true' : 'false'}
                   style={{
                     padding: "0",
                     borderRadius: theme.borderRadius.xl,
@@ -239,28 +293,74 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
                           scale: isSelected ? 1.05 : 1,
                         }}
                       />
-                    </div>
-                    <span
+                    </div>                    <div
                       style={{
-                        fontWeight: isSelected
-                          ? theme.typography.fontWeights.bold
-                          : theme.typography.fontWeights.semibold,
-                        fontSize: isDesktop 
-                          ? theme.typography.sizes.sm 
-                          : isMobile ? "0.65rem" : theme.typography.sizes.xs,
-                        color: isSelected ? theme.colors.primary : theme.colors.text.secondary,
-                        letterSpacing: "0.3px",
-                        paddingBottom: isMobile ? "2px" : "4px",
-                        textAlign: "center",
-                        lineHeight: 1.2,
-                        maxWidth: isMobile ? "62px" : "80px",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis"
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        position: 'relative'
                       }}
                     >
-                      {category.name}
-                    </span>
+                      {/* Parent-child indicator icons */}
+                      {category.hasChildren && (
+                        <div style={{ 
+                          position: 'absolute',
+                          top: '-10px',
+                          right: '-8px',
+                          backgroundColor: theme.colors.background,
+                          borderRadius: '50%',
+                          width: '14px',
+                          height: '14px',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          fontSize: '10px',
+                          color: theme.colors.primary,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '10px' }}>
+                            expand_more
+                          </span>
+                        </div>
+                      )}
+                      
+                      <span
+                        style={{
+                          fontWeight: isSelected
+                            ? theme.typography.fontWeights.bold
+                            : theme.typography.fontWeights.semibold,
+                          fontSize: isDesktop 
+                            ? theme.typography.sizes.sm 
+                            : isMobile ? "0.65rem" : theme.typography.sizes.xs,
+                          color: isSelected ? theme.colors.primary : theme.colors.text.secondary,
+                          letterSpacing: "0.3px",
+                          paddingBottom: isMobile ? "2px" : "4px",
+                          textAlign: "center",
+                          lineHeight: 1.2,
+                          maxWidth: isMobile ? "62px" : "80px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis"
+                        }}
+                      >
+                        {category.name}
+                      </span>
+                      
+                      {/* If it's a child category, show a subtle parent indicator */}
+                      {category.parentName && !isMobile && (
+                        <span style={{
+                          fontSize: '0.5rem',
+                          color: theme.colors.text.tertiary,
+                          marginTop: '-4px',
+                          maxWidth: isDesktop ? "90px" : "70px",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis"
+                        }}>
+                          in {category.parentName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </motion.button>
               </li>
@@ -293,11 +393,9 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
             padding: "2px 8px",
             borderRadius: "12px",
             boxShadow: "0 1px 3px rgba(0,0,0,0.1)"
-          }}>
-            <span className="material-icons" style={{ fontSize: "10px", verticalAlign: "middle" }}>
-              swipe
-            </span>
-            {" "}Swipe to see {categories.length - 5} more
+          }}>            <span className="material-icons" style={{ fontSize: "10px", verticalAlign: "middle" }}>
+              swipe            </span>
+            {" "}Swipe to see {processedCategories.length - 5} more
           </small>
         </motion.div>
       )}
@@ -316,18 +414,40 @@ const arePropsEqual = (prevProps, nextProps) => {
   if (prevProps.isTablet !== nextProps.isTablet || prevProps.isDesktop !== nextProps.isDesktop) {
     return false;
   }
-  
-  // Check if categories length changed
-  if (prevProps.categories.length !== nextProps.categories.length) {
+    // Check if categories length changed
+  if ((prevProps.categories || []).length !== (nextProps.categories || []).length) {
     return false;
   }
   
-  // Check if any category object changed by comparing their id and name properties
-  // This is more efficient than using JSON.stringify for deep comparison
-  for (let i = 0; i < prevProps.categories.length; i++) {
-    if (prevProps.categories[i].id !== nextProps.categories[i].id ||
-        prevProps.categories[i].name !== nextProps.categories[i].name) {
-      return false;
+  // Safely compare categories if they exist
+  if (prevProps.categories && nextProps.categories) {
+    // Check if any category object changed by comparing their id, name, and parent-child properties
+    // This is more efficient than using JSON.stringify for deep comparison
+    for (let i = 0; i < prevProps.categories.length; i++) {
+      // Handle possible undefined category or missing properties
+      const prevCat = prevProps.categories[i] || {};
+      const nextCat = nextProps.categories[i] || {};
+      
+      // Compare using both id and _id for compatibility with backend changes
+      const prevId = prevCat.id || prevCat._id;
+      const nextId = nextCat.id || nextCat._id;
+      
+      // Check if basic properties changed
+      if (prevId !== nextId || prevCat.name !== nextCat.name) {
+        return false;
+      }
+      
+      // Check if parent-child relationship changed
+      const prevParentId = prevCat.parentCategory 
+        ? (typeof prevCat.parentCategory === 'object' ? prevCat.parentCategory._id : prevCat.parentCategory) 
+        : null;
+      const nextParentId = nextCat.parentCategory 
+        ? (typeof nextCat.parentCategory === 'object' ? nextCat.parentCategory._id : nextCat.parentCategory) 
+        : null;
+        
+      if (prevParentId !== nextParentId) {
+        return false;
+      }
     }
   }
   

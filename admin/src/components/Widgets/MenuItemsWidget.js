@@ -70,7 +70,7 @@ const MenuItemsWidget = ({ menuItems = [], categories = [], loading = false }) =
       if (path.startsWith('http')) {
         return path;
       } else {
-        return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+        return `${process.env.REACT_APP_API_URL || 'http://localhost:5001'}${path}`;
       }
     }
     

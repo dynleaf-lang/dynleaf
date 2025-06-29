@@ -29,7 +29,7 @@ import {
 } from "reactstrap";
 // core components
 import Header from "components/Headers/Header.js";
-import { useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { CategoryContext } from "../../context/CategoryContext";
 import { RestaurantContext } from "../../context/RestaurantContext";  
 import { BranchContext } from "../../context/BranchContext";
@@ -83,6 +83,8 @@ const CategoryManagement = () => {
     success: false
   });
  
+ 
+  
   
   
   // State to store branches for selected restaurant
@@ -108,7 +110,6 @@ const CategoryManagement = () => {
     // Set categories directly without filtering
     setCategoriesWithUsers(categories || []);
   }, [categories]); // Only depend on categories
-
   // Filter categories based on user role and selected restaurant
   const filteredCategories = categoriesWithUsers ? categoriesWithUsers.filter(category => {
     // For super admin, show all categories or filter by selected restaurant
@@ -125,6 +126,33 @@ const CategoryManagement = () => {
       String(category.restaurantId) === String(user.restaurantId) : 
       false;
   }) : [];
+  
+  // Function to flatten the category tree into a list with proper level indications
+  const flattenCategoryTree = useCallback((tree, level = 0) => {
+    if (!tree || tree.length === 0) return [];
+    
+    return tree.reduce((acc, category) => {
+      // Add the current category with its level
+      const categoryWithLevel = { ...category, level };
+      acc.push(categoryWithLevel);
+      
+      // If there are children, flatten them and add them to the result
+      if (category.children && category.children.length > 0) {
+        const flattenedChildren = flattenCategoryTree(category.children, level + 1);
+        acc.push(...flattenedChildren);
+      }
+      
+      return acc;
+    }, []);
+  }, []);
+  
+  // Use category tree for hierarchical display if available, otherwise fall back to filtered categories
+  const displayCategories = useMemo(() => {
+    if (categoryTree && categoryTree.length > 0) {
+      return flattenCategoryTree(categoryTree);
+    }
+    return filteredCategories;
+  }, [categoryTree, filteredCategories, flattenCategoryTree]);
 
  
   // Function to handle modal close
@@ -154,10 +182,24 @@ const CategoryManagement = () => {
   // Function to handle editing a category - memoized to prevent unnecessary re-renders
   const handleEditCategory = useCallback((category) => {
     setCurrentEditItem(category);
+    
+    // Ensure parentCategory is properly formatted as an object with _id if it exists
+    let parentCategoryObj = null;
+    if (category.parentCategory) {
+      // If parentCategory is already an object with _id, use it directly
+      if (typeof category.parentCategory === 'object' && category.parentCategory._id) {
+        parentCategoryObj = { _id: category.parentCategory._id };
+      } 
+      // If parentCategory is just the ID string
+      else if (typeof category.parentCategory === 'string') {
+        parentCategoryObj = { _id: category.parentCategory };
+      }
+    }
+    
     setFormData({
       restaurantId: category.restaurantId || '',
       branchId: category.branchId || '',
-      parentCategory: category.parentCategory || null,
+      parentCategory: parentCategoryObj,
       name: category.name || '',
       description: category.description || '',
       imageUrl: category.imageUrl || '',
@@ -174,7 +216,6 @@ const CategoryManagement = () => {
     
     setModalOpen(true);
   }, [fetchBranchesByRestaurant]);
-
   // Handle input change
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -190,6 +231,22 @@ const CategoryManagement = () => {
       // Fetch branches for the selected restaurant
       fetchBranchesByRestaurant(value)
         .then(branches => setRestaurantBranches(branches || []));
+    } else if (name === 'parentCategory') {
+      // Handle parent category specifically as an object with _id
+      if (value) {
+        // Find the selected category object to get its details
+        const selectedCategory = categories.find(cat => cat._id === value);
+        setFormData({
+          ...formData,
+          parentCategory: selectedCategory ? { _id: value } : null
+        });
+      } else {
+        // If no parent category selected, set to null
+        setFormData({
+          ...formData,
+          parentCategory: null
+        });
+      }
     } else {
       setFormData({
         ...formData,
@@ -285,8 +342,7 @@ const CategoryManagement = () => {
       tagsInputRef.current.focus();
     }
   };
-  
-  // Function to handle saving a category
+    // Function to handle saving a category
   const handleSaveCategory = async () => {
     // Validate form data
     if (!formData.name) {  
@@ -300,7 +356,9 @@ const CategoryManagement = () => {
       return;
     }
     
-    try {
+    // For debugging - log the form data being sent
+    console.log('Saving category with data:', formData);
+      try {
       if (currentEditItem) {
         // Update existing category
         const result = await updateCategory(currentEditItem._id, formData);
@@ -312,9 +370,16 @@ const CategoryManagement = () => {
         await createCategory(formData);
       }
       
-      // Close modal and refresh categories list
+      // Close modal and refresh categories list and tree
       handleCloseModal();
-      fetchCategories();
+      await fetchCategories(); // Fetch regular categories list
+      
+      // Also refresh category tree for hierarchical display
+      if (selectedRestaurantId || (user && user.restaurantId)) {
+        const restaurantId = selectedRestaurantId || user.restaurantId;
+        const branchId = user?.branchId || null;
+        await fetchCategoryTree(restaurantId, branchId);
+      }
     } catch (err) {
       console.error("Error saving category:", err);
       alert(err.message || "Failed to save category. Please try again.");
@@ -338,7 +403,6 @@ const CategoryManagement = () => {
         .then(branches => setRestaurantBranches(branches || []));
     }
   }, [currentEditItem?._id, formData.restaurantId]); // Reduced dependencies to only what's needed
-
   // Fetch category tree for the selected restaurant
   useEffect(() => {
     if (selectedRestaurantId || (user && user.restaurantId)) {
@@ -346,27 +410,46 @@ const CategoryManagement = () => {
       const branchId = user?.branchId || null;
       fetchCategoryTree(restaurantId, branchId);
     }
-  }, [selectedRestaurantId, user, fetchCategoryTree]);
-  
-  // Get parent category name
+  }, [selectedRestaurantId, user, fetchCategoryTree, categories]); // Add categories as a dependency to refresh tree when categories change
+    // Get parent category name
   const getParentCategoryName = useCallback((parentId) => { 
     if (!parentId) return null;
-    const parent = categories.find(cat => cat._id === parentId._id);  
+    if (!parentId._id) return 'Unknown Category';
     
+    const parent = categories.find(cat => cat._id === parentId._id);  
     return parent ? parent.name : 'Unknown Category';
   }, [categories]);
-  
-  // Format category name with indentation based on level
+    // Format category name with indentation based on level
   const formatCategoryName = (category) => {
     const level = category.level || 0;
     const indent = level > 0 ? Array(level).fill('\u00A0\u00A0\u00A0\u00A0').join('') : '';
+    
     return (
       <div>
         {indent}
-        {level > 0 && <i className="fas fa-level-up-alt fa-rotate-90 mr-2 text-muted"></i>}
+        {level > 0 && (
+          <span className="category-hierarchy-indicator">
+            <i className="fas fa-level-up-alt fa-rotate-90 mr-2 text-muted"></i>
+            {/* Visual connector line */}
+            <span 
+              className="connector-line" 
+              style={{ 
+                borderLeft: '1px dashed #ccc',
+                position: 'absolute',
+                height: level > 1 ? '20px' : '10px',
+                left: 10 + ((level - 1) * 20), 
+                top: -10
+              }}
+            ></span>
+          </span>
+        )}
         
-        {category.name}
-        {category.parentCategory && (
+        <span className={level > 0 ? "ml-1" : ""}>
+          {category.name}
+        </span>
+        
+        {/* Only show parent category name if not using the tree structure */}
+        {!categoryTree.length > 0 && category.parentCategory && (
           <small className="text-muted ml-2">
             (Parent: {getParentCategoryName(category.parentCategory)})
           </small>
@@ -406,12 +489,19 @@ const CategoryManagement = () => {
                           ))}
                         </Input>
                       </FormGroup>
-                    )}
-                    <Button 
+                    )}                    <Button 
                       color="info" 
                       size="sm" 
                       className="mr-2"
-                      onClick={() => fetchCategories()}
+                      onClick={async () => {
+                        // Refresh both categories and category tree
+                        await fetchCategories();
+                        if (selectedRestaurantId || (user && user.restaurantId)) {
+                          const restaurantId = selectedRestaurantId || user.restaurantId;
+                          const branchId = user?.branchId || null;
+                          await fetchCategoryTree(restaurantId, branchId);
+                        }
+                      }}
                       disabled={loading}
                     >
                       <i className="fas fa-sync-alt mr-1"></i> 
@@ -431,12 +521,18 @@ const CategoryManagement = () => {
                 {error && (
                   <Alert color="danger" className="m-3">
                     <i className="fas fa-exclamation-triangle mr-2"></i>
-                    Error: {error}
-                    <Button 
+                    Error: {error}                    <Button 
                       color="link" 
                       className="alert-link ml-2" 
                       size="sm"
-                      onClick={() => fetchCategories()}
+                      onClick={async () => {
+                        await fetchCategories();
+                        if (selectedRestaurantId || (user && user.restaurantId)) {
+                          const restaurantId = selectedRestaurantId || user.restaurantId;
+                          const branchId = user?.branchId || null;
+                          await fetchCategoryTree(restaurantId, branchId);
+                        }
+                      }}
                     >
                       Try Again
                     </Button>
@@ -467,8 +563,7 @@ const CategoryManagement = () => {
                           <i className="fas fa-spinner fa-spin mr-2"></i>
                           <span className="font-italic text-muted mb-0">Loading categories...</span>
                         </td>
-                      </tr>
-                    ) : !filteredCategories || filteredCategories.length === 0 ? (
+                      </tr>                    ) : !displayCategories || displayCategories.length === 0 ? (
                       <tr>
                         <td colSpan="5" className="text-center py-4">
                           <p className="font-italic text-muted mb-0">No categories available</p>
@@ -478,8 +573,12 @@ const CategoryManagement = () => {
                         </td>
                       </tr>
                     ) : (
-                      filteredCategories.map((category) => (
-                        <tr key={category._id}>
+                      displayCategories.map((category) => (
+                        <tr 
+                          key={category._id} 
+                          className={category.level > 0 ? "child-category-row" : ""}
+                          style={{ backgroundColor: category.level > 0 ? `rgba(0,0,0,${0.02 * category.level})` : 'transparent' }}
+                        >
                           <td>
                             <Media className="align-items-center">
                               {category.imageUrl && (
@@ -551,13 +650,19 @@ const CategoryManagement = () => {
                                   }}
                                 >
                                   <i className="fas fa-edit text-primary mr-2"></i> Edit
-                                </DropdownItem>
-                                <DropdownItem  
+                                </DropdownItem>                                <DropdownItem  
                                   onClick={async () => {
                                     if (window.confirm("Are you sure you want to delete this category?")) {
                                       const result = await deleteCategory(category._id);
                                       if (!result.success) {
                                         alert(result.error || "Failed to delete category. Please try again.");
+                                      } else {
+                                        // Successfully deleted - refresh category tree as well
+                                        if (selectedRestaurantId || (user && user.restaurantId)) {
+                                          const restaurantId = selectedRestaurantId || user.restaurantId;
+                                          const branchId = user?.branchId || null;
+                                          fetchCategoryTree(restaurantId, branchId);
+                                        }
                                       }
                                     }
                                   }}
@@ -578,7 +683,7 @@ const CategoryManagement = () => {
                     )}
                   </tbody>
                 </Table>
-                {filteredCategories && filteredCategories.length > 0 && (
+                {displayCategories && displayCategories.length > 0 && (
                 <CardFooter className="py-4">
                   <nav aria-label="...">
                     <Pagination
@@ -830,30 +935,34 @@ const CategoryManagement = () => {
                 </div>
               )}
             </FormGroup>
-            {/* Parent Category selection - for all users */}
-            <FormGroup>
+            {/* Parent Category selection - for all users */}            <FormGroup>
               <Label for="parentCategory">Parent Category</Label>
               <Input
                 type="select"
                 name="parentCategory"
                 id="parentCategory"
-                value={formData.parentCategory && formData.parentCategory?._id || ''}
+                value={formData.parentCategory ? formData.parentCategory._id : ''}
                 onChange={handleInputChange}
               >
-                <option value="">No Parent Category</option>
-                {filteredCategories && filteredCategories.length > 0 && filteredCategories
+                <option value="">No Parent Category</option>                {displayCategories && displayCategories.length > 0 && displayCategories
                   // Only show categories from same restaurant/branch
                   .filter(cat => 
                     // Don't show itself as a parent option when editing
                     (!currentEditItem || cat._id !== currentEditItem._id) && 
                     // Don't show categories that would create a circular reference
-                    (!currentEditItem || !cat.parentCategory || cat.parentCategory !== currentEditItem._id)
+                    (!currentEditItem || !cat.parentCategory || (cat.parentCategory && cat.parentCategory._id !== currentEditItem._id))
                   )
-                  .map(category => (
-                    <option key={category._id} value={category._id}>
-                      {category.name} {category.level > 0 && `(Level ${category.level})`}
-                    </option>
-                  ))
+                  .map(category => {
+                    // Create indented display for dropdown options
+                    const level = category.level || 0;
+                    const indent = level > 0 ? Array(level).fill('\u00A0\u00A0\u2192\u00A0').join('') : '';
+                    
+                    return (
+                      <option key={category._id} value={category._id}>
+                        {indent} {category.name}
+                      </option>
+                    );
+                  })
                 }
               </Input>
               <small className="form-text text-muted">

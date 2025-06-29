@@ -58,7 +58,7 @@ const TableQRCode = () => {
     // Create a URL or unique identifier for the table
     // This could be a URL to your customer-facing application or a unique identifier
     const baseUrl = window.location.origin.replace('admin.', ''); // Remove 'admin.' subdomain if it exists
-    return `${baseUrl}/menu?tableId=${table._id}&tableName=${table.TableName}`;
+    return `${baseUrl}/menu?tableId=${table._id}&restaurantId=${table.restaurantId}&branchId=${table.branchId}`;
   };
 
   // Download QR code as PNG
