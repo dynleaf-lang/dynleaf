@@ -26,18 +26,94 @@ exports.getAllTaxes = async (req, res) => {
   }
 };
 
+// Country name to ISO code mapping
+const countryNameToCode = {
+  'UNITED KINGDOM': 'GB',
+  'UK': 'GB',
+  'GREAT BRITAIN': 'GB',
+  'ENGLAND': 'GB',
+  'UNITED STATES': 'US',
+  'USA': 'US',
+  'AMERICA': 'US',
+  'CANADA': 'CA',
+  'AUSTRALIA': 'AU',
+  'INDIA': 'IN',
+  'GERMANY': 'DE',
+  'FRANCE': 'FR',
+  'ITALY': 'IT',
+  'JAPAN': 'JP',
+  'CHINA': 'CN',
+  'BRAZIL': 'BR',
+  'MEXICO': 'MX',
+  'SPAIN': 'ES'
+};
+
 // Get tax by country code
 exports.getTaxByCountry = async (req, res) => {
-  const country = req.params.country.toUpperCase();
+  let country = req.params.country.toUpperCase();
   console.log(`GET /taxes/${country} request received`);
+  
+  // Check if the country is a full name that needs to be converted to a code
+  if (countryNameToCode[country]) {
+    const originalCountry = country;
+    country = countryNameToCode[country];
+    console.log(`Converted country name "${originalCountry}" to code "${country}"`);
+  }
+  
   try {
-    const tax = await Tax.findOne({ country });
+    // First try with provided country code
+    let tax = await Tax.findOne({ country });
+      // Special case for GB/UK - try both codes if one fails
+    if (!tax && (country === 'GB' || country === 'UK')) {
+      const alternativeCode = country === 'GB' ? 'UK' : 'GB';
+      console.log(`No tax found for ${country}, trying alternative code ${alternativeCode}`);
+      tax = await Tax.findOne({ country: alternativeCode });
+      if (tax) {
+        console.log(`Found tax entry using alternative code ${alternativeCode}`);
+        // Create a copy of the tax with the requested country code for future use
+        try {
+          const newTaxData = { 
+            ...tax.toObject(), 
+            _id: undefined, 
+            country: country,
+            description: `${tax.description} (copied from ${alternativeCode})`
+          };
+          console.log(`Creating a new tax entry for ${country} based on ${alternativeCode} data`);
+          await Tax.create(newTaxData);
+        } catch (err) {
+          console.error(`Error creating ${country} tax from ${alternativeCode} data:`, err);
+        }
+      }
+    }
     
     if (!tax) {
-      console.log(`No tax found for country: ${country}`);
-      return res.status(404).json({
-        success: false,
-        message: `No tax found for country: ${country}`
+      console.log(`No tax found for country: ${country}, checking for fallback tax`);
+      
+      // Try to find a default tax entry
+      const defaultTax = await Tax.findOne({ country: 'DEFAULT' });
+      
+      if (defaultTax) {
+        console.log(`Found fallback DEFAULT tax, using that instead`);
+        return res.status(200).json({
+          success: true,
+          data: defaultTax,
+          isDefault: true
+        });
+      }
+      
+      // If no default tax, create one on the fly
+      console.log(`No DEFAULT tax found either, returning standard 10% tax`);
+      return res.status(200).json({
+        success: true,
+        data: {
+          country: country,
+          name: 'Tax',
+          percentage: 10,
+          isCompound: false,
+          active: true,
+          description: 'Default tax rate'
+        },
+        isGenerated: true
       });
     }
     

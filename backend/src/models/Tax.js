@@ -42,6 +42,7 @@ const defaultTaxes = [
     { country: 'US', name: 'Sales Tax', percentage: 7.25, isCompound: false, description: 'Standard US sales tax rate (varies by state)' },
     { country: 'CA', name: 'GST/HST', percentage: 13, isCompound: false, description: 'Canadian Goods and Services Tax / Harmonized Sales Tax' },
     { country: 'UK', name: 'VAT', percentage: 20, isCompound: false, description: 'UK Value Added Tax' },
+    { country: 'GB', name: 'VAT', percentage: 20, isCompound: false, description: 'UK Value Added Tax (ISO code)' },
     { country: 'IN', name: 'GST', percentage: 18, isCompound: false, description: 'Indian Goods and Services Tax' },
     { country: 'AU', name: 'GST', percentage: 10, isCompound: false, description: 'Australian Goods and Services Tax' }
 ];

@@ -13,11 +13,7 @@ const MenuView = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
-  
-  // Add debugging to help troubleshoot menu issues
-  console.log('MenuView - Available categories:', categories);
-  console.log('MenuView - MenuItems count:', menuItems.length);
-  console.log('MenuView - Selected category:', selectedCategory);
+   
   
   // Memoized handler for category selection to avoid recreating function on each render
   const handleCategorySelect = useCallback((categoryId) => {
@@ -26,13 +22,54 @@ const MenuView = () => {
     // Filter menu items based on category and search query
   const filteredItems = menuItems
     .filter(item => {
+ 
+
       // If 'all' category is selected, show all items
       if (selectedCategory === 'all') return true;
       
-      // Otherwise, filter by category - check both categoryId and category fields
-      // This handles both old and new formats from our API changes
-      return item.categoryId === selectedCategory || 
-             (item.category && item.category === selectedCategory);
+      // Get item's category ID
+      const itemCategoryId = item.categoryId || (item.category && (item.category._id || item.category));
+      
+      // Find the current selected category object
+      const selectedCategoryObj = categories.find(cat => {
+        const catId = cat.id || cat._id;
+        return catId === selectedCategory;
+      });
+      
+      if (!selectedCategoryObj) return false;
+        // Case 1: Direct match with selected category
+      if (itemCategoryId === selectedCategory) return true;
+      
+      // Case 2: Item belongs to a subcategory of the selected category
+      const isSubcategoryOfSelected = categories.some(cat => {
+        // Check if this is a subcategory of our selected category
+        if (!cat.parentCategory) return false;
+        
+        // Check if it's active - only consider categories active if:
+        // 1. isActive is explicitly true, OR
+        // 2. isActive is undefined AND status is not 'inactive'
+        let isActive = false;
+        if (cat.isActive === true) {
+          isActive = true;
+        } else if (cat.isActive === undefined && cat.status !== 'inactive') {
+          isActive = true;
+        }
+        
+        console.log(`MenuView - Checking subcategory "${cat.name}" for item filtering: isActive=${isActive}, status=${cat.status}, isActiveField=${cat.isActive === undefined ? 'undefined' : cat.isActive}`);
+        
+        // Skip inactive categories
+        if (!isActive) return false;
+        
+        const parentId = typeof cat.parentCategory === 'object' 
+          ? cat.parentCategory._id 
+          : cat.parentCategory;
+          
+        const catId = cat.id || cat._id;
+        
+        return parentId === selectedCategory && catId === itemCategoryId;
+      });
+      
+      return isSubcategoryOfSelected;
     })
     .filter(item => {
       // If there's a search query, filter by title or description

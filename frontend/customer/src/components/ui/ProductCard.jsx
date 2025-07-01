@@ -1,20 +1,88 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AddButton from "./AddButton";
+import CurrencyDisplay from "../Utils/CurrencyFormatter";
 import { theme } from "../../data/theme";
 import { useCart } from "../../context/CartContext";
+import { useCurrency } from "../../context/CurrencyContext";
 
 const ProductCard = ({ product, isTablet, isDesktop }) => {
-
+  // Handle undefined product
+  if (!product) {
+    console.error("ProductCard received undefined product");
+    return null;
+  }
+  // Ensure product has necessary properties to prevent errors
+  if (!product.sizeVariants) { 
+    product.sizeVariants = [];
+  }
   
-
-  const { addToCart } = useCart();
+  if (!Array.isArray(product.sizeVariants)) { 
+    product.sizeVariants = [];  }
+      const { addToCart } = useCart();
+  const { currencySymbol, formatCurrency } = useCurrency();
   const [showOptions, setShowOptions] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState({});
   const [quantity, setQuantity] = useState(1);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [activeTab, setActiveTab] = useState("size");
-  const addBtnRef = useRef(null);  // Handle adding product to cart
+  const [lowestPriceSizeVariant, setLowestPriceSizeVariant] = useState(null);
+  const addBtnRef = useRef(null);
+  
+  // Helper function to find the lowest price size variant
+  const findLowestPriceSizeVariant = () => {
+    const hasSizeVariants = product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0;
+    const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
+    
+    // No size variants available, return null
+    if (!hasSizeVariants && !hasVariants) {
+      return null;
+    }
+    
+    let allVariants = [];
+    
+    // Collect all available size variants
+    if (hasSizeVariants) {
+      allVariants = [...product.sizeVariants];
+    }
+    
+    if (hasVariants) {
+      allVariants = [...allVariants, ...product.variants];
+    }
+    
+    // Make sure all variants have valid prices
+    const validVariants = allVariants.filter(variant => 
+      variant && variant.price !== undefined && variant.price !== null && !isNaN(parseFloat(variant.price))
+    );
+    
+    if (validVariants.length === 0) {
+      return null;
+    }
+    
+    // Find the variant with lowest price
+    return validVariants.reduce((lowest, current) => {
+      const currentPrice = parseFloat(current.price);
+      const lowestPrice = lowest ? parseFloat(lowest.price) : Infinity;
+      
+      return currentPrice < lowestPrice ? current : lowest;
+    }, null);
+  };
+  
+  // Find and set the lowest price size variant when product changes
+  useEffect(() => {
+    const lowest = findLowestPriceSizeVariant();
+    setLowestPriceSizeVariant(lowest);
+    
+    // Pre-select the lowest price variant if we have one
+    if (lowest) {
+      const variantName = lowest.name || lowest.size || lowest.label || lowest.title;
+      setSelectedOptions({
+        size: {
+          'Choose Size': variantName
+        }
+      });
+    }
+  }, [product]);// Handle adding product to cart
   const handleAddToCart = (event) => {
     // Get the button's position for animation
     let sourcePosition = null;
@@ -47,18 +115,57 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         x: window.innerWidth / 2,
         y: window.innerHeight / 3
       }; 
-    }
-
-    if (
-      product.options?.length > 0 ||
-      product.sizes?.length > 0 ||
-      product.extras?.length > 0 ||
-      product.addons?.length > 0
-    ) {
-      // If product has customization options, show options modal
-      setShowOptions(true);    } else {
-      // If no options, add directly to cart with animation
-      addToCart(product, quantity, [], sourcePosition);
+    }    // Check individually for better debugging
+    const hasOptions = product.options?.length > 0;
+    const hasSizes = product.sizes?.length > 0;
+    const hasExtras = product.extras?.length > 0;
+    const hasAddons = product.addons?.length > 0;
+    const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
+    const hasSizeVariants = product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0;
+    
+     
+      if (hasOptions || hasSizes || hasExtras || hasAddons || hasVariants || hasSizeVariants) {
+    // Reset to "size" tab if the product has size variants
+      if (hasSizeVariants || hasVariants || hasSizes) {
+        setActiveTab("size");
+        
+        // Pre-select the lowest price size variant when opening the options modal
+        if (lowestPriceSizeVariant) {
+          const variantName = lowestPriceSizeVariant.name || 
+            lowestPriceSizeVariant.size || 
+            lowestPriceSizeVariant.label || 
+            lowestPriceSizeVariant.title;
+            
+          setSelectedOptions({
+            ...selectedOptions,
+            size: {
+              'Choose Size': variantName
+            }
+          });
+        }
+      } else if (hasOptions) {
+        setActiveTab("options");
+      } else if (hasExtras) {
+        setActiveTab("extras");
+      } else if (hasAddons) {
+        setActiveTab("addons");
+      }
+      
+      setShowOptions(true);
+    } else {      // If no options or variants, add directly to cart with animation
+      // If we have a lowest price variant, include it in the options
+      if (lowestPriceSizeVariant) {
+        const variantName = lowestPriceSizeVariant.name || lowestPriceSizeVariant.size || lowestPriceSizeVariant.label || lowestPriceSizeVariant.title;
+        const formattedOptions = [{
+          category: 'size',
+          name: 'Size',
+          value: variantName,
+          price: parseFloat(lowestPriceSizeVariant.price) || 0
+        }];
+        addToCart(product, quantity, formattedOptions, sourcePosition);
+      } else {
+        addToCart(product, quantity, [], sourcePosition);
+      }
     }
   };
 
@@ -71,13 +178,72 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         [optionName]: value,
       },
     }));
-  };
-  // Add to cart with selected options
+  };  // Add to cart with selected options
   const handleAddWithOptions = () => {
     const formattedOptions = [];
+    let selectedVariant = null;
+    
+    // Check if a variant (size) is selected
+    if (selectedOptions.size && selectedOptions.size['Choose Size']) {
+      const selectedSizeName = selectedOptions.size['Choose Size'];
+      
+      // First check in sizeVariants
+      if (product.sizeVariants && Array.isArray(product.sizeVariants)) {
+        selectedVariant = product.sizeVariants.find(variant => 
+          variant.name === selectedSizeName || 
+          variant.size === selectedSizeName ||
+          variant.label === selectedSizeName ||
+          variant.title === selectedSizeName
+        );
+      }
+      
+      // Then check in regular variants if not found
+      if (!selectedVariant && product.variants && Array.isArray(product.variants)) {
+        selectedVariant = product.variants.find(variant => 
+          variant.name === selectedSizeName || 
+          variant.size === selectedSizeName ||
+          variant.label === selectedSizeName ||
+          variant.title === selectedSizeName
+        );
+      }
+      
+      if (selectedVariant) { 
+        formattedOptions.push({
+          category: 'size',
+          name: 'Size',
+          value: selectedSizeName,
+          price: typeof selectedVariant.price === 'number' ? 
+                 selectedVariant.price : 
+                 parseFloat(selectedVariant.price) || 0
+        });
+      }
+    }
+    // If no size is selected but we have size variants, use the lowest price variant
+    else if ((!selectedOptions.size || !selectedOptions.size['Choose Size']) && 
+             lowestPriceSizeVariant && lowestPriceSizeVariant.price) {
+      
+      const variantName = lowestPriceSizeVariant.name || 
+                          lowestPriceSizeVariant.size || 
+                          lowestPriceSizeVariant.label || 
+                          lowestPriceSizeVariant.title;
+      
+      formattedOptions.push({
+        category: 'size',
+        name: 'Size',
+        value: variantName,
+        price: typeof lowestPriceSizeVariant.price === 'number' ? 
+               lowestPriceSizeVariant.price : 
+               parseFloat(lowestPriceSizeVariant.price) || 0
+      });
+    }
 
     // Format all selected options from different categories
     Object.entries(selectedOptions).forEach(([category, options]) => {
+      // Skip size category if we've already handled variants
+      if (category === 'size' && selectedVariant) {
+        return;
+      }
+      
       Object.entries(options).forEach(([name, value]) => {
         if (Array.isArray(value)) {
           value.forEach((val) => {
@@ -96,7 +262,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         name: "Special Instructions",
         value: specialInstructions,
       });
-    }    // Get modal center position for animation
+    }// Get modal center position for animation
     const modal = document.querySelector('.options-modal');
     let sourcePosition = null;
     
@@ -127,14 +293,64 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
     if (quantity > 1) {
       setQuantity((prev) => prev - 1);
     }
-  };
-
-  // Calculate total price including selected options
+  };  // Calculate total price including selected options
   const calculateTotalPrice = () => {
-    let total = product.price * quantity;
+    // Start with base price, but check for selected size variant
+    let basePrice = product.price;
+    
+    // If size is selected from variants, use that price instead
+    if (selectedOptions.size && selectedOptions.size['Choose Size']) {
+      const selectedSize = selectedOptions.size['Choose Size'];
+      let selectedVariant = null;
+      
+      console.log(`Calculating price for selected size: "${selectedSize}"`, {
+        sizeVariantsExist: product.sizeVariants && Array.isArray(product.sizeVariants),
+        sizeVariantsCount: product.sizeVariants ? product.sizeVariants.length : 0
+      });
+      
+      // First check in sizeVariants
+      if (product.sizeVariants && Array.isArray(product.sizeVariants)) {
+        selectedVariant = product.sizeVariants.find(variant => {
+          const variantName = variant.name || variant.size || variant.label || variant.title;
+          console.log(`Checking variant: "${variantName}" against selected: "${selectedSize}"`);
+          return variantName === selectedSize;
+        });
+      }
+      
+      // Then check in regular variants if not found
+      if (!selectedVariant && product.variants && Array.isArray(product.variants)) {
+        selectedVariant = product.variants.find(variant => {
+          const variantName = variant.name || variant.size || variant.label || variant.title;
+          return variantName === selectedSize;
+        });
+      }
+      
+      if (selectedVariant && selectedVariant.price) {
+        console.log(`Found variant with price: ${selectedVariant.price} for "${selectedSize}"`, selectedVariant);
+        // Replace the base price with the variant price
+        basePrice = parseFloat(selectedVariant.price);
+      }
+    }    // If no size is explicitly selected but we have a lowest price variant, use that for modal display
+    else if (showOptions && lowestPriceSizeVariant && lowestPriceSizeVariant.price) {
+      basePrice = typeof lowestPriceSizeVariant.price === 'number' ? 
+                  lowestPriceSizeVariant.price : 
+                  parseFloat(lowestPriceSizeVariant.price);
+      
+      // Make sure it's a valid number
+      if (isNaN(basePrice)) {
+        basePrice = product.price;
+      }
+    }
+    
+    let total = basePrice * quantity;
 
     // Add prices from all selected options
     Object.entries(selectedOptions).forEach(([category, options]) => {
+      // Skip the size category if we're using variants as we've already handled it above
+      if (category === 'size' && product.variants && Array.isArray(product.variants)) {
+        return;
+      }
+      
       Object.entries(options).forEach(([name, value]) => {
         if (Array.isArray(value)) {
           // For multi-select options
@@ -165,12 +381,31 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
     });
 
     return total.toFixed(2);
-  };
+  };  
 
   // Helper function to get option group by category
   const getOptionGroupByCategory = (category) => {
     switch (category) {
       case "size":
+        // Check for sizeVariants first
+        if (product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0) {
+          const sizeOptions = product.sizeVariants.map(variant => ({
+            value: variant.name || variant.size || variant.label || variant.title,
+            price: variant.price || 0,
+            description: variant.description || null
+          }));
+          return { values: sizeOptions };
+        }
+        // Then check for regular variants
+        else if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
+          const sizeOptions = product.variants.map(variant => ({
+            value: variant.name || variant.size || variant.label || variant.title,
+            price: variant.price || 0,
+            description: variant.description || null
+          }));
+          return { values: sizeOptions };
+        }
+        // Otherwise use regular sizes
         return product.sizes ? { values: product.sizes } : null;
       case "extras":
         return product.extras ? { values: product.extras } : null;
@@ -187,12 +422,61 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
   const renderTabContent = () => {
     switch (activeTab) {
       case "size":
-        return renderOptionSection(
-          "size",
-          "Choose Size",
-          product.sizes || [],
-          false
-        );
+        // Check for sizeVariants first and ensure they're properly formatted
+        if (product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0) {
+          console.log("Rendering sizeVariants:", product.sizeVariants);
+          
+          // Check variant structure for debugging
+          if (typeof product.sizeVariants[0] !== 'object') {
+            console.error("Invalid sizeVariants structure:", product.sizeVariants);
+          }
+          
+          // Transform sizeVariants to the format expected by renderOptionSection
+          const sizeOptions = product.sizeVariants.map(variant => {
+            // Debug each variant
+            console.log("Processing variant:", variant);
+            
+            return {
+              value: variant.name || variant.size || variant.label || variant.title,
+              price: parseFloat(variant.price) || 0,
+              description: variant.description || null
+            };
+          });
+          
+          console.log("Transformed size options:", sizeOptions);
+          
+          return renderOptionSection(
+            "size",
+            "Choose Size",
+            sizeOptions,
+            false
+          );
+        }
+        // Then check for variants
+        else if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
+          console.log("Rendering variants:", product.variants);
+          // Transform variants to the format expected by renderOptionSection
+          const sizeOptions = product.variants.map(variant => ({
+            value: variant.name || variant.size || variant.label || variant.title,
+            price: variant.price || 0,
+            description: variant.description || null
+          }));
+          
+          return renderOptionSection(
+            "size",
+            "Choose Size",
+            sizeOptions,
+            false
+          );
+        } else {
+          // Otherwise use the existing sizes if available
+          return renderOptionSection(
+            "size",
+            "Choose Size",
+            product.sizes || [],
+            false
+          );
+        }
       case "extras":
         return renderOptionSection(
           "extras",
@@ -247,7 +531,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         return null;
     }
   };
-
   // Render option section (size, extras, addons)
   const renderOptionSection = (category, title, options, multiple) => {
     if (!options || options.length === 0) {
@@ -256,6 +539,20 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           <p>No {title.toLowerCase()} available for this item.</p>
         </div>
       );
+    }
+    
+    // If we're displaying size options and no size is selected yet, but we have a lowest price variant, pre-select it
+    if (category === "size" && (!selectedOptions[category] || !selectedOptions[category][title]) && lowestPriceSizeVariant) {
+      const variantName = lowestPriceSizeVariant.name || lowestPriceSizeVariant.size || lowestPriceSizeVariant.label || lowestPriceSizeVariant.title;
+      
+      // Update selected options
+      setSelectedOptions(prev => ({
+        ...prev,
+        [category]: {
+          ...(prev[category] || {}),
+          [title]: variantName
+        }
+      }));
     }
 
     return (
@@ -353,7 +650,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                     fontWeight: "bold",
                   }}
                 >
-                  +${option.price.toFixed(2)}
+                  +<CurrencyDisplay amount={option.price} />
                 </span>
               )}
             </label>
@@ -449,7 +746,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                   fontWeight: "bold",
                 }}
               >
-                +${option.price.toFixed(2)}
+                +<CurrencyDisplay amount={option.price} />
               </span>
             )}
           </label>
@@ -465,11 +762,16 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
     { id: "addons", label: "Add-ons", icon: "lunch_dining" },
     { id: "options", label: "Options", icon: "tune" },
     { id: "instructions", label: "Instructions", icon: "edit_note" },
-  ];
-
-  // Show only tabs that have content
+  ];  // Show only tabs that have content
   const availableTabs = tabs.filter((tab) => {
-    if (tab.id === "size") return product.sizes?.length > 0;
+    if (tab.id === "size") {
+      // Show size tab if either sizes or variants exist
+      const hasSizes = product.sizes?.length > 0;
+      const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
+      const hasSizeVariants = product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0;
+      
+      return hasSizes || hasVariants || hasSizeVariants;
+    }
     if (tab.id === "extras") return product.extras?.length > 0;
     if (tab.id === "addons") return product.addons?.length > 0;
     if (tab.id === "options") return product.options?.length > 0;
@@ -500,11 +802,18 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           position: "relative",
           overflow: "hidden",
           height: "100%",
-        }}
-        tabIndex={0}
-        aria-label={`${product.title} - ${product.subtitle}, price $${product.price.toFixed(
-          2
-        )}`}
+        }}        tabIndex={0}
+        aria-label={`${product.title} - ${product.subtitle}, price ${formatCurrency(
+          lowestPriceSizeVariant && lowestPriceSizeVariant.price ? 
+          (typeof lowestPriceSizeVariant.price === 'number' ? 
+           lowestPriceSizeVariant.price : 
+           parseFloat(lowestPriceSizeVariant.price)) : 
+          product.price
+        ).replace(/[^\d.,]/g, '')}${
+          lowestPriceSizeVariant ? 
+          ` for ${lowestPriceSizeVariant.name || lowestPriceSizeVariant.size || lowestPriceSizeVariant.label || lowestPriceSizeVariant.title}` : 
+          ''
+        }`}
       >
         {product.popular && (
           <div
@@ -649,21 +958,50 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                 justifyContent: "space-between",
                 alignItems: "center",
               }}
-            >
-              <div>
-                <span
-                  style={{
-                    fontWeight: theme.typography.fontWeights.bold,
-                    fontSize: isDesktop
-                      ? theme.typography.sizes.xl
-                      : theme.typography.sizes.lg,
-                    color: theme.colors.secondary,
-                  }}
-                >
-                  ${product.price.toFixed(2)}
-                </span>
-                 
-              </div>              <div ref={addBtnRef} className="add-button-container">
+            >              <div>                
+                <div>
+                  <span
+                    style={{
+                      fontWeight: theme.typography.fontWeights.bold,
+                      fontSize: isDesktop
+                        ? theme.typography.sizes.xl
+                        : theme.typography.sizes.lg,
+                      color: theme.colors.secondary,
+                    }}
+                  >
+                    <CurrencyDisplay 
+                      amount={lowestPriceSizeVariant && lowestPriceSizeVariant.price 
+                        ? (typeof lowestPriceSizeVariant.price === 'number' 
+                          ? lowestPriceSizeVariant.price 
+                          : parseFloat(lowestPriceSizeVariant.price)) 
+                        : product.price} 
+                    />
+                  </span>
+                  
+                  {(() => {
+                    const hasSizeVariants = product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0;
+                    const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
+                    
+                    if (hasSizeVariants || hasVariants) {
+                      return (
+                        <div style={{ 
+                          fontSize: theme.typography.sizes.xs, 
+                          color: theme.colors.text.secondary,
+                          marginTop: "2px"
+                        }}>
+                          from {lowestPriceSizeVariant ? 
+                            (lowestPriceSizeVariant.name || 
+                             lowestPriceSizeVariant.size || 
+                             lowestPriceSizeVariant.label || 
+                             lowestPriceSizeVariant.title) : "smallest size"}
+                        </div>
+                      );
+                    }
+                    
+                    return null;
+                  })()}
+                </div>
+              </div><div ref={addBtnRef} className="add-button-container">
                 <AddButton
                   onClick={handleAddToCart}
                   isTablet={isTablet}
@@ -759,16 +1097,14 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                         objectFit: "contain",
                       }}
                     />
-                  </div>
-                  <div>
+                  </div>                  <div>
                     <h3
                       style={{
                         margin: "0 0 4px 0",
                         fontWeight: theme.typography.fontWeights.bold,
                         fontSize: theme.typography.sizes.xl,
                       }}
-                    >
-                      {product.title}
+                    >                      {product.title}                       
                     </h3>
                     <p
                       style={{
@@ -951,21 +1287,25 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                         <span className="material-icons">add</span>
                       </button>
                     </div>
-                  </div>
-
-                  <div
+                  </div>                  <div
                     style={{
                       fontWeight: theme.typography.fontWeights.bold,
                       fontSize: theme.typography.sizes.lg,
                       color: theme.colors.secondary,
-                    }}
-                  >
-                    ${calculateTotalPrice()}
+                    }}                  >
+                    <CurrencyDisplay amount={calculateTotalPrice()} />
+                    {selectedOptions.size && selectedOptions.size['Choose Size'] && (
+                      <div style={{ 
+                        fontSize: theme.typography.sizes.xs, 
+                        color: theme.colors.text.secondary 
+                      }}>
+                        {selectedOptions.size['Choose Size']}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Add to Cart Button */}
-                <button
+                {/* Add to Cart Button */}                <button
                   onClick={handleAddWithOptions}
                   style={{
                     width: "100%",
@@ -981,11 +1321,26 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                     alignItems: "center",
                     justifyContent: "center",
                     gap: "8px",
-                  }}
-                >
+                  }}                >
                   <span className="material-icons">shopping_cart</span>
-                  Add to Cart - ${calculateTotalPrice()}
+                  Add to Cart - <CurrencyDisplay amount={calculateTotalPrice()} />
                 </button>
+                
+                {/* Show a warning if we require a size but none is selected */}
+                {!selectedOptions.size && (
+                  availableTabs.some(tab => tab.id === "size") && 
+                  product.sizeVariants && 
+                  product.sizeVariants.length > 0
+                ) && (
+                  <div style={{ 
+                    color: theme.colors.danger, 
+                    fontSize: theme.typography.sizes.sm,
+                    marginTop: "8px",
+                    textAlign: "center"
+                  }}>
+                    Please select a size
+                  </div>
+                )}
               </div>
             </motion.div>
           </>

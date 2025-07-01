@@ -2,8 +2,11 @@ import React, { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useCurrency } from '../../context/CurrencyContext';
+import { useTax } from '../../context/TaxContext';
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
-import { mockOrders } from '../../data/dummyData';
+import { api } from '../../utils/apiClient';
 
 // Animation variants
 const fadeIn = {
@@ -106,8 +109,10 @@ const StatusBadge = memo(({ status }) => {
   );
 });
 
-// Order item component
+// Order Item component
 const OrderItem = memo(({ order, onClick, isDesktop }) => {
+  const { currencySymbol, formatCurrency } = useCurrency();
+  const { taxRate, taxName, formattedTaxRate } = useTax();
   const formattedDate = new Date(order.createdAt).toLocaleString('en-US', {
     year: 'numeric',
     month: 'short',
@@ -274,7 +279,7 @@ const OrderItem = memo(({ order, onClick, isDesktop }) => {
               fontWeight: theme.typography.fontWeights.semibold,
               color: theme.colors.text.primary
             }}>
-              ${order.totalAmount?.toFixed(2) || '0.00'}
+              <CurrencyDisplay amount={order.totalAmount || 0} />
             </div>
           </div>
         </div>
@@ -377,6 +382,8 @@ const OrderItem = memo(({ order, onClick, isDesktop }) => {
 
 // Order Detail Modal Component
 const OrderDetailModal = ({ order, onClose }) => {
+  const { currencySymbol, formatCurrency } = useCurrency();
+  const { taxRate, taxName, formattedTaxRate } = useTax();
   if (!order) return null;
 
   const formattedDate = new Date(order.createdAt).toLocaleString('en-US', {
@@ -708,7 +715,7 @@ const OrderDetailModal = ({ order, onClose }) => {
                     minWidth: '80px',
                     textAlign: 'right'
                   }}>
-                    ${(item.price * item.quantity).toFixed(2)}
+                    <CurrencyDisplay amount={item.price * item.quantity} />
                   </div>
                 </div>
               ))}
@@ -776,25 +783,23 @@ const OrderDetailModal = ({ order, onClose }) => {
               display: 'flex',
               flexDirection: 'column',
               gap: theme.spacing.sm
-            }}>
-              <div style={{
+            }}>              <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 fontSize: theme.typography.sizes.sm,
                 color: theme.colors.text.secondary
               }}>
                 <span>Subtotal</span>
-                <span>${((order.totalAmount || 0) * 0.9).toFixed(2)}</span>
+                <span><CurrencyDisplay amount={order.subtotal || (order.totalAmount ? order.totalAmount - (order.taxAmount || order.totalAmount * taxRate) : 0)} /></span>
               </div>
-              
-              <div style={{
+                <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 fontSize: theme.typography.sizes.sm,
                 color: theme.colors.text.secondary
               }}>
-                <span>Tax (10%)</span>
-                <span>${((order.totalAmount || 0) * 0.1).toFixed(2)}</span>
+                <span>{order.taxDetails?.taxName || taxName} ({order.taxDetails?.percentage ? `${order.taxDetails.percentage}%` : formattedTaxRate})</span>
+                <span><CurrencyDisplay amount={order.taxAmount || ((order.totalAmount || 0) * taxRate)} /></span>
               </div>
               
               <div style={{
@@ -808,7 +813,7 @@ const OrderDetailModal = ({ order, onClose }) => {
                 marginTop: theme.spacing.xs
               }}>
                 <span>Total</span>
-                <span>${(order.totalAmount || 0).toFixed(2)}</span>
+                <span><CurrencyDisplay amount={order.totalAmount || 0} /></span>
               </div>
             </div>
           </div>
@@ -1227,13 +1232,24 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
+          // Get orders from the API
+        const { branch, table } = useRestaurant();
+        let orders = [];
         
-        // In production, this would be an API call
-        // For now, we'll use the mock orders from dummyData
+        if (branch && branch._id) {
+          try {
+            // Fetch orders for this table from the API
+            orders = await api.public.orders.getByTable(table._id);
+          } catch (apiError) {
+            console.error('API error fetching orders:', apiError);
+            orders = []; // Use empty array if API fails
+          }
+        }
+        
         // If we have a currentOrder in cart context, add it to the orders list
-        let allOrders = [...mockOrders];
+        let allOrders = [...orders];
         if (currentOrder) {
-          // Check if the order already exists in the mock orders
+          // Check if the order already exists in the orders
           const orderExists = allOrders.some(order => order._id === currentOrder._id);
           if (!orderExists) {
             allOrders = [currentOrder, ...allOrders];
@@ -1283,9 +1299,21 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
+          // Get orders from the API
+        const { branch, table } = useRestaurant();
+        let orders = [];
         
-        // In production, this would be an API call
-        setOrders(mockOrders);
+        if (branch && branch._id && table && table._id) {
+          try {
+            // Fetch orders for this table from the API
+            orders = await api.public.orders.getByTable(table._id);
+          } catch (apiError) {
+            console.error('API error fetching orders:', apiError);
+            orders = []; // Use empty array if API fails
+          }
+        }
+        
+        setOrders(orders);
       } catch (err) {
         console.error('Error fetching orders:', err);
         setError(err || new Error('Failed to load orders'));

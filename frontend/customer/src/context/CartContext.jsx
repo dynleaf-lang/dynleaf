@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRestaurant } from './RestaurantContext';
+import { useTax } from './TaxContext';
 import { api } from '../utils/apiClient';
 
 // Create context
@@ -8,6 +9,7 @@ const CartContext = createContext(null);
 // Provider component
 export const CartProvider = ({ children }) => {
   const { restaurant, branch, table } = useRestaurant();
+  const { taxRate, taxName, taxDetails, calculateTax } = useTax();
   const [cartItems, setCartItems] = useState([]);
   const [cartTotal, setCartTotal] = useState(0);
   const [orderNote, setOrderNote] = useState('');
@@ -33,18 +35,20 @@ export const CartProvider = ({ children }) => {
       console.error('Error loading cart from localStorage:', error);
     }
   }, []);
-
   // Save cart to localStorage whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem('cart', JSON.stringify(cartItems));
       
-      // Calculate total
+      // Calculate total, accounting for size variants
       const total = cartItems.reduce((sum, item) => {
+        // Use the item's price (which already includes any size variant adjustments)
         const basePrice = item.price * item.quantity;
         
-        // Add option prices if any
+        // Add any additional option prices if present
         const optionsTotal = item.selectedOptions?.reduce((optSum, opt) => {
+          // Skip size options as their price is already reflected in the base price
+          if (opt.category === 'size' && opt.name === 'Size') return optSum;
           return optSum + (opt.price || 0);
         }, 0) || 0;
         
@@ -55,15 +59,71 @@ export const CartProvider = ({ children }) => {
     } catch (error) {
       console.error('Error saving cart to localStorage:', error);
     }
-  }, [cartItems]);
+  }, [cartItems]);  // Helper function to get the price for an item based on its size variant
+  const getItemPriceWithSizeVariant = (item, selectedOptions) => {
+    // Start with a copy of the item
+    let result = { ...item };
+    let selectedSizeVariant = null;
+    
+    // Find any size selection in the options
+    const sizeOption = selectedOptions.find(option => 
+      option.category === 'size' && option.name === 'Size' && option.value
+    );
+    
+    // If a size is selected and the item has size variants
+    if (sizeOption && item.sizeVariants && Array.isArray(item.sizeVariants) && item.sizeVariants.length > 0) {
+      // Find the matching size variant
+      selectedSizeVariant = item.sizeVariants.find(variant => 
+        variant.name === sizeOption.value || 
+        variant.size === sizeOption.value ||
+        variant.label === sizeOption.value ||
+        variant.title === sizeOption.value
+      );
+      
+      // If we found a matching size variant with a price, use that price
+      if (selectedSizeVariant && selectedSizeVariant.price !== undefined) {
+        result.price = parseFloat(selectedSizeVariant.price);
+        result.selectedSize = sizeOption.value;
+        console.log(`Using size variant price: ${selectedSizeVariant.price} for ${sizeOption.value}`);
+      }
+    }
+    
+    // If no size variant was selected but the item has size variants, find and use the lowest price
+    else if (item.sizeVariants && Array.isArray(item.sizeVariants) && item.sizeVariants.length > 0) {
+      // Find the variant with the lowest price
+      const lowestPriceVariant = item.sizeVariants.reduce((lowest, current) => {
+        if (!current || current.price === undefined || current.price === null) return lowest;
+        
+        const currentPrice = parseFloat(current.price);
+        const lowestPrice = lowest ? parseFloat(lowest.price) : Infinity;
+        
+        return !isNaN(currentPrice) && currentPrice < lowestPrice ? current : lowest;
+      }, null);
+      
+      if (lowestPriceVariant && lowestPriceVariant.price !== undefined) {
+        const variantName = lowestPriceVariant.name || lowestPriceVariant.size || 
+                            lowestPriceVariant.label || lowestPriceVariant.title;
+        
+        result.price = parseFloat(lowestPriceVariant.price);
+        result.selectedSize = variantName;
+        console.log(`Using lowest price variant: ${lowestPriceVariant.price} for ${variantName}`);
+      }
+    }
+    
+    return result;
+  };
+  
   // Add item to cart
   const addToCart = (item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
+    // Check for size variant selection and adjust price if needed
+    let itemToAdd = getItemPriceWithSizeVariant(item, selectedOptions);
+    
     // Trigger animation if source position is provided
     if (sourcePosition) {
       setCartAnimation({
         isAnimating: true,
         item: {
-          ...item,
+          ...itemToAdd,
           quantity,
           selectedOptions
         },
@@ -98,17 +158,15 @@ export const CartProvider = ({ children }) => {
         });
         
         return optionsMatch;
-      });
-
-      if (existingItemIndex !== -1) {
+      });      if (existingItemIndex !== -1) {
         // Update quantity if item already exists
         const updatedItems = [...prevItems];
         updatedItems[existingItemIndex].quantity += quantity;
         return updatedItems;
       } else {
-        // Add new item to cart
+        // Add new item to cart with potentially updated price from sizeVariant
         return [...prevItems, { 
-          ...item, 
+          ...itemToAdd, 
           quantity, 
           selectedOptions
         }];
@@ -190,8 +248,7 @@ export const CartProvider = ({ children }) => {
       return null;
     }
 
-    try {
-      setOrderLoading(true);
+    try {      setOrderLoading(true);
       setOrderError(null);
 
       // Calculate subtotal and tax for the order
@@ -199,9 +256,8 @@ export const CartProvider = ({ children }) => {
         return sum + (item.price * item.quantity);
       }, 0);
       
-      // Assume default tax rate of 10% if not specified
-      const taxRate = restaurant.defaultTaxRate || 0.1;
-      const taxAmount = subtotal * taxRate;
+      // Calculate tax using the tax context
+      const taxAmount = calculateTax(subtotal);
       
       // Prepare order data according to the API schema
       const orderData = {
@@ -221,11 +277,16 @@ export const CartProvider = ({ children }) => {
           email: customerInfo.email || '',
           phone: customerInfo.phone || ''
         },
-        orderType: table ? 'dine-in' : 'takeaway',
-        paymentMethod: 'cash', // Default to cash payment
+        orderType: table ? 'dine-in' : 'takeaway',        paymentMethod: 'cash', // Default to cash payment
         status: 'pending',
         notes: orderNote,
         taxAmount: taxAmount,
+        taxDetails: {
+          taxName: taxName,
+          percentage: taxRate * 100,
+          countryCode: taxDetails ? taxDetails.country : 'DEFAULT',
+          isCompound: taxDetails ? taxDetails.isCompound : false
+        },
         subtotal: subtotal,
         total: subtotal + taxAmount
       };
@@ -273,8 +334,7 @@ export const CartProvider = ({ children }) => {
     } finally {
       setOrderLoading(false);
     }
-  };
-  // Provide context value
+  };  // Provide context value
   const contextValue = {
     cartItems,
     cartTotal,
@@ -287,6 +347,7 @@ export const CartProvider = ({ children }) => {
     placeOrder,
     orderPlaced,
     setOrderPlaced,
+    getItemPriceWithSizeVariant,
     currentOrder,
     orderLoading,
     orderError,

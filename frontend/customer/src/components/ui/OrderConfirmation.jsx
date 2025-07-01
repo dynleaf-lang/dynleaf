@@ -2,14 +2,18 @@ import React, { memo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useCurrency } from '../../context/CurrencyContext';
+import { useTax } from '../../context/TaxContext';
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { useOrderType } from '../ui/EnhancedCart';
 import { theme } from '../../data/theme';
+import TaxInfo from './TaxInfo';
 
 // Enhanced OrderConfirmation component with better visuals and functionality
-const OrderConfirmation = memo(() => {
-  const { cartItems, cartTotal, orderNote, clearCart, currentOrder, orderError } = useCart();
+const OrderConfirmation = memo(() => {  const { cartItems, cartTotal, orderNote, clearCart, currentOrder, orderError } = useCart();
   const { restaurant, branch, table } = useRestaurant();
   const { orderType } = useOrderType();
+  const { taxName, taxRate, formattedTaxRate, calculateTax } = useTax();
   const [isPrinting, setIsPrinting] = useState(false);
   const [showErrorBanner, setShowErrorBanner] = useState(!!orderError);
   
@@ -42,10 +46,9 @@ const OrderConfirmation = memo(() => {
       setIsPrinting(false);
     }, 500);
   };
-  
-  // Calculate totals
+    // Calculate totals
   const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.1; // 10% tax
+  const tax = calculateTax(subtotal); // Dynamic tax calculation based on country
   const total = subtotal + tax;
   
   return (
@@ -469,9 +472,12 @@ const OrderConfirmation = memo(() => {
                     ))}
                   </div>
                 )}
+              </div>              <div style={{ color: theme.colors.text.secondary, textAlign: 'right' }}>
+                <CurrencyDisplay amount={item.price} />
               </div>
-              <div style={{ color: theme.colors.text.secondary, textAlign: 'right' }}>${item.price.toFixed(2)}</div>
-              <div style={{ fontWeight: theme.typography.fontWeights.semibold, textAlign: 'right' }}>${(item.price * item.quantity).toFixed(2)}</div>
+              <div style={{ fontWeight: theme.typography.fontWeights.semibold, textAlign: 'right' }}>
+                <CurrencyDisplay amount={item.price * item.quantity} />
+              </div>
             </div>
           ))}
         </div>
@@ -516,8 +522,7 @@ const OrderConfirmation = memo(() => {
           flexDirection: 'column',
           alignItems: 'flex-end',
           gap: theme.spacing.xs
-        }}>
-          <div style={{ 
+        }}>          <div style={{ 
             display: 'flex',
             justifyContent: 'space-between',
             width: '200px',
@@ -525,18 +530,16 @@ const OrderConfirmation = memo(() => {
             color: theme.colors.text.secondary
           }}>
             <span>Subtotal:</span>
-            <span>${subtotal.toFixed(2)}</span>
+            <span><CurrencyDisplay amount={subtotal} /></span>
           </div>
-          
-          <div style={{ 
+            <div style={{ 
             display: 'flex',
             justifyContent: 'space-between',
             width: '200px',
             fontSize: theme.typography.sizes.sm,
             color: theme.colors.text.secondary
-          }}>
-            <span>Tax (10%):</span>
-            <span>${tax.toFixed(2)}</span>
+          }}>            
+            <TaxInfo subtotal={subtotal} />
           </div>
           
           <div style={{ 
@@ -551,7 +554,7 @@ const OrderConfirmation = memo(() => {
             borderTop: `1px solid ${theme.colors.border}20`
           }}>
             <span>Total:</span>
-            <span>${total.toFixed(2)}</span>
+            <span><CurrencyDisplay amount={total} /></span>
           </div>
         </div>
       </motion.div>

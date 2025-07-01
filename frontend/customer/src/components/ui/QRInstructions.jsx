@@ -18,8 +18,7 @@ const QRInstructions = () => {
     const tableId = urlParams.get('tableId');
     
     if (restaurantId && branchId) {
-      console.log('QRInstructions: Found URL parameters, attempting to load restaurant data');
-      loadRestaurantData(restaurantId, branchId, tableId || null);
+     loadRestaurantData(restaurantId, branchId, tableId || null);
     }
   }, [loadRestaurantData]);
   

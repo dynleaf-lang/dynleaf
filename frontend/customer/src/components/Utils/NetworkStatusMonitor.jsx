@@ -121,7 +121,7 @@ const NetworkStatusMonitor = () => {
       elevation={1}
       sx={{
         position: 'fixed',
-        bottom: 16,
+        bottom: 150,
         right: 16,
         borderRadius: 2,
         overflow: 'hidden',

@@ -286,8 +286,7 @@ export const dummyData = {
       categoryId: 'appetizers',
       available: true,
       popular: true
-    },
-    {
+    },    {
       id: 'item8',
       title: 'Chocolate Lava Cake',
       subtitle: 'Warm cake with molten chocolate center',
@@ -298,6 +297,23 @@ export const dummyData = {
       categoryId: 'desserts',
       available: true,
       popular: false
+    },
+    {
+      id: 'item9',
+      title: 'Gourmet Pizza',
+      subtitle: 'Artisanal pizza with premium toppings',
+      description: 'Our signature pizza made with fresh dough, premium ingredients, and baked to perfection in our stone oven.',
+      price: 12.99,
+      image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxzZWFyY2h8Mnx8cGl6emF8ZW58MHx8MHx8&auto=format&fit=crop&w=800&q=60',
+      category: 'Main Dishes',
+      categoryId: 'main-dishes',
+      available: true,
+      popular: true,
+      sizeVariants: [
+        { name: 'Small', price: 12.99, description: '8 inch pizza' },
+        { name: 'Medium', price: 15.99, description: '12 inch pizza' },
+        { name: 'Large', price: 18.99, description: '16 inch pizza' }
+      ]
     }
   ]
 };

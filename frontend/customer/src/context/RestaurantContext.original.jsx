@@ -283,8 +283,7 @@ const RestaurantProvider = ({ children }) => {
         
         // If we have all the required parameters, initialize with them
         if (restaurantId && branchId && tableId) {
-          setLoading(true);
-          console.log('Loading restaurant data from URL parameters...');          try {
+          setLoading(true);         try {
             // Fetch all data with a timeout
             const fetchDataPromise = Promise.all([
               api.public.branches.getById(branchId),

@@ -14,8 +14,7 @@ const ServerStatusCheck = () => {
         const response = await api.public.health();
         
         if (response && response.status === 'ok') {
-          setServerStatus('connected');
-          console.log('Backend server connection established successfully');
+          setServerStatus('connected'); 
         } else {
           throw new Error(response?.error || 'Failed to connect to backend');
         }

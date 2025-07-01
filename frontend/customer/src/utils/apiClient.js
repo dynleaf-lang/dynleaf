@@ -12,9 +12,7 @@ import { getCachedData, setCachedData } from './cacheHelper';
 // API base URL from environment variables or default
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 const PUBLIC_API_PATH = '/api/public';
-
-console.log(`Using API base URL: ${API_BASE_URL}`);
-
+ 
 // Configuration options with defaults
 const defaultConfig = {
   useCache: true,
@@ -48,15 +46,7 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Enhanced error logging for debugging
-    console.error('API Error:', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message
-    });
+    
     
     // Handle network errors
     if (!error.response) {
@@ -148,9 +138,7 @@ const makeRequest = async (options) => {
     console.error(`API request failed: ${method} ${url}`, error);
     throw error;
   }
-};
-
-// API utility methods
+};  // API utility methods
 export const api = {
   // Server health check
   health: {
@@ -434,13 +422,13 @@ export const api = {
     // Test-only method to update base URL
   _updateBaseUrl: (newBaseUrl) => {
     if (newBaseUrl && typeof newBaseUrl === 'string') {
-      console.log(`[TEST MODE] Updating API base URL from ${apiClient.defaults.baseURL} to ${newBaseUrl}`);
+      
       apiClient.defaults.baseURL = newBaseUrl;
       return true;
     }
     return false;
   },
-    // Public API endpoints (don't require authentication)
+      // Public API endpoints (don't require authentication)
   public: {
     // Health check for the public API
     health: async () => {
@@ -450,6 +438,35 @@ export const api = {
       } catch (error) {
         console.error('Error checking public API health:', error);
         throw error;
+      }
+    },
+      // Tax APIs
+    taxes: {
+      // Get tax information by country code
+      getByCountry: async (countryCode) => {
+        console.log(`Tax API Client: Fetching tax info for country: ${countryCode}`);
+        try {
+          const result = await makeRequest({
+            url: `${PUBLIC_API_PATH}/taxes/${countryCode}`,
+            method: 'GET',
+            useCache: false // Don't cache for debugging
+          });
+          console.log(`Tax API Client: Successfully retrieved tax data for ${countryCode}`);
+          return result;
+        } catch (error) {
+          console.error(`Tax API Client: Error fetching tax information for ${countryCode}:`, error);
+          
+          // Provide more detailed error for debugging
+          if (error.isNetworkError) {
+            throw new Error(`Network error while fetching tax data for ${countryCode}: ${error.originalError}`);
+          } else if (error.resourceNotFound) {
+            throw new Error(`Tax data for country ${countryCode} not found`);
+          } else if (error.status) {
+            throw new Error(`Tax API error (${error.status}): ${error.message}`);
+          }
+          
+          throw error;
+        }
       }
     },
     
@@ -468,16 +485,14 @@ export const api = {
         // Get branch details
       getById: async (branchId) => {
         try {
-          const response = await apiClient.get(`${PUBLIC_API_PATH}/branches/${branchId}`);
-          console.log('Raw branch API response:', response.data);
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/branches/${branchId}`); 
           
           // Extract and map the restaurant data separately
           const branchData = { ...mapBranchToFrontend(response.data) };
           
           // Handle restaurant data if it exists
           if (response.data.restaurant && typeof response.data.restaurant === 'object') {
-            branchData.restaurant = mapRestaurantToFrontend(response.data.restaurant);
-            console.log('Mapped restaurant data:', branchData.restaurant);
+            branchData.restaurant = mapRestaurantToFrontend(response.data.restaurant); 
           } else {
             console.warn('Missing or invalid restaurant data in branch response:', response.data.restaurant);
             branchData.restaurant = null;
@@ -511,18 +526,16 @@ export const api = {
     menus: {      // Get all menu categories for a branch
       getCategories: async (branchId) => {
         try {
-          console.log(`Fetching categories for branchId: ${branchId}`);
+          
           const cacheKey = `categories_${branchId}`;
           
           // First try to get from cache
           const cachedData = defaultConfig.useCache ? getCachedData(cacheKey) : null;
-          if (cachedData) {
-            console.log('Using cached categories data');
+          if (cachedData) { 
             return cachedData;
           }
           
-          const response = await apiClient.get(`${PUBLIC_API_PATH}/menus/branch/${branchId}/categories`);
-          console.log('Raw categories from API:', response.data);
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/menus/branch/${branchId}/categories`); 
           
           // Check if we actually got categories data
           if (!response.data || response.data.length === 0) {
@@ -538,8 +551,7 @@ export const api = {
             return fallbackCategories.map(mapCategoryToFrontend);
           }
           
-          const mappedCategories = response.data.map(mapCategoryToFrontend);
-          console.log('Mapped categories:', mappedCategories);
+          const mappedCategories = response.data.map(mapCategoryToFrontend); 
           
           // Store in cache
           if (defaultConfig.useCache) {
@@ -556,12 +568,36 @@ export const api = {
           return defaultCategories.map(mapCategoryToFrontend);
         }
       },
-      
-      // Get all menu items for a branch
+        // Get all menu items for a branch
       getByBranch: async (branchId) => {
         try {
           const response = await apiClient.get(`${PUBLIC_API_PATH}/menus/branch/${branchId}`);
-          return response.data.map(mapMenuItemToFrontend);
+          
+          // Debug: Check for sizeVariants in the raw response data
+          const itemsWithSizeVariants = response.data.filter(
+            item => item.sizeVariants && item.sizeVariants.length > 0
+          );
+          
+          if (itemsWithSizeVariants.length > 0) {
+            console.log(`Found ${itemsWithSizeVariants.length} items with sizeVariants in API response`);
+            console.log('Example item with sizeVariants:', itemsWithSizeVariants[0]);
+          }
+          
+          // Map the items to frontend format
+          const mappedItems = response.data.map(mapMenuItemToFrontend);
+          
+          // Debug: Check if sizeVariants were preserved after mapping
+          const mappedItemsWithSizeVariants = mappedItems.filter(
+            item => item.sizeVariants && item.sizeVariants.length > 0
+          );
+          
+          if (mappedItemsWithSizeVariants.length > 0) {
+            console.log(`Found ${mappedItemsWithSizeVariants.length} items with sizeVariants after mapping`);
+          } else if (itemsWithSizeVariants.length > 0) {
+            console.log('WARNING: sizeVariants were lost during mapping!');
+          }
+          
+          return mappedItems;
         } catch (error) {
           console.error('Error fetching menu items:', error);
           throw error;
@@ -647,8 +683,7 @@ export const api = {
           console.error('Error fetching table details:', error);
           throw error;
         }
-      }
-    },
+      }    },
     
     // Order APIs
     orders: {

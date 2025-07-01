@@ -1,8 +1,9 @@
 import React, { useState, useEffect, memo, useCallback, createContext, useContext } from 'react';
-import React, { useState, useEffect, memo, useCallback, createContext, useContext } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useCurrency } from '../../context/CurrencyContext'; 
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 
 // Import enhanced components
@@ -65,6 +66,7 @@ const OrderTypeProvider = ({ children }) => {
 // CheckoutForm component for the checkout step
 const CheckoutForm = memo(() => {
   const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
+  const { currencySymbol, formatCurrency } = useCurrency();
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
@@ -289,7 +291,7 @@ const CheckoutForm = memo(() => {
             color: theme.colors.text.secondary
           }}>
             <span>Items ({cartItems.reduce((sum, item) => sum + item.quantity, 0)})</span>
-            <span>${cartTotal.toFixed(2)}</span>
+            <span><CurrencyDisplay amount={cartTotal} /></span>
           </div>
           
           <div style={{ 
@@ -303,7 +305,7 @@ const CheckoutForm = memo(() => {
             color: theme.colors.text.primary
           }}>
             <span>Total</span>
-            <span>${cartTotal.toFixed(2)}</span>
+            <span><CurrencyDisplay amount={cartTotal} /></span>
           </div>
         </div>
         
@@ -336,9 +338,8 @@ const CheckoutForm = memo(() => {
                 animation: 'spin 1s linear infinite',
               }} />
               Processing...
-            </div>
-          ) : (
-            `Place Order • $${cartTotal.toFixed(2)}`
+            </div>          ) : (
+            <>Place Order • <CurrencyDisplay amount={cartTotal} /></>
           )}
         </button>
       </form>
@@ -351,6 +352,7 @@ const OrderConfirmation = memo(() => {
   const { cartItems, cartTotal, orderNote, clearCart, currentOrder } = useCart();
   const { restaurant, branch, table } = useRestaurant();
   const { orderType } = useOrderType();
+  const { currencySymbol, formatCurrency } = useCurrency();
   
   // Function to get a formatted order ID for display
   const getFormattedOrderId = () => {
@@ -450,7 +452,7 @@ const OrderConfirmation = memo(() => {
           <strong>Order Type:</strong> {orderType === 'dineIn' ? 'Dine In' : 'Takeaway'}
         </p>
         <p style={{ margin: `${theme.spacing.xs} 0`, fontSize: theme.typography.sizes.md, color: theme.colors.text.secondary }}>
-          <strong>Total Amount:</strong> ${cartTotal.toFixed(2)}
+          <strong>Total Amount:</strong> <CurrencyDisplay amount={cartTotal} />
         </p>
         <p style={{ 
           margin: `${theme.spacing.xs} 0`, 
@@ -715,10 +717,11 @@ const OrderTypeSelector = memo(({ orderType, setOrderType }) => {
 import EmptyCart from './EmptyCart';
 
 // CartItem component - represents a single item in the cart
-const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
+const CartItem = memo(({ item, index, isLast }) => {
   // State for handling quantity update loading
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const { currencySymbol, formatCurrency } = useCurrency();
   
   // Handle quantity change with loading state
   const handleQuantityChange = async (newQuantity) => {
@@ -796,8 +799,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
             e.target.onerror = null;
             e.target.src = 'https://via.placeholder.com/150?text=Food';
           }}
-        />
-        {/* Price badge */}
+        />        {/* Price badge */}
         <div style={{
           position: 'absolute',
           bottom: 0,
@@ -810,7 +812,17 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
           fontWeight: theme.typography.fontWeights.semibold,
           textAlign: 'center'
         }}>
-          ${item.price.toFixed(2)}
+          <CurrencyDisplay amount={item.price} />
+          {item.selectedSize && (
+            <span style={{ 
+              display: 'block',
+              fontSize: '0.65em',
+              opacity: 0.85,
+              marginTop: '1px'
+            }}>
+              ({item.selectedSize})
+            </span>
+          )}
         </div>
       </div>
       
@@ -900,8 +912,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
             )}
           </button>
         </div>
-        
-        {/* Item options if any */}
+          {/* Item options if any */}
         {item.selectedOptions && item.selectedOptions.length > 0 && (
           <div style={{ 
             margin: '0 0 8px',
@@ -911,16 +922,36 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
             flexWrap: 'wrap',
             gap: theme.spacing.xs
           }}>
-            {item.selectedOptions.map((option, index) => (
-              <span key={`${option.category}-${option.name}-${option.value}`} style={{
-                backgroundColor: theme.colors.background,
+            {/* First show size option with highlight if present */}
+            {item.selectedOptions.find(option => option.category === 'size' && option.name === 'Size') && (
+              <span key="selected-size" style={{
+                backgroundColor: theme.colors.primary + '15',
                 padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
                 borderRadius: theme.borderRadius.sm,
                 fontSize: theme.typography.sizes.xs,
-                border: `1px solid ${theme.colors.border}`
+                border: `1px solid ${theme.colors.primary}30`,
+                color: theme.colors.primary,
+                fontWeight: theme.typography.fontWeights.medium
               }}>
-                {option.name}: <strong>{option.value}</strong>
+                Size: <strong>
+                  {item.selectedOptions.find(option => option.category === 'size' && option.name === 'Size').value}
+                </strong>
               </span>
+            )}
+            
+            {/* Show other options */}
+            {item.selectedOptions.map((option, index) => (
+              (option.category !== 'size' || option.name !== 'Size') && (
+                <span key={`${option.category}-${option.name}-${option.value}`} style={{
+                  backgroundColor: theme.colors.background,
+                  padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
+                  borderRadius: theme.borderRadius.sm,
+                  fontSize: theme.typography.sizes.xs,
+                  border: `1px solid ${theme.colors.border}`
+                }}>
+                  {option.name}: <strong>{option.value}</strong>
+                </span>
+              )
             ))}
           </div>
         )}
@@ -931,14 +962,21 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
           justifyContent: 'space-between',
           alignItems: 'center',
           marginTop: theme.spacing.md
-        }}>
-          <div style={{ 
+        }}>          <div style={{ 
             fontSize: theme.typography.sizes.md,
             fontWeight: theme.typography.fontWeights.bold,
-            color: theme.colors.primary
+            color: theme.colors.primary,
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <span style={{ fontSize: theme.typography.sizes.sm, opacity: 0.8 }}>Total: </span>
-            ${(item.price * item.quantity).toFixed(2)}
+            <span style={{ fontSize: theme.typography.sizes.sm, opacity: 0.8, marginBottom: '2px' }}>
+              {item.selectedSize ? `Price (${item.selectedSize}): ` : 'Price: '} 
+              <span style={{ fontWeight: theme.typography.fontWeights.semibold }}><CurrencyDisplay amount={item.price} /></span>
+            </span>
+            <span style={{ fontSize: theme.typography.sizes.md }}>
+              <span style={{ fontSize: theme.typography.sizes.sm, opacity: 0.8 }}>Total: </span>
+              <CurrencyDisplay amount={item.price * item.quantity} />
+            </span>
           </div>
           
           <div style={{
@@ -1035,6 +1073,7 @@ const CartContent = memo(({ checkoutStep = 'cart' }) => {const {
   } = useCart();
   
   const { orderType, setOrderType } = useOrderType();
+  const { currencySymbol, formatCurrency } = useCurrency();
     // Local cart total calculation to fix "calculateCartTotal is not defined" error
   const calculateCartTotal = useCallback(() => {
     return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -1141,7 +1180,7 @@ const CartContent = memo(({ checkoutStep = 'cart' }) => {const {
               fontWeight: theme.typography.fontWeights.bold,
               color: theme.colors.text.primary
             }}>
-              ${cartTotal.toFixed(2)}
+              <CurrencyDisplay amount={cartTotal} />
             </span>
           </div>
             <button
@@ -1216,6 +1255,7 @@ const CartComponent = ({ isOpen, onClose }) => {
   } = useCart();
   const { orderType, setOrderType } = useOrderType();
   const { restaurant, branch, table } = useRestaurant();
+  const { currencySymbol, formatCurrency } = useCurrency();
   const [checkoutStep, setCheckoutStep] = useState('cart');
   const [customerInfo, setCustomerInfo] = useState({
     name: '',

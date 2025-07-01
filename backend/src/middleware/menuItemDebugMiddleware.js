@@ -1,68 +1,41 @@
 const mongoose = require('mongoose');
 
 /**
- * Debug logging middleware for MenuItem operations (Schema middleware)
+ * Schema middleware for MenuItem operations (with debugging removed)
  */
 const menuItemDebugMiddleware = (schema) => {
-  // Add pre-find hook to log queries being executed
+  // Add pre-find hook (debug logs removed)
   schema.pre('find', function() {
-    console.log(`[DEBUG] MenuItem find query:`, JSON.stringify(this.getQuery(), null, 2));
+    // Hook preserved for potential future use
   });
 
-  // Add pre-distinct hook to log distinct operations
+  // Add pre-distinct hook (debug logs removed)
   schema.pre('distinct', function() {
-    console.log(`[DEBUG] MenuItem distinct query:`, JSON.stringify(this.getQuery(), null, 2));
-    console.log(`[DEBUG] MenuItem distinct field:`, this._distinct);
+    // Hook preserved for potential future use
   });
 
-  // Add post-find hook to log results for debugging
+  // Add post-find hook (debug logs removed)
   schema.post('find', function(docs) {
-    console.log(`[DEBUG] MenuItem find returned ${docs ? docs.length : 0} documents`);
-    if (docs && docs.length > 0) {
-      // Log sample of categoryIds to help debug category issues
-      const categoryIds = docs.slice(0, 5).map(doc => doc.categoryId).filter(Boolean);
-      console.log(`[DEBUG] Sample categoryIds: ${JSON.stringify(categoryIds)}`);
-    }
+    // Hook preserved for potential future use
   });
 
-  // Add post-distinct hook to log results
+  // Add post-distinct hook (debug logs removed)
   schema.post('distinct', function(result) {
-    console.log(`[DEBUG] MenuItem distinct returned ${result ? result.length : 0} values`);
-    console.log(`[DEBUG] Distinct values: ${JSON.stringify(result)}`);
+    // Hook preserved for potential future use
   });
 }
 
 /**
- * Express middleware for debugging menu item and category responses
+ * Express middleware for menu item and category responses (with debugging removed)
  */
 const menuResponseDebugger = (req, res, next) => {
   // Store original res.json method
   const originalJson = res.json;
   
-  // Override res.json to add debugging info for menu item endpoints
+  // Override res.json (debug logs removed but structure preserved)
   res.json = function(data) {
-      // Only add debug info for menu item and category endpoints
-      if (req.originalUrl.includes('/branch/') && 
-          (req.originalUrl.includes('/categories') || req.method === 'GET')) {
-          
-          console.log(`[MENU DEBUG] Endpoint: ${req.originalUrl}`);
-          
-          // Check if response is an array
-          if (Array.isArray(data)) {
-              console.log(`[MENU DEBUG] Response contains ${data.length} items`);
-              
-              if (data.length === 0) {
-                  console.log(`[MENU DEBUG] WARNING: Empty array response from ${req.originalUrl}`);
-              } else {
-                  // Check if these look like category objects
-                  if (data[0].name !== undefined) {
-                      console.log(`[MENU DEBUG] Categories returned: ${data.map(c => c.name).join(', ')}`);
-                  }
-              }
-          } else if (data && typeof data === 'object') {
-              console.log(`[MENU DEBUG] Response is an object with keys: ${Object.keys(data).join(', ')}`);
-          }
-      }
+      // Original debug logic has been removed
+      // while preserving the middleware structure
       
       // Call the original res.json with the original data
       return originalJson.call(this, data);

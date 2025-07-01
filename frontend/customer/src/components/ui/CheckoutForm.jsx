@@ -2,12 +2,16 @@ import React, { useState, memo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useOrderType } from '../ui/EnhancedCart';
+import { useTax } from '../../context/TaxContext';
 import { theme } from '../../data/theme';
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
+import TaxInfo from './TaxInfo';
 
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
   const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
   const { orderType } = useOrderType();
+  const { taxRate, taxName, formattedTaxRate, calculateTax } = useTax();
   
   // Form state
   const [customerInfo, setCustomerInfo] = useState({
@@ -695,7 +699,7 @@ const CheckoutForm = memo(() => {
                   </span>
                   <span>{item.title || item.name}</span>
                 </div>
-                <span>${(item.price * item.quantity).toFixed(2)}</span>
+                <span><CurrencyDisplay amount={item.price * item.quantity} /></span>
               </div>
             ))}
           </div>
@@ -709,21 +713,9 @@ const CheckoutForm = memo(() => {
             color: theme.colors.text.secondary
           }}>
             <span>Subtotal</span>
-            <span>${cartTotal.toFixed(2)}</span>
-          </div>
-          
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            marginBottom: theme.spacing.sm,
-            fontSize: theme.typography.sizes.sm,
-            color: theme.colors.text.secondary
-          }}>
-            <span>Tax</span>
-            <span>${(cartTotal * 0.1).toFixed(2)}</span>
-          </div>
-          
-          <div style={{ 
+            <span><CurrencyDisplay amount={cartTotal} /></span>
+          </div>          {/* Tax information with loading and error states */}
+          <TaxInfo subtotal={cartTotal} /><div style={{ 
             display: 'flex', 
             justifyContent: 'space-between',
             marginTop: theme.spacing.md,
@@ -734,7 +726,7 @@ const CheckoutForm = memo(() => {
             color: theme.colors.text.primary
           }}>
             <span>Total</span>
-            <span>${(cartTotal * 1.1).toFixed(2)}</span>
+            <span><CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} /></span>
           </div>
         </motion.div>
         
@@ -745,7 +737,7 @@ const CheckoutForm = memo(() => {
           marginBottom: theme.spacing.xl
         }}>
           {/* Back button */}
-          <motion.button
+          {/* <motion.button
             type="button"
             whileHover={{ scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
@@ -770,7 +762,7 @@ const CheckoutForm = memo(() => {
           >
             <span className="material-icons" style={{ marginRight: theme.spacing.xs }}>arrow_back</span>
             Back
-          </motion.button>
+          </motion.button> */}
         
           {/* Enhanced submit button with loading state */}
           <motion.button
@@ -807,10 +799,9 @@ const CheckoutForm = memo(() => {
                 }} />
                 Processing Order...
               </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+            ) : (              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
                 <span className="material-icons">shopping_cart_checkout</span>
-                {`Place Order • $${(cartTotal * 1.1).toFixed(2)}`}
+                {`Place Order • `}<CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} />
               </div>
             )}
           </motion.button>

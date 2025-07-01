@@ -34,7 +34,6 @@ const ConnectionStatusModal = () => {
           // For successful health checks, always update status
           // For other requests, update if currently in error state
           if (isHealthCheck || connectionStatus === 'error') {
-            console.log('Network request succeeded - updating connection status to connected');
             setConnectionStatus('connected');
             setLastUpdated(new Date());
             setMessage('Connection restored successfully.');
@@ -50,7 +49,7 @@ const ConnectionStatusModal = () => {
         // If the error is a network error, show the connection status modal
         if (error.message && (error.message.includes('Failed to fetch') || 
                             error.message.includes('Network Error'))) {
-          console.log('Fetch failed with network error:', error.message);
+        
           handleConnectionError();
         }
         throw error;
@@ -77,8 +76,7 @@ const ConnectionStatusModal = () => {
   const handleConnectionError = () => {
     // Only update if we're not already showing an error
     // This prevents repeatedly setting the same error state
-    if (connectionStatus !== 'error') {
-      console.log('Handling connection error - setting error state');
+    if (connectionStatus !== 'error') { 
       setIsVisible(true);
       setConnectionStatus('error');
       setLastUpdated(new Date());
@@ -111,11 +109,9 @@ const ConnectionStatusModal = () => {
         const directResult = await directResponse.json();
         
         if (directResult && directResult.status === 'ok') {
-          console.log('Direct connection successful:', directResult);
           
           // Now try the api client version
           const apiResult = await api.public.health();
-          console.log('API client connection result:', apiResult);
           
           // Update state to connected
           setConnectionStatus('connected');
@@ -141,7 +137,6 @@ const ConnectionStatusModal = () => {
       // Fall back to api client if direct fetch failed
       const result = await api.public.health();
       if (result && result.status === 'ok') {
-        console.log('API client connection successful:', result);
         setConnectionStatus('connected');
         setLastUpdated(new Date());
         
@@ -159,11 +154,9 @@ const ConnectionStatusModal = () => {
         }
         return true;
       } else {
-        console.log('Server reported not healthy:', result);
         throw new Error('Server not healthy');
       }
     } catch (error) {
-      console.log('Connection error:', error);
       
       // Only update state if this isn't a silent check or if we're not already in error state
       if (connectionStatus !== 'error' || !silent) {
@@ -208,12 +201,10 @@ const ConnectionStatusModal = () => {
       try {
         responseData = await response.json();
       } catch (jsonError) {
-        console.log(`Port ${port} returned invalid JSON:`, jsonError);
         // Continue with checking just the response.ok value
       }
       
       if (response.ok && (!responseData || responseData.status === 'ok')) {
-        console.log(`Port ${port} connection successful with response:`, responseData);
         
         // Update the UI to show connected state
         setConnectionStatus('connected');
@@ -227,12 +218,10 @@ const ConnectionStatusModal = () => {
         window.location.reload();
         return true;
       } else {
-        console.log(`Port ${port} response not OK or status not 'ok':`, responseData);
         setConnectionStatus('error');
         setLastUpdated(new Date());
       }
     } catch (e) {
-      console.log(`Port ${port} connection failed:`, e.message);
       setConnectionStatus('error');
       setLastUpdated(new Date());
     }
@@ -258,9 +247,6 @@ const ConnectionStatusModal = () => {
   };
   // Force the modal to reflect the current connection status accurately
   useEffect(() => {
-    // Debug log to track status changes
-    console.log(`Connection status changed to: ${connectionStatus}`, { visible: isVisible });
-    
     // If status changes to connected, immediately hide the modal
     if (connectionStatus === 'connected' && isVisible) {
       // Close immediately

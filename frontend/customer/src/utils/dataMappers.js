@@ -14,20 +14,17 @@ export const mapMenuItemToFrontend = (menuItem) => {
   // If an image URL is found, make sure it has the correct URL format
   let finalImageUrl = imageUrl;
   
-  if (finalImageUrl) {
-    console.log('Original image URL:', finalImageUrl);
+  if (finalImageUrl) { 
     
     // If the URL is relative, make it absolute by adding API base URL
     if (finalImageUrl.startsWith('/uploads/')) {
       // API URL is likely defined elsewhere, so construct it properly
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
-      finalImageUrl = `${apiBaseUrl}${finalImageUrl}`;
-      console.log('Modified to absolute URL:', finalImageUrl);
+      finalImageUrl = `${apiBaseUrl}${finalImageUrl}`; 
     }
   } else {
     // If no image URL is found, use a placeholder based on the item name
-    finalImageUrl = getPlaceholderImage(menuItem.name);
-    console.log('Using placeholder image for:', menuItem.name);
+    finalImageUrl = getPlaceholderImage(menuItem.name); 
   }
     // Extract category information
   // First, try to get information from categoryId (could be object or just ID)
@@ -46,7 +43,7 @@ export const mapMenuItemToFrontend = (menuItem) => {
       // The category name will be updated elsewhere if available
     }
   }
-  
+// No console.log here; removed debug logging
   return {
     id: menuItem._id,
     title: menuItem.name,
@@ -57,11 +54,14 @@ export const mapMenuItemToFrontend = (menuItem) => {
     categoryId: categoryId,
     description: menuItem.description,
     isVegetarian: menuItem.isVegetarian || false,
-    isVegan: menuItem.isVegan || false,
-    isGlutenFree: menuItem.isGlutenFree || false,
+    isVegan: menuItem.isVegan || false,    isGlutenFree: menuItem.isGlutenFree || false,
     calories: menuItem.calories,
     preparationTime: menuItem.preparationTime,
     options: menuItem.options || [],
+    // Add size variants and other variant-related fields
+    sizeVariants: menuItem.sizeVariants || [],
+    variants: menuItem.variants || [],
+    sizes: menuItem.sizes || [],
     // Add any additional fields needed by the frontend
   };
 };
@@ -75,13 +75,35 @@ export const mapCategoryToFrontend = (category) => {
   if (!category) return null;
   
   // Debug logging to understand what's coming from the backend
-  console.log('Raw category data:', category);
+// console.log('Raw category data:', category);
   
+  // Handle different status field scenarios
+  let statusField = 'active';
+  if (category.status) {
+    statusField = category.status;
+  }
+  
+  // Handle isActive field with the right default value
+  // In the admin panel, we would see this as active=true or active=false
+  let isActiveField;
+  if (category.isActive !== undefined) {
+    isActiveField = category.isActive;
+  } else if (category.active !== undefined) {
+    // Some APIs might use 'active' instead of 'isActive'
+    isActiveField = category.active;
+  } else {
+    // Default to true if not specified
+    isActiveField = statusField !== 'inactive';
+  }
+   
   return {
     id: category._id || category.id,
     name: category.name,
     image: category.imageUrl || category.image || getCategoryDefaultImage(category.name),
     description: category.description,
+    status: statusField,
+    isActive: isActiveField,
+    parentCategory: category.parentCategory || null
   };
 };
 
@@ -97,8 +119,7 @@ export const mapRestaurantToFrontend = (restaurant) => {
     return null;
   }
   
-  // Log the restaurant data for debugging
-  console.log('Restaurant data to map:', restaurant);
+  // Log the restaurant data for debugging 
   
   // Create a basic fallback restaurant if data is missing critical fields
   if (!restaurant._id || !restaurant.name) {
@@ -126,6 +147,7 @@ export const mapRestaurantToFrontend = (restaurant) => {
     phone: restaurant.phone || '',
     email: restaurant.email || '',
     website: restaurant.website || '',
+    country: restaurant.country || 'Unknown',
     coverImageUrl: restaurant.logo || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4',
     defaultTaxRate: restaurant.defaultTaxRate || 0.1,
     // Add any additional fields needed by the frontend
@@ -147,6 +169,7 @@ export const mapBranchToFrontend = (branch) => {
     address: branch.address,
     phone: branch.phone,
     email: branch.email,
+    country: branch.country || 'Unknown',
     restaurantId: branch.restaurantId,
     // Add any additional fields needed by the frontend
   };

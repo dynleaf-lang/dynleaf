@@ -52,6 +52,7 @@ app.use(cors({
 
 // Import the Tax seedDefaultTaxes function for later use
 const { seedDefaultTaxes } = require('./models/Tax');
+const ensureDefaultTax = require('./utils/ensureDefaultTax');
 
 // Connect to MongoDB with updated options
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/food-menu';
@@ -69,8 +70,13 @@ mongoose.connect(MONGODB_URI, {
   // Now that the database is connected, seed the tax data
   seedDefaultTaxes().then(() => {
     console.log('Tax seeding process completed');
+    
+    // Ensure DEFAULT tax exists
+    return ensureDefaultTax();
+  }).then(() => {
+    console.log('DEFAULT tax verification completed');
   }).catch(err => {
-    console.error('Error during tax seeding:', err);
+    console.error('Error during tax initialization:', err);
   });
 })
 .catch(err => {
@@ -115,6 +121,7 @@ const publicTableRoutes = require('./routes/publicTableRoutes');
 const publicMenuRoutes = require('./routes/publicMenuRoutes');
 const publicBranchRoutes = require('./routes/publicBranchRoutes');
 const publicOrderRoutes = require('./routes/publicOrderRoutes');
+const publicTaxRoutes = require('./routes/publicTaxRoutes');
 
 // Import diagnostic routes
 const diagnosticRoutes = require('./routes/diagnosticRoutes');
@@ -162,6 +169,7 @@ app.use('/api/public/tables', publicTableRoutes);
 app.use('/api/public/menus', publicMenuRoutes);
 app.use('/api/public/branches', publicBranchRoutes);
 app.use('/api/public/orders', publicOrderRoutes);
+app.use('/api/public/taxes', publicTaxRoutes);
 
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {

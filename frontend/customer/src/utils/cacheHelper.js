@@ -21,11 +21,10 @@ export const getCachedData = (cacheKey) => {
       localStorage.removeItem(`cache_${cacheKey}`);
       return null;
     }
-    
-    console.log(`Cache hit: ${cacheKey}`);
+     
     return data;
-  } catch (error) {
-    console.error('Error retrieving from cache:', error);
+  } catch (error) { 
+
     return null;
   }
 };
@@ -43,8 +42,7 @@ export const setCachedData = (cacheKey, data, duration = DEFAULT_CACHE_DURATION)
       expiry: Date.now() + duration
     };
     
-    localStorage.setItem(`cache_${cacheKey}`, JSON.stringify(cacheItem));
-    console.log(`Cached: ${cacheKey} (expires in ${duration/1000} seconds)`);
+    localStorage.setItem(`cache_${cacheKey}`, JSON.stringify(cacheItem)); 
   } catch (error) {
     console.error('Error storing in cache:', error);
   }
@@ -67,7 +65,7 @@ export const clearCache = (keyPattern = null) => {
       }
       
       keysToRemove.forEach(key => localStorage.removeItem(key));
-      console.log(`Cleared ${keysToRemove.length} cache entries matching: ${keyPattern}`);
+       
     } else {
       // Clear all cache entries
       const keysToRemove = [];
@@ -78,8 +76,7 @@ export const clearCache = (keyPattern = null) => {
         }
       }
       
-      keysToRemove.forEach(key => localStorage.removeItem(key));
-      console.log(`Cleared all cache entries (${keysToRemove.length} items)`);
+      keysToRemove.forEach(key => localStorage.removeItem(key)); 
     }
   } catch (error) {
     console.error('Error clearing cache:', error);

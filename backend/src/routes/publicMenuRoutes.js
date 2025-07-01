@@ -9,12 +9,12 @@ const { menuResponseDebugger } = require('../middleware/menuItemDebugMiddleware'
 // Make all routes in this file public
 router.use(publicAccess);
 
-// Add debug middleware for responses
+// Add response middleware (debug logs removed)
 router.use(menuResponseDebugger);
 
-// Debug middleware for this router
+// Router middleware (debug logs removed)
 router.use((req, res, next) => {
-    console.log(`[PUBLIC MENUS DEBUG] ${req.method} ${req.originalUrl}`);
+    // Debug log removed
     next();
 });
 
@@ -60,21 +60,17 @@ router.get('/sample', async (req, res) => {
 // Get all menu items for a specific restaurant branch
 router.get('/branch/:branchId', async (req, res) => {
     try {
-        console.log(`[DEBUG] Request received for menu items with branch ID: ${req.params.branchId}`);
-        const { branchId } = req.params;
+         const { branchId } = req.params;
         
-        if (!mongoose.Types.ObjectId.isValid(branchId)) {
-            console.log(`[DEBUG] Invalid branch ID format: ${branchId}`);
+        if (!mongoose.Types.ObjectId.isValid(branchId)) { 
             return res.status(400).json({ message: 'Invalid branch ID format' });
         }
           // First let's check if we have ANY menu items in the database
         const totalMenuItemsInDb = await MenuItem.countDocuments();
-        console.log(`[DEBUG] Total menu items in database: ${totalMenuItemsInDb}`);
-        
+         
         // Check how many menu items exist for this branch without filters
         const totalMenuItems = await MenuItem.countDocuments({ branchId });
-        console.log(`[DEBUG] Total menu items found for branch (no filters): ${totalMenuItems}`);
-        
+         
         try {
             // Check if the branch exists
             const Branch = mongoose.model('Branch');

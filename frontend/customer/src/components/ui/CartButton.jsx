@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { theme } from '../../data/theme';
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
 
 const CartButton = ({ onClick }) => {
   const { cartItems, cartTotal, cartAnimation } = useCart();
@@ -93,11 +94,10 @@ const CartButton = ({ onClick }) => {
               fontWeight: 'bold',
             }}
           >
-            {itemCount}
-          </div>
+            {itemCount}          </div>
         )}
       </div>
-      {cartTotal > 0 ? `$${cartTotal.toFixed(2)}` : 'Cart'}
+      {cartTotal > 0 ? <><CurrencyDisplay amount={cartTotal} /></> : 'Cart'}
     </motion.button>
   );
 };

@@ -11,9 +11,10 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [showMoreIndicator, setShowMoreIndicator] = useState(false);
   const { isMobile } = useResponsive();
-    // Make sure categories is an array to prevent errors
+  
+  // Make sure categories is an array to prevent errors
   const safeCategories = Array.isArray(categories) ? categories : [{ id: 'all', name: 'All' }];
-  console.log('CategoryFilter - Received categories:', safeCategories);
+   
   
   // Process categories to handle parent-child relationships
   const processedCategories = useMemo(() => {
@@ -23,40 +24,68 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
     
     // First, ensure the "All" category is at the beginning
     const hasAllCategory = safeCategories.some(cat => cat.id === 'all' || cat._id === 'all' || cat.name === 'All');
-    
-    let result = [...safeCategories];
+      // Filter out inactive categories and subcategories
+    let result = safeCategories.filter(cat => {
+      // Handle different possible formats of active status
+      // Only explicitly consider active if isActive is true
+      // or if there's no isActive field but status is not 'inactive'
+      let isActive = false;
+      
+      if (cat.isActive === true) {
+        // Explicitly active
+        isActive = true;
+      } else if (cat.isActive === undefined && cat.status !== 'inactive') {
+        // No explicit isActive field, but not marked as inactive
+        isActive = true;
+      }
+      
+      // Check for parent category - consider all falsy values as "has no parent"
+      // This covers null, undefined, empty string, 0, etc.
+      const isParentCategory = !cat.parentCategory;
+      
+  
+     
+      
+      // Only keep active parent categories
+      return isActive && isParentCategory;
+    });
+     
     
     // Add "All" category if it doesn't exist
     if (!hasAllCategory) {
-      result = [{ id: 'all', name: 'All' }, ...result];
-    }
-    
-    // Process parent-child relationships for visual indicators
+      result = [{ id: 'all', name: 'All', image: 'https://cdn-icons-png.flaticon.com/512/6134/6134645.png' }, ...result];
+    }    // Process parent-child relationships for visual indicators
     result = result.map(category => {
       const categoryId = category.id || category._id;
-      const hasChildren = safeCategories.some(cat => 
-        cat.parentCategory && 
-        (cat.parentCategory === categoryId || 
-         cat.parentCategory?._id === categoryId)
-      );
-      
-      // Find the parent category object if this category has a parent
-      let parentCategory = null;
-      if (category.parentCategory) {
-        const parentId = typeof category.parentCategory === 'object' 
-          ? category.parentCategory._id 
-          : category.parentCategory;
-          
-        parentCategory = safeCategories.find(cat => 
-          (cat.id === parentId || cat._id === parentId)
-        );
-      }
+      const hasChildren = safeCategories.some(cat => {
+        // Check if this category is a child of the current category
+        // Handle both string ID and object reference formats
+        let isChildOf = false;
+        
+        if (cat.parentCategory) {
+          if (typeof cat.parentCategory === 'object' && cat.parentCategory?._id) {
+            isChildOf = cat.parentCategory._id === categoryId;
+          } else {
+            isChildOf = cat.parentCategory === categoryId;
+          }
+        }
+        
+        // Only consider a child as active if isActive is explicitly true
+        // or if there's no isActive field but status is not 'inactive'
+        let isActiveChild = false;
+        if (cat.isActive === true) {
+          isActiveChild = true;
+        } else if (cat.isActive === undefined && cat.status !== 'inactive') {
+          isActiveChild = true;
+        }
+         
+        
+        return isChildOf && isActiveChild;
+      });
       
       return {
         ...category,
-        hasChildren,
-        parentCategory,
-        parentName: parentCategory ? parentCategory.name : null
+        hasChildren
       };
     });
     
@@ -421,8 +450,7 @@ const arePropsEqual = (prevProps, nextProps) => {
   
   // Safely compare categories if they exist
   if (prevProps.categories && nextProps.categories) {
-    // Check if any category object changed by comparing their id, name, and parent-child properties
-    // This is more efficient than using JSON.stringify for deep comparison
+    // Check if any category object changed by comparing their id, name, status and parent-child properties
     for (let i = 0; i < prevProps.categories.length; i++) {
       // Handle possible undefined category or missing properties
       const prevCat = prevProps.categories[i] || {};
@@ -435,16 +463,50 @@ const arePropsEqual = (prevProps, nextProps) => {
       // Check if basic properties changed
       if (prevId !== nextId || prevCat.name !== nextCat.name) {
         return false;
+      }      // Check if status changed (could be 'status' or 'isActive')
+      // For isActive, we want to be very explicit about the comparison
+      // Only treat as active if isActive is explicitly true
+      // or if it's undefined and status is not 'inactive'
+      let prevIsActive, nextIsActive;
+      
+      if (prevCat.isActive === true) {
+        prevIsActive = true;
+      } else if (prevCat.isActive === undefined && prevCat.status !== 'inactive') {
+        prevIsActive = true;
+      } else {
+        prevIsActive = false;
       }
       
-      // Check if parent-child relationship changed
-      const prevParentId = prevCat.parentCategory 
-        ? (typeof prevCat.parentCategory === 'object' ? prevCat.parentCategory._id : prevCat.parentCategory) 
-        : null;
-      const nextParentId = nextCat.parentCategory 
-        ? (typeof nextCat.parentCategory === 'object' ? nextCat.parentCategory._id : nextCat.parentCategory) 
-        : null;
-        
+      if (nextCat.isActive === true) {
+        nextIsActive = true;
+      } else if (nextCat.isActive === undefined && nextCat.status !== 'inactive') {
+        nextIsActive = true;
+      } else {
+        nextIsActive = false;
+      }
+      
+      if (prevIsActive !== nextIsActive) {
+        return false;
+      }
+        // Check if parent-child relationship changed
+      // Consider all falsy values (null, undefined, empty string, etc.) as "no parent"
+      let prevParentId = null;
+      let nextParentId = null;
+      
+      // Only extract parent ID if parentCategory exists and is not falsy
+      if (prevCat.parentCategory) {
+        prevParentId = typeof prevCat.parentCategory === 'object' 
+          ? prevCat.parentCategory._id 
+          : prevCat.parentCategory;
+      }
+      
+      if (nextCat.parentCategory) {
+        nextParentId = typeof nextCat.parentCategory === 'object' 
+          ? nextCat.parentCategory._id 
+          : nextCat.parentCategory;
+      }
+      
+      // Compare parent IDs
       if (prevParentId !== nextParentId) {
         return false;
       }

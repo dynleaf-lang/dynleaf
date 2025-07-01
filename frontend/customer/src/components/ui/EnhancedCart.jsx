@@ -2,6 +2,8 @@ import React, { useState, useEffect, memo, useCallback, createContext, useContex
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useCurrency } from '../../context/CurrencyContext';
+import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 
 // Import enhanced components
@@ -253,8 +255,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
             e.target.src = 'https://via.placeholder.com/150?text=Food';
           }}
         />
-        {/* Price badge */}
-        <div style={{
+        {/* Price badge */}        <div style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
@@ -266,7 +267,7 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
           fontWeight: theme.typography.fontWeights.semibold,
           textAlign: 'center'
         }}>
-          ${item.price.toFixed(2)}
+          <CurrencyDisplay amount={item.price} />
         </div>
       </div>
       
@@ -391,9 +392,8 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
             fontSize: theme.typography.sizes.md,
             fontWeight: theme.typography.fontWeights.bold,
             color: theme.colors.primary
-          }}>
-            <span style={{ fontSize: theme.typography.sizes.sm, opacity: 0.8 }}>Total: </span>
-            ${(item.price * item.quantity).toFixed(2)}
+          }}>            <span style={{ fontSize: theme.typography.sizes.sm, opacity: 0.8 }}>Total: </span>
+            <CurrencyDisplay amount={item.price * item.quantity} />
           </div>
           
           <div style={{
@@ -621,7 +621,7 @@ const CartContent = memo(({ checkoutStep = 'cart' }) => {
                 fontWeight: theme.typography.fontWeights.bold,
                 color: theme.colors.text.primary
               }}>
-                ${cartTotal.toFixed(2)}
+                <CurrencyDisplay amount={cartTotal} />
               </span>
             </div>
             

@@ -67,6 +67,9 @@ const Tables = () => {
   const { restaurants } = useContext(RestaurantContext);
   const { branches, fetchBranches } = useContext(BranchContext); 
   
+  console.log("MenuView - Rendering with menuItems:", menuItems);
+  
+
   // Refs
   const isInitialLoad = useRef(true);
   const searchTimeout = useRef(null);
