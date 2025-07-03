@@ -11,6 +11,7 @@ import AdminLayout from "layouts/Admin.js";
 import AuthLayout from "layouts/Auth.js";
 
 import { AuthProvider } from "./context/AuthContext";
+import { SocketProvider } from "./context/SocketContext";
 import { MenuProvider } from "./context/MenuContext";
 import { CategoryProvider } from "./context/CategoryContext";
 import { RestaurantProvider } from "./context/RestaurantContext";
@@ -57,7 +58,8 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 
 root.render(
   <AuthProvider>
-    <UserProvider>
+    <SocketProvider>
+      <UserProvider>
       <RestaurantProvider>
         <BranchProvider>
           <CategoryProvider>
@@ -90,5 +92,6 @@ root.render(
         </BranchProvider>
       </RestaurantProvider>
     </UserProvider>
+    </SocketProvider>
   </AuthProvider>
 );

@@ -4,6 +4,7 @@ import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useTax } from '../../context/TaxContext';
+import { useSocket } from '../../context/SocketContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 import { api } from '../../utils/apiClient';
@@ -44,10 +45,13 @@ const itemVariants = {
 };
 
 // Order status badge component
-const StatusBadge = memo(({ status }) => {
+const StatusBadge = memo(({ status, orderStatus }) => {
+  // Use orderStatus if provided, otherwise fall back to status
+  const currentStatus = orderStatus || status;
+  
   // Define styles based on status
   const getStatusStyle = () => {
-    switch(status?.toLowerCase()) {
+    switch(currentStatus?.toLowerCase()) {
       case 'pending':
         return {
           bg: theme.colors.warning + '15',
@@ -104,7 +108,7 @@ const StatusBadge = memo(({ status }) => {
       <span className="material-icons" style={{ fontSize: '14px' }}>
         {style.icon}
       </span>
-      <span>{status}</span>
+      <span>{currentStatus}</span>
     </div>
   );
 });
@@ -166,7 +170,7 @@ const OrderItem = memo(({ order, onClick, isDesktop }) => {
             {formattedDate}
           </div>
         </div>
-        <StatusBadge status={order.status} />
+        <StatusBadge status={order.status} orderStatus={order.orderStatus} />
       </div>
 
       <div style={{ 
@@ -353,7 +357,7 @@ const OrderItem = memo(({ order, onClick, isDesktop }) => {
           View Details
         </motion.button>
         
-        {order.status === 'completed' && (
+        {(order.orderStatus === 'completed' || order.status === 'completed') && (
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
@@ -539,7 +543,7 @@ const OrderDetailModal = ({ order, onClose }) => {
               )}
             </div>
             
-            <StatusBadge status={order.status} />
+            <StatusBadge status={order.status} orderStatus={order.orderStatus} />
           </div>
 
           {/* Customer info if available */}
@@ -848,7 +852,7 @@ const OrderDetailModal = ({ order, onClose }) => {
             Close
           </motion.button>
           
-          {order.status === 'completed' && (
+          {(order.orderStatus === 'completed' || order.status === 'completed') && (
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -1222,6 +1226,15 @@ const OrdersView = ({ isDesktop = false }) => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const { currentOrder } = useCart();
+  const { branch, table } = useRestaurant();
+  const { 
+    isConnected, 
+    joinCustomerRooms, 
+    onOrderUpdate, 
+    onStatusUpdate,
+    offOrderUpdate,
+    offStatusUpdate
+  } = useSocket();
 
   // Get mock orders
   useEffect(() => {
@@ -1232,8 +1245,7 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
-          // Get orders from the API
-        const { branch, table } = useRestaurant();
+        // Use branch and table from component scope
         let orders = [];
         
         if (branch && branch._id) {
@@ -1268,10 +1280,65 @@ const OrdersView = ({ isDesktop = false }) => {
     fetchOrders();
   }, [currentOrder]);
 
+  // Setup real-time socket listeners
+  useEffect(() => {
+    if (!isConnected || !table?._id || !branch?._id) return;
+
+    // Join customer rooms for real-time updates
+    joinCustomerRooms(table._id, branch._id);
+
+    // Handle order updates
+    const handleOrderUpdate = (data) => {
+      console.log('[CUSTOMER SOCKET] Order update received:', data);
+      const { order, eventType } = data;
+      
+      // If this update is for our table, refresh orders
+      if (order.tableId === table._id) {
+        // Re-fetch orders to get latest data
+        const fetchOrders = async () => {
+          try {
+            const updatedOrders = await api.public.orders.getByTable(table._id);
+            setOrders(updatedOrders || []);
+          } catch (error) {
+            console.error('Error refreshing orders after socket update:', error);
+          }
+        };
+        fetchOrders();
+      }
+    };
+
+    // Handle status updates specifically
+    const handleStatusUpdate = (data) => {
+      console.log('[CUSTOMER SOCKET] Status update received:', data);
+      const { orderId, newStatus } = data;
+      
+      // Update the specific order in our orders list
+      setOrders(prevOrders => 
+        prevOrders.map(order => 
+          order._id === orderId 
+            ? { ...order, orderStatus: newStatus, status: newStatus.toLowerCase() }
+            : order
+        )
+      );
+    };
+
+    // Register event listeners
+    onOrderUpdate(handleOrderUpdate);
+    onStatusUpdate(handleStatusUpdate);
+
+    // Cleanup listeners when component unmounts or dependencies change
+    return () => {
+      offOrderUpdate();
+      offStatusUpdate();
+    };
+  }, [isConnected, table?._id, branch?._id]); // Only essential dependencies to avoid infinite re-renders
+
   // Filter orders based on the active filter
   const filteredOrders = orders.filter(order => {
     if (activeFilter === 'all') return true;
-    return order.status?.toLowerCase() === activeFilter;
+    // Check both status and orderStatus fields for compatibility
+    const orderStatus = order.orderStatus || order.status;
+    return orderStatus?.toLowerCase() === activeFilter;
   });
 
   // Handle opening order details
@@ -1299,8 +1366,7 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
-          // Get orders from the API
-        const { branch, table } = useRestaurant();
+        // Use branch and table from the component scope (already declared)
         let orders = [];
         
         if (branch && branch._id && table && table._id) {

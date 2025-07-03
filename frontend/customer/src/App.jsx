@@ -5,6 +5,8 @@ import CartProvider from "./context/CartContext";
 import ResponsiveProvider from "./context/ResponsiveContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { TaxProvider } from "./context/TaxContext";
+import AuthProvider from "./context/AuthContext";
+import { SocketProvider } from "./context/SocketContext";
 import NetworkInfoBar from "./components/debug/NetworkInfoBar";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
@@ -18,15 +20,19 @@ const App = () => {
 			<RestaurantProvider>
 				<CurrencyProvider>
 					<TaxProvider>
-						<CartProvider>
-							<ServerStatusCheck />
-							<ConnectionStatusModal />
-							<NetworkErrorHandler />
-							<OrderEaseApp />
-							<CartAnimationEffect />
-							<NetworkStatusMonitor />
-							<NetworkInfoBar />
-						</CartProvider>
+						<AuthProvider>
+							<SocketProvider>
+								<CartProvider>
+								<ServerStatusCheck />
+								<ConnectionStatusModal />
+								<NetworkErrorHandler />
+								<OrderEaseApp />
+								<CartAnimationEffect />
+								<NetworkStatusMonitor />
+								<NetworkInfoBar />
+							</CartProvider>
+							</SocketProvider>
+						</AuthProvider>
 					</TaxProvider>
 				</CurrencyProvider>
 			</RestaurantProvider>

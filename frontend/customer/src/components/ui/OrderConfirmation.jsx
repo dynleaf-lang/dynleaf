@@ -10,7 +10,15 @@ import { theme } from '../../data/theme';
 import TaxInfo from './TaxInfo';
 
 // Enhanced OrderConfirmation component with better visuals and functionality
-const OrderConfirmation = memo(() => {  const { cartItems, cartTotal, orderNote, clearCart, currentOrder, orderError } = useCart();
+const OrderConfirmation = memo(() => {  const { 
+    cartItems, 
+    cartTotal, 
+    orderNote, 
+    clearCart, 
+    resetCartAndOrder,
+    currentOrder, 
+    orderError 
+  } = useCart();
   const { restaurant, branch, table } = useRestaurant();
   const { orderType } = useOrderType();
   const { taxName, taxRate, formattedTaxRate, calculateTax } = useTax();
@@ -576,9 +584,12 @@ const OrderConfirmation = memo(() => {  const { cartItems, cartTotal, orderNote,
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
-            clearCart();
-            // Dispatch event to set checkout step back to cart
-            document.dispatchEvent(new CustomEvent('resetCart'));
+            // Use resetCartAndOrder to properly reset everything
+            resetCartAndOrder();
+            // Dispatch event to close the cart modal and return to menu
+            document.dispatchEvent(new CustomEvent('resetCart', { 
+              detail: { action: 'closeModal' } 
+            }));
           }}
           style={{
             flex: 1,
@@ -650,9 +661,12 @@ const OrderConfirmation = memo(() => {  const { cartItems, cartTotal, orderNote,
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => {
-            clearCart();
-            // Dispatch event to set checkout step back to cart
-            document.dispatchEvent(new CustomEvent('resetCart'));
+            // Use resetCartAndOrder to completely reset for a new order
+            resetCartAndOrder();
+            // Dispatch event to set checkout step back to cart but keep modal open
+            document.dispatchEvent(new CustomEvent('resetCart', { 
+              detail: { action: 'newOrder' } 
+            }));
           }}
           style={{
             flex: 1,
@@ -673,7 +687,7 @@ const OrderConfirmation = memo(() => {  const { cartItems, cartTotal, orderNote,
           }}
         >
           <span className="material-icons">add_shopping_cart</span>
-          New Order
+          Start New Order
         </motion.button>
       </motion.div>
       

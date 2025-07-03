@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
 import { useCurrency } from '../../context/CurrencyContext';
+import { useAuth } from '../../context/AuthContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 
@@ -11,6 +12,7 @@ import EmptyCart from './EmptyCart';
 import OrderTypeSelector from './OrderTypeSelector';
 import CheckoutForm from './CheckoutForm';
 import OrderConfirmation from './OrderConfirmation';
+import CheckoutAuth from './CheckoutAuth';
 
 // Animation variants
 const slideIn = {
@@ -45,21 +47,24 @@ const fadeIn = {
   }
 };
 
-// Create a context for order type
+// Create a context for order type and checkout
 const OrderTypeContext = createContext({
   orderType: 'dineIn',
-  setOrderType: () => {}
+  setOrderType: () => {},
+  checkoutStep: 'cart',
+  setCheckoutStep: () => {}
 });
 
 // Hook to use order type
 export const useOrderType = () => useContext(OrderTypeContext);
 
 // OrderTypeProvider component
-const OrderTypeProvider = ({ children }) => {
-  const [orderType, setOrderType] = useState('dineIn');
+const OrderTypeProvider = ({ children, initialCheckoutStep = 'cart', initialOrderType = 'dineIn' }) => {
+  const [orderType, setOrderType] = useState(initialOrderType);
+  const [checkoutStep, setCheckoutStep] = useState(initialCheckoutStep);
   
   return (
-    <OrderTypeContext.Provider value={{ orderType, setOrderType }}>
+    <OrderTypeContext.Provider value={{ orderType, setOrderType, checkoutStep, setCheckoutStep }}>
       {children}
     </OrderTypeContext.Provider>
   );
@@ -174,7 +179,8 @@ const StepsIndicator = memo(({ checkoutStep = 'cart' }) => {
 });
 
 // CartItem component - represents a single item in the cart
-const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
+const CartItem = memo(({ item }) => {
+  const { updateItemQuantity: updateQuantity, removeItem: removeFromCart } = useCart();
   // State for handling quantity update loading
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
@@ -474,17 +480,18 @@ const CartItem = memo(({ item, updateQuantity, removeFromCart }) => {
 });
 
 // CartContent component
-const CartContent = memo(({ checkoutStep = 'cart' }) => {
+const CartContent = memo(({ checkoutStep = 'cart', setCheckoutStep }) => {
   const { 
     cartItems, 
     cartTotal,
-    updateQuantity: handleQuantityChange, 
-    removeFromCart: handleRemoveFromCart,
-    clearCart: handleClearCart,
-    setCheckoutStep
+    updateItemQuantity: handleQuantityChange, 
+    removeItem: handleRemoveFromCart,
+    clearCart: handleClearCart
   } = useCart();
   
-  const { orderType } = useOrderType();
+  // We'll receive setCheckoutStep as a prop
+  
+  const orderType = 'dineIn'; // Default to dineIn
   const [isClearing, setIsClearing] = useState(false);
   
   // Handle clear cart with loading state
@@ -525,9 +532,7 @@ const CartContent = memo(({ checkoutStep = 'cart' }) => {
           {cartItems.map((item) => (
             <CartItem 
               key={`${item.id}-${JSON.stringify(item.selectedOptions)}`} 
-              item={item} 
-              updateQuantity={handleQuantityChange}
-              removeFromCart={handleRemoveFromCart}
+              item={item}
             />
           ))}
         </AnimatePresence>
@@ -671,64 +676,92 @@ const CartContent = memo(({ checkoutStep = 'cart' }) => {
       )}
     </motion.div>
   );
-});
-
-// Wrap the cart with OrderTypeProvider to isolate state
-const CartWithProvider = ({ isOpen, onClose }) => {
-  return (
-    <OrderTypeProvider>
-      <CartComponent isOpen={isOpen} onClose={onClose} />
-    </OrderTypeProvider>
-  );
-};
-
-// Main Cart component
-const CartComponent = ({ isOpen, onClose }) => {
+});  // Wrap the cart with OrderTypeProvider to isolate state
+const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen }) => {
+  // Keep local state for checkout step and order type before we render OrderTypeProvider
+  const [orderType, setOrderType] = useState('dineIn');
+  const [checkoutStep, setCheckoutStep] = useState('cart');
+  
+  // Cart state from context
   const { 
     cartItems, 
     cartTotal, 
-    removeFromCart, 
-    updateQuantity, 
+    updateItemQuantity, 
+    removeItem, 
     clearCart,
-    placeOrder,
-    orderNote,
-    setOrderNote,
-    orderPlaced,
+    resetOrderState,
+    resetCartAndOrder,
+    placeOrder, 
+    orderPlaced, 
     setOrderPlaced,
-    currentOrder,
-    setCurrentOrder
+    currentOrder, 
+    setCurrentOrder,
+    orderLoading,
+    orderError,
+    checkoutAuth,
+    orderNote
   } = useCart();
-  const { orderType, setOrderType } = useOrderType();
   
-  // State
-  const [checkoutStep, setCheckoutStep] = useState('cart');
+  // Auth state
+  const { isAuthenticated } = useAuth();
+  
+  // Payment loading state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  
+  // Check if cart is empty
+  const isCartEmpty = cartItems.length === 0;
   
   // Reset checkout step when cart is opened
   useEffect(() => {
     if (isOpen) {
-      if (cartItems.length === 0) {
+      // If there are items in cart and no current order, reset to cart view
+      if (cartItems.length > 0 && !currentOrder) {
+        setCheckoutStep('cart');
+        setOrderPlaced(false); // Reset order placed state
+        setCurrentOrder(null); // Clear any stale order data
+      }
+      // If order has been placed and we have a current order, show confirmation
+      else if (orderPlaced && currentOrder) {
+        setCheckoutStep('confirmation');
+      } 
+      // Otherwise start at cart
+      else {
         setCheckoutStep('cart');
       }
-      
-      // Simulate loading state for better UX
-      setIsLoading(true);
-      const timer = setTimeout(() => {
-        setIsLoading(false);
-      }, 800);
-      
-      return () => clearTimeout(timer);
     }
-  }, [isOpen, cartItems.length]);
+  }, [isOpen, orderPlaced, currentOrder, cartItems.length, setCheckoutStep, setOrderPlaced, setCurrentOrder]);
   
-  // Reset to cart step when all items are removed
-  useEffect(() => {
-    if (cartItems.length === 0 && checkoutStep !== 'confirmation') {
-      setCheckoutStep('cart');
+  // Handle proceed to checkout
+  const handleProceedToCheckout = () => {
+    // Check if user is authenticated before proceeding
+    if (checkoutAuth()) {
+      setCheckoutStep('checkout');
+    } else {
+      setShowAuthModal(true);
     }
-  }, [cartItems.length, checkoutStep]);
+  };
   
+  // Handle checkout auth modal close
+  const handleAuthModalClose = () => {
+    setShowAuthModal(false);
+  };
+  
+  // Handle login click from auth modal
+  const handleLoginClick = () => {
+    setShowAuthModal(false);
+    onClose();
+    onLoginModalOpen();
+  };
+  
+  // Handle signup click from auth modal
+  const handleSignupClick = () => {
+    setShowAuthModal(false);
+    onClose();
+    onSignupModalOpen();
+  };
+
   // Listen for the custom events from child components
   useEffect(() => {
     // Handler for proceeding to checkout step
@@ -738,7 +771,12 @@ const CartComponent = ({ isOpen, onClose }) => {
         
         // Simulate loading for better UX
         setTimeout(() => {
-          setCheckoutStep('checkout');
+          // Check if user is authenticated before proceeding
+          if (checkoutAuth()) {
+            setCheckoutStep('checkout');
+          } else {
+            setShowAuthModal(true);
+          }
           setIsLoading(false);
         }, 300);
       }
@@ -746,12 +784,15 @@ const CartComponent = ({ isOpen, onClose }) => {
     
     // Handler for placing an order
     const handlePlaceOrderEvent = async (event) => {
-      if (cartItems.length > 0) {        try {
+      if (cartItems.length > 0) {
+        try {
           setIsLoading(true);
           setError(null);
           
           // Extract data from the event
           const { orderData } = event.detail;
+          
+          console.log('[ENHANCED CART] Placing order with data:', orderData);
           
           // Call the placeOrder function from the context
           const orderResponse = await placeOrder({
@@ -760,9 +801,18 @@ const CartComponent = ({ isOpen, onClose }) => {
             note: orderData.note
           });
           
+          console.log('[ENHANCED CART] Order response:', orderResponse);
+          
           if (orderResponse && orderResponse._id) {
             setCurrentOrder(orderResponse);
             setOrderPlaced(true);
+            
+            // Notify CheckoutForm of success
+            document.dispatchEvent(
+              new CustomEvent('orderSuccess', {
+                detail: { order: orderResponse }
+              })
+            );
             
             // Delay to show loading state and make transition smoother
             setTimeout(() => {
@@ -770,11 +820,25 @@ const CartComponent = ({ isOpen, onClose }) => {
               setIsLoading(false);
             }, 1000);
           } else {
-            throw new Error('Failed to process order');
+            // More specific error handling
+            const contextError = orderError || 'Unknown error occurred';
+            const errorMsg = orderResponse === null ? 
+              `Order creation failed: ${contextError}` : 
+              'Invalid order response - missing order ID';
+            console.error('[ENHANCED CART] Order creation failed:', { orderResponse, orderError, errorMsg });
+            throw new Error(errorMsg);
           }
         } catch (error) {
-          console.error('Error placing order:', error);
-          setError('There was an error processing your order. You can try again or continue with a temporary order.');
+          console.error('[ENHANCED CART] Error placing order:', error);
+          const errorMessage = 'There was an error processing your order. You can try again or continue with a temporary order.';
+          setError(errorMessage);
+          
+          // Notify CheckoutForm of error
+          document.dispatchEvent(
+            new CustomEvent('orderError', {
+              detail: { message: errorMessage, error }
+            })
+          );
           
           // Instead of automatically proceeding to confirmation, we'll let the user decide
           // The fallback order will only be created when the user chooses to proceed
@@ -786,8 +850,21 @@ const CartComponent = ({ isOpen, onClose }) => {
     };
     
     // Handler for resetting the cart
-    const handleResetCart = () => {
-      setCheckoutStep('cart');
+    const handleResetCart = (event) => {
+      const action = event?.detail?.action;
+      
+      if (action === 'closeModal') {
+        // Close the modal and return to menu
+        onClose();
+      } else if (action === 'newOrder') {
+        // Reset to cart view but keep modal open for new order
+        setCheckoutStep('cart');
+        setError(null);
+        setIsLoading(false);
+      } else {
+        // Default behavior - just reset to cart view
+        setCheckoutStep('cart');
+      }
     };
       // Handler for going to menu
     const handleGoToMenu = () => {
@@ -838,12 +915,12 @@ const CartComponent = ({ isOpen, onClose }) => {
       document.removeEventListener('goToMenu', handleGoToMenu);
       document.removeEventListener('forceConfirmation', handleForceConfirmation);
     };
-  }, [cartItems, placeOrder, orderType, orderNote, cartTotal, setCurrentOrder, setOrderPlaced, onClose]);
+  }, [cartItems, placeOrder, orderType, orderNote, cartTotal, setCurrentOrder, setOrderPlaced, onClose, setCheckoutStep]);
   
   return (
     <AnimatePresence>
       {isOpen && (
-        <>
+        <OrderTypeProvider initialCheckoutStep={checkoutStep} initialOrderType={orderType}>
           {/* Backdrop overlay */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -1118,11 +1195,20 @@ const CartComponent = ({ isOpen, onClose }) => {
               {/* Content with transitions */}
               <AnimatePresence mode="wait">
                 {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty" />}
-                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart" checkoutStep={checkoutStep} />}
-                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout" />}
-                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation" />}
+                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty" />}
+                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
               </AnimatePresence>
             </div>
+            
+            {/* Authentication Modal */}
+            <CheckoutAuth 
+              onClose={handleAuthModalClose} 
+              onLoginClick={handleLoginClick}
+              onSignupClick={handleSignupClick}
+              isOpen={showAuthModal}
+            />
             
             {/* Add a global keyframe for spinner animation */}
             <style jsx global>{`
@@ -1132,7 +1218,7 @@ const CartComponent = ({ isOpen, onClose }) => {
               }
             `}</style>
           </motion.div>
-        </>
+        </OrderTypeProvider>
       )}
     </AnimatePresence>
   );

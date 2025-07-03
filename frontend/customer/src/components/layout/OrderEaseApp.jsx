@@ -11,10 +11,14 @@ import BottomNav from "../ui/BottomNav";
 import DesktopLayout from "./DesktopLayout";
 import EnhancedCart from "../ui/EnhancedCart";
 import CartButton from "../ui/CartButton";
+import LoginModal from "../auth/LoginModal";
+import SignupModal from "../auth/SignupModal";
 
 // Import context and theme
 import { useRestaurant } from "../../context/RestaurantContext";
 import { useResponsive } from "../../context/ResponsiveContext";
+import { useAuth } from "../../context/AuthContext";
+import { useCart } from "../../context/CartContext";
 import { theme } from "../../data/theme";
 
 const OrderEaseApp = () => {
@@ -27,6 +31,10 @@ const OrderEaseApp = () => {
   // State to control cart modal visibility
   const [isCartOpen, setIsCartOpen] = useState(false);
   
+  // Auth modal states
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
+  
   // Get data from restaurant context
   const { 
     restaurant, 
@@ -36,10 +44,28 @@ const OrderEaseApp = () => {
     initialized 
   } = useRestaurant();
   
+  // Get auth context
+  const { isAuthenticated, user, logout } = useAuth();
+  
+  // Get cart context
+  const { authRequired, resetAuthRequired } = useCart();
+  
+  // Check if auth is required for checkout
+  useEffect(() => {
+    if (authRequired) {
+      setIsLoginModalOpen(true);
+    }
+  }, [authRequired]);
+  
   // Handler for bottom navigation tab changes
   const handleTabChange = (tabId) => {
+    // If profile tab is clicked and user is not authenticated, show login modal
+    if (tabId === "profile" && !isAuthenticated) {
+      setIsLoginModalOpen(true);
+      return;
+    }
+    
     setActiveTab(tabId);
-    // Handle navigation logic here (you'll implement actual navigation between views)
     console.log(`Navigation to: ${tabId}`);
   };
   
@@ -51,6 +77,37 @@ const OrderEaseApp = () => {
   // Handler for closing the cart modal
   const handleCloseCart = () => {
     setIsCartOpen(false);
+  };
+  
+  // Handler for opening login modal
+  const handleOpenLoginModal = () => {
+    setIsLoginModalOpen(true);
+    setIsSignupModalOpen(false);
+  };
+  
+  // Handler for closing login modal
+  const handleCloseLoginModal = (action) => {
+    setIsLoginModalOpen(false);
+    resetAuthRequired();
+    
+    if (action === "signup") {
+      setIsSignupModalOpen(true);
+    }
+  };
+  
+  // Handler for opening signup modal
+  const handleOpenSignupModal = () => {
+    setIsSignupModalOpen(true);
+    setIsLoginModalOpen(false);
+  };
+  
+  // Handler for closing signup modal
+  const handleCloseSignupModal = (action) => {
+    setIsSignupModalOpen(false);
+    
+    if (action === "login") {
+      setIsLoginModalOpen(true);
+    }
   };
 
   // Account settings items
@@ -115,6 +172,7 @@ const OrderEaseApp = () => {
               restaurantName={restaurant?.name}
               branchName={branch?.name}
               tableNumber={branch?.tableNumber || "12"}
+              openLoginModal={handleOpenLoginModal}
             />
             
             {/* Main Content Area - This would change based on active tab */}
@@ -239,179 +297,279 @@ const OrderEaseApp = () => {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <div style={{
-                        padding: theme.spacing.md
-                      }}>
+                      {isAuthenticated ? (
+                        <div style={{
+                          padding: theme.spacing.md
+                        }}>
+                          <div style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            padding: theme.spacing.lg,
+                            backgroundColor: "#FFF",
+                            borderRadius: theme.borderRadius.lg,
+                            boxShadow: theme.shadows.sm,
+                            marginBottom: theme.spacing.lg
+                          }}>
+                            <div style={{
+                              width: "80px",
+                              height: "80px",
+                              borderRadius: "50%",
+                              backgroundColor: theme.colors.background,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginBottom: theme.spacing.md,
+                              overflow: "hidden",
+                              backgroundColor: theme.colors.primary,
+                              color: "#fff",
+                              fontSize: "32px",
+                              fontWeight: theme.typography.fontWeights.bold
+                            }}>
+                              {user?.name?.charAt(0).toUpperCase() || "U"}
+                            </div>
+                            <h3 style={{
+                              fontSize: theme.typography.sizes.lg,
+                              fontWeight: theme.typography.fontWeights.semibold,
+                              margin: `${theme.spacing.xs} 0`,
+                              color: theme.colors.text.primary
+                            }}>
+                              {user?.name || "User"}
+                            </h3>
+                            <p style={{
+                              color: theme.colors.text.secondary,
+                              fontSize: theme.typography.sizes.sm,
+                              marginBottom: theme.spacing.md
+                            }}>
+                              {user?.email || user?.phone || ""}
+                            </p>
+                            <button 
+                              onClick={() => logout()}
+                              style={{
+                                backgroundColor: "#f5f5f5",
+                                color: theme.colors.text.primary,
+                                border: "none",
+                                padding: `${theme.spacing.sm} ${theme.spacing.lg}`,
+                                borderRadius: theme.borderRadius.md,
+                                fontWeight: theme.typography.fontWeights.medium
+                              }}
+                            >
+                              Logout
+                            </button>
+                          </div>
+                          
+                          {/* Settings sections */}
+                          <div style={{
+                            backgroundColor: "#fff",
+                            borderRadius: theme.borderRadius.lg,
+                            boxShadow: theme.shadows.sm,
+                            overflow: "hidden",
+                            marginBottom: theme.spacing.lg
+                          }}>
+                            <h4 style={{
+                              padding: theme.spacing.md,
+                              margin: 0,
+                              borderBottom: `1px solid ${theme.colors.border}`,
+                              fontWeight: theme.typography.fontWeights.medium,
+                              fontSize: theme.typography.sizes.md,
+                              color: theme.colors.text.primary
+                            }}>
+                              Account Settings
+                            </h4>
+                            <ul style={{
+                              listStyle: "none",
+                              padding: 0,
+                              margin: 0
+                            }}>
+                              {accountSettings.map((item, index) => (
+                                <li key={index} style={{
+                                  borderBottom: index !== accountSettings.length - 1 ? 
+                                    `1px solid ${theme.colors.border}` : 
+                                    "none"
+                                }}>
+                                  <button style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    width: "100%",
+                                    padding: theme.spacing.md,
+                                    backgroundColor: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    textAlign: "left"
+                                  }}>
+                                    <span className="material-icons" style={{
+                                      color: theme.colors.text.secondary,
+                                      marginRight: theme.spacing.md
+                                    }}>
+                                      {item.icon}
+                                    </span>
+                                    <span style={{
+                                      flex: 1,
+                                      fontSize: theme.typography.sizes.md,
+                                      color: theme.colors.text.primary
+                                    }}>
+                                      {item.label}
+                                    </span>
+                                    <span className="material-icons" style={{
+                                      color: theme.colors.text.secondary,
+                                      fontSize: "18px"
+                                    }}>
+                                      chevron_right
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          
+                          <div style={{
+                            backgroundColor: "#fff",
+                            borderRadius: theme.borderRadius.lg,
+                            boxShadow: theme.shadows.sm,
+                            overflow: "hidden"
+                          }}>
+                            <h4 style={{
+                              padding: theme.spacing.md,
+                              margin: 0,
+                              borderBottom: `1px solid ${theme.colors.border}`,
+                              fontWeight: theme.typography.fontWeights.medium,
+                              fontSize: theme.typography.sizes.md,
+                              color: theme.colors.text.primary
+                            }}>
+                              Help & Support
+                            </h4>
+                            <ul style={{
+                              listStyle: "none",
+                              padding: 0,
+                              margin: 0
+                            }}>
+                              {helpSupportItems.map((item, index) => (
+                                <li key={index} style={{
+                                  borderBottom: index !== helpSupportItems.length - 1 ? 
+                                    `1px solid ${theme.colors.border}` : 
+                                    "none"
+                                }}>
+                                  <button style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    width: "100%",
+                                    padding: theme.spacing.md,
+                                    backgroundColor: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    textAlign: "left"
+                                  }}>
+                                    <span className="material-icons" style={{
+                                      color: theme.colors.text.secondary,
+                                      marginRight: theme.spacing.md
+                                    }}>
+                                      {item.icon}
+                                    </span>
+                                    <span style={{
+                                      flex: 1,
+                                      fontSize: theme.typography.sizes.md,
+                                      color: theme.colors.text.primary
+                                    }}>
+                                      {item.label}
+                                    </span>
+                                    <span className="material-icons" style={{
+                                      color: theme.colors.text.secondary,
+                                      fontSize: "18px"
+                                    }}>
+                                      chevron_right
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      ) : (
                         <div style={{
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "center",
-                          padding: theme.spacing.lg,
-                          backgroundColor: "#FFF",
-                          borderRadius: theme.borderRadius.lg,
-                          boxShadow: theme.shadows.sm,
-                          marginBottom: theme.spacing.lg
+                          justifyContent: "center",
+                          minHeight: "60vh",
+                          padding: theme.spacing.lg
                         }}>
                           <div style={{
                             width: "80px",
                             height: "80px",
                             borderRadius: "50%",
-                            backgroundColor: theme.colors.background,
+                            backgroundColor: `${theme.colors.primary}15`,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            marginBottom: theme.spacing.md,
-                            overflow: "hidden"
+                            marginBottom: theme.spacing.lg
                           }}>
-                            <img 
-                              src="https://randomuser.me/api/portraits/women/79.jpg"
-                              alt="Profile"
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            />
+                            <span className="material-icons" style={{
+                              fontSize: "40px",
+                              color: theme.colors.primary
+                            }}>account_circle</span>
                           </div>
-                          <h3 style={{
-                            fontSize: theme.typography.sizes.lg,
+                          
+                          <h2 style={{
+                            fontSize: theme.typography.sizes.xl,
                             fontWeight: theme.typography.fontWeights.semibold,
-                            margin: `${theme.spacing.xs} 0`,
-                            color: theme.colors.text.primary
-                          }}>
-                            Jane Doe
-                          </h3>
+                            marginBottom: theme.spacing.md,
+                            color: theme.colors.text.primary,
+                            textAlign: "center"
+                          }}>Sign in to your account</h2>
+                          
                           <p style={{
+                            fontSize: theme.typography.sizes.md,
                             color: theme.colors.text.secondary,
-                            fontSize: theme.typography.sizes.sm,
-                            marginBottom: theme.spacing.md
+                            marginBottom: theme.spacing.lg,
+                            textAlign: "center",
+                            maxWidth: "300px"
                           }}>
-                            jane.doe@example.com
+                            Login to access your profile, view order history, and checkout faster
                           </p>
-                          <button style={{
-                            backgroundColor: theme.colors.primary,
-                            color: "#FFF",
-                            border: "none",
-                            padding: `${theme.spacing.sm} ${theme.spacing.lg}`,
-                            borderRadius: theme.borderRadius.md,
-                            fontWeight: theme.typography.fontWeights.medium
-                          }}>
-                            Edit Profile
-                          </button>
-                        </div>
-                        
-                        {/* Settings sections */}
-                        <div style={{
-                          backgroundColor: "#FFF",
-                          borderRadius: theme.borderRadius.lg,
-                          boxShadow: theme.shadows.sm,
-                          overflow: "hidden",
-                          marginBottom: theme.spacing.lg
-                        }}>
-                          <h4 style={{
-                            padding: theme.spacing.md,
-                            borderBottom: `1px solid ${theme.colors.border}`,
-                            fontSize: theme.typography.sizes.md,
-                            fontWeight: theme.typography.fontWeights.semibold,
-                            margin: 0
-                          }}>
-                            Account Settings
-                          </h4>
                           
-                          {accountSettings.map((item, index) => (
-                            <div key={item.label} style={{
-                              padding: theme.spacing.md,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              borderBottom: index < accountSettings.length - 1 ? `1px solid ${theme.colors.border}` : "none"
-                            }}>
-                              <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: theme.spacing.md
-                              }}>
-                                <span className="material-icons" style={{ 
-                                  color: theme.colors.text.secondary
-                                }}>
-                                  {item.icon}
-                                </span>
-                                <span>{item.label}</span>
-                              </div>
-                              <span className="material-icons" style={{ 
-                                color: theme.colors.text.secondary,
-                                fontSize: "18px"
-                              }}>
-                                arrow_forward_ios
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                        
-                        {/* Help & Support */}
-                        <div style={{
-                          backgroundColor: "#FFF",
-                          borderRadius: theme.borderRadius.lg,
-                          boxShadow: theme.shadows.sm,
-                          overflow: "hidden",
-                          marginBottom: theme.spacing.lg
-                        }}>
-                          <h4 style={{
-                            padding: theme.spacing.md,
-                            borderBottom: `1px solid ${theme.colors.border}`,
-                            fontSize: theme.typography.sizes.md,
-                            fontWeight: theme.typography.fontWeights.semibold,
-                            margin: 0
+                          <div style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: theme.spacing.md,
+                            width: "100%",
+                            maxWidth: "300px"
                           }}>
-                            Help & Support
-                          </h4>
-                          
-                          {helpSupportItems.map((item, index) => (
-                            <div key={item.label} style={{
-                              padding: theme.spacing.md,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              borderBottom: index < helpSupportItems.length - 1 ? `1px solid ${theme.colors.border}` : "none"
-                            }}>
-                              <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: theme.spacing.md
-                              }}>
-                                <span className="material-icons" style={{ 
-                                  color: theme.colors.text.secondary
-                                }}>
-                                  {item.icon}
-                                </span>
-                                <span>{item.label}</span>
-                              </div>
-                              <span className="material-icons" style={{ 
-                                color: theme.colors.text.secondary,
-                                fontSize: "18px"
-                              }}>
-                                arrow_forward_ios
-                              </span>
-                            </div>
-                          ))}
+                            <button
+                              onClick={handleOpenLoginModal}
+                              style={{
+                                width: "100%",
+                                padding: theme.spacing.md,
+                                backgroundColor: theme.colors.primary,
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: theme.borderRadius.md,
+                                fontSize: theme.typography.sizes.md,
+                                fontWeight: theme.typography.fontWeights.medium,
+                                cursor: "pointer"
+                              }}
+                            >
+                              Login
+                            </button>
+                            
+                            <button
+                              onClick={handleOpenSignupModal}
+                              style={{
+                                width: "100%",
+                                padding: theme.spacing.md,
+                                backgroundColor: "#fff",
+                                color: theme.colors.primary,
+                                border: `1px solid ${theme.colors.primary}`,
+                                borderRadius: theme.borderRadius.md,
+                                fontSize: theme.typography.sizes.md,
+                                fontWeight: theme.typography.fontWeights.medium,
+                                cursor: "pointer"
+                              }}
+                            >
+                              Create Account
+                            </button>
+                          </div>
                         </div>
-                        
-                        {/* Sign out button */}
-                        <button style={{
-                          width: "100%",
-                          padding: theme.spacing.md,
-                          backgroundColor: `${theme.colors.danger}10`,
-                          color: theme.colors.danger,
-                          border: `1px solid ${theme.colors.danger}25`,
-                          borderRadius: theme.borderRadius.md,
-                          fontWeight: theme.typography.fontWeights.medium,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: theme.spacing.sm
-                        }}>
-                          <span className="material-icons">
-                            logout
-                          </span>
-                          Sign Out
-                        </button>
-                      </div>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -430,7 +588,12 @@ const OrderEaseApp = () => {
               onOpenCart={handleOpenCart}
             />
               {/* Enhanced Cart Modal */}
-            <EnhancedCart isOpen={isCartOpen} onClose={handleCloseCart} />
+            <EnhancedCart 
+              isOpen={isCartOpen} 
+              onClose={handleCloseCart} 
+              onLoginModalOpen={handleOpenLoginModal}
+              onSignupModalOpen={handleOpenSignupModal}
+            />
           </motion.main>
         ) : (
           // For tablet and desktop devices, use our new DesktopLayout
@@ -699,7 +862,12 @@ const OrderEaseApp = () => {
               </AnimatePresence>
             </motion.main>
               {/* Enhanced Cart Modal - Shared between mobile and desktop */}
-            <EnhancedCart isOpen={isCartOpen} onClose={handleCloseCart} />
+            <EnhancedCart 
+              isOpen={isCartOpen} 
+              onClose={handleCloseCart} 
+              onLoginModalOpen={handleOpenLoginModal}
+              onSignupModalOpen={handleOpenSignupModal}
+            />
           </DesktopLayout>
         )
       )}
@@ -714,6 +882,17 @@ const OrderEaseApp = () => {
           50% { opacity: 0.6; }
         }
       `}</style>
+
+      {/* Authentication Modals */}
+      <LoginModal 
+        isOpen={isLoginModalOpen} 
+        onClose={handleCloseLoginModal} 
+      />
+      
+      <SignupModal 
+        isOpen={isSignupModalOpen} 
+        onClose={handleCloseSignupModal} 
+      />
     </>
   );
 };

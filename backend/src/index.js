@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 
 // Load environment variables
 dotenv.config();
@@ -45,7 +47,7 @@ app.use((err, req, res, next) => {
 // THEN set up CORS
 app.use(cors({
   origin: '*', // Allow all origins (you can specify your frontend URL here)
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Debug-Mode', 'X-Request-ID'],
   exposedHeaders: ['X-Request-Time'],
 }));  
@@ -115,6 +117,7 @@ const taxRoutes = require('./routes/taxRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const floorRoutes = require('./routes/floorRoutes');
+const customerAuthRoutes = require('./routes/customerAuthRoutes');
 
 // Import public routes for customer application
 const publicTableRoutes = require('./routes/publicTableRoutes');
@@ -122,7 +125,6 @@ const publicMenuRoutes = require('./routes/publicMenuRoutes');
 const publicBranchRoutes = require('./routes/publicBranchRoutes');
 const publicOrderRoutes = require('./routes/publicOrderRoutes');
 const publicTaxRoutes = require('./routes/publicTaxRoutes');
-
 // Import diagnostic routes
 const diagnosticRoutes = require('./routes/diagnosticRoutes');
 const schemaInfoRoutes = require('./routes/schemaInfoRoutes');
@@ -155,6 +157,8 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/taxes', taxRoutes);
 app.use('/api/orders', orderRoutes);
+// Mount customer auth routes BEFORE general customer routes (more specific first)
+app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/floors', floorRoutes);
 
@@ -170,7 +174,6 @@ app.use('/api/public/menus', publicMenuRoutes);
 app.use('/api/public/branches', publicBranchRoutes);
 app.use('/api/public/orders', publicOrderRoutes);
 app.use('/api/public/taxes', publicTaxRoutes);
-
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/diagnostics', diagnosticRoutes);
@@ -178,4 +181,61 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Setup Socket.IO with CORS
+const io = new Server(server, {
+  cors: {
+    origin: "*", // In production, specify your frontend URLs
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+  }
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log(`[SOCKET] Client connected: ${socket.id}`);
+  
+  // Join rooms based on user type and branch/restaurant
+  socket.on('join', (data) => {
+    const { userType, branchId, restaurantId, tableId } = data;
+    
+    if (userType === 'admin') {
+      // Admin joins restaurant or branch specific rooms
+      if (restaurantId) {
+        socket.join(`restaurant_${restaurantId}`);
+        console.log(`[SOCKET] Admin joined restaurant room: restaurant_${restaurantId}`);
+      }
+      if (branchId) {
+        socket.join(`branch_${branchId}`);
+        console.log(`[SOCKET] Admin joined branch room: branch_${branchId}`);
+      }
+      // Super admin joins global admin room
+      socket.join('admin_global');
+      console.log(`[SOCKET] Admin joined global admin room`);
+    } else if (userType === 'customer') {
+      // Customer joins table-specific room
+      if (tableId) {
+        socket.join(`table_${tableId}`);
+        console.log(`[SOCKET] Customer joined table room: table_${tableId}`);
+      }
+      if (branchId) {
+        socket.join(`customer_branch_${branchId}`);
+        console.log(`[SOCKET] Customer joined branch room: customer_branch_${branchId}`);
+      }
+    }
+  });
+  
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log(`[SOCKET] Client disconnected: ${socket.id}`);
+  });
+});
+
+// Make io instance available globally for use in controllers
+global.io = io;
+
+server.listen(PORT, () => console.log(`Server running on port ${PORT} with Socket.IO enabled`));

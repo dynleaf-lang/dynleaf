@@ -32,11 +32,31 @@ const apiClient = axios.create({
 // Add request interceptor for authentication
 apiClient.interceptors.request.use(
   (config) => {
-    // Add token to request if available
-    const token = localStorage.getItem('token');
+    // Add token to request if available - check user object first, then direct token
+    let token = null;
+    
+    // First try to get token from user object (new auth system)
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        if (user && user.token) {
+          token = user.token;
+        }
+      } catch (error) {
+        console.error('Error parsing user data from localStorage:', error);
+      }
+    }
+    
+    // Fallback to direct token storage (legacy)
+    if (!token) {
+      token = localStorage.getItem('token');
+    }
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
     return config;
   },
   (error) => Promise.reject(error)
@@ -690,10 +710,17 @@ export const api = {
       // Create a new order
       create: async (orderData) => {
         try {
+          console.log('[API CLIENT] Creating order with data:', JSON.stringify(orderData, null, 2));
+          console.log('[API CLIENT] POST URL:', `${PUBLIC_API_PATH}/orders`);
+          
           const response = await apiClient.post(`${PUBLIC_API_PATH}/orders`, orderData);
+          console.log('[API CLIENT] Order creation successful:', response.data);
           return response.data;
         } catch (error) {
-          console.error('Error creating order:', error);
+          console.error('[API CLIENT] Error creating order:', error);
+          console.error('[API CLIENT] Error response:', error.response?.data);
+          console.error('[API CLIENT] Error status:', error.response?.status);
+          console.error('[API CLIENT] Error message:', error.message);
           throw error;
         }
       },

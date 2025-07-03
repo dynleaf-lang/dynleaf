@@ -26,9 +26,10 @@
   "proxy": "http://localhost:5001",
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' vite build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
+    "ng": "node --max_old_space_size=8192 ./node_modules/.bin/ng",
     "install:clean": "rm -rf node_modules/ && rm -rf package-lock.json && npm install && npm start",
     "compile:scss": "sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.css",
     "minify:scss": "sass src/assets/scss/argon-dashboard-react.scss src/assets/css/argon-dashboard-react.min.css --style compressed",
@@ -68,7 +69,8 @@
     "react-scripts": "5.0.1",
     "react-select-country-list": "^2.2.3",
     "reactstrap": "8.10.0",
-    "sass": "1.69.5"
+    "sass": "1.69.5",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",

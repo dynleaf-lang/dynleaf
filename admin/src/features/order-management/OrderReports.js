@@ -22,7 +22,6 @@ import Header from '../../components/Headers/Header';
 import { AuthContext } from '../../context/AuthContext';
 import { useOrder } from '../../context/OrderContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { formatCurrencyByCountry } from '../../utils/currencyUtils';
 
 // Define chart colors with better contrast and accessibility
 const chartColors = {
@@ -65,19 +64,17 @@ const OrderReports = () => {
     loading, 
     error, 
     restaurants, 
-    branches, 
-    countryCode,
+    branches,
     getOrderReports, 
     getAllReports, 
     generateOrderReport, 
     exportOrderData,
     getRestaurants,
-    getBranchesForRestaurant,
-    setCountryCode
+    getBranchesForRestaurant
   } = useOrder();
   
   // Get currency information from CurrencyContext
-  const { currencyCode } = useCurrency();
+  const { currencyCode, formatCurrency } = useCurrency();
 
   // State management
   const [activeTab, setActiveTab] = useState('sales');
@@ -93,17 +90,71 @@ const OrderReports = () => {
   const [exportFormat, setExportFormat] = useState('pdf');
   const [reportTitle, setReportTitle] = useState('');
   const [tableView, setTableView] = useState(false);
+  
+  // Reference to track initial data load
+  const initialFetchDone = React.useRef(false);
 
   // Initialize and load data
   useEffect(() => {
-    if (user) {
-      fetchReports();
+    if (user && !initialFetchDone.current) {
+      initialFetchDone.current = true;
       
+      // If Super_Admin, get restaurants for filtering
       if (user.role === 'Super_Admin') {
         getRestaurants();
+      } 
+      // If Restaurant_Admin with a restaurantId, load its branches
+      else if (user.role === 'Restaurant_Admin' && user.restaurantId) {
+        setSelectedRestaurant(user.restaurantId);
+        getBranchesForRestaurant(user.restaurantId);
       }
+      // If Branch_Admin, automatically select their branch
+      else if (user.role === 'Branch_Admin' && user.branchId) {
+        if (user.restaurantId) {
+          setSelectedRestaurant(user.restaurantId);
+          getBranchesForRestaurant(user.restaurantId).then(() => {
+            setSelectedBranch(user.branchId);
+          });
+        }
+      }
+      
+      // Always fetch orderStatusDistribution first to get accurate order count
+      const initialFilters = {
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        restaurantId: user.restaurantId || selectedRestaurant,
+        branchId: user.branchId || selectedBranch
+      };
+      
+      // Fetch status data for order count, then fetch tab-specific reports
+      getOrderReports('orderStatusDistribution', initialFilters)
+        .then(() => fetchReports())
+        .catch(err => {
+          console.error('Error fetching initial order status data:', err);
+          // Continue with other reports even if this fails
+          fetchReports();
+        });
     }
-  }, [user]);
+  }, [user]); // Remove function dependencies to prevent infinite loop
+
+  // Fetch reports when date range or filters change
+  useEffect(() => {
+    if (user) {
+      fetchReports();
+    }
+  }, [dateRange, selectedRestaurant, selectedBranch, activeTab]);
+
+  // Log order count when reports change
+  useEffect(() => {
+    if (orderReports) {
+      console.log('Order count debug - Reports updated:', {
+        dailyCount: orderReports.daily?.data?.reduce((sum, item) => sum + parseInt(item?.orderCount || 0), 0) || 0,
+        statusCount: orderReports.orderStatusDistribution?.data ? 
+          Object.values(orderReports.orderStatusDistribution.data).reduce((sum, status) => sum + parseInt(status?.count || 0), 0) : 0,
+        calculatedTotal: getOrderCount()
+      });
+    }
+  }, [orderReports]);
 
   // Handle restaurant selection with country code update
   const handleRestaurantChange = async (e) => {
@@ -112,13 +163,14 @@ const OrderReports = () => {
     setSelectedBranch(''); // Reset branch when restaurant changes
     
     if (restaurantId) {
-      // If a restaurant is selected, update country code based on restaurant selection
-      const selectedRestaurantData = restaurants.find(r => r._id === restaurantId);
-      if (selectedRestaurantData?.country) {
-        setCountryCode(selectedRestaurantData.country);
-      }
       await getBranchesForRestaurant(restaurantId);
     }
+  };
+  
+  // Handle branch selection change
+  const handleBranchChange = async (e) => {
+    const branchId = e.target.value;
+    setSelectedBranch(branchId);
   };
 
   // Update time range and date range together
@@ -163,35 +215,67 @@ const OrderReports = () => {
 
   // Fetch reports based on selected filters
   const fetchReports = async () => {
-    const filters = {
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate,
-      restaurantId: selectedRestaurant,
-      branchId: selectedBranch
-    };
-    
-    // Fetch relevant report types based on active tab
-    switch (activeTab) {
-      case 'sales':
-        await Promise.all([
-          getOrderReports('daily', filters),
-          getOrderReports('monthly', filters),
-          getOrderReports('revenueTrends', filters)
-        ]);
-        break;
-      case 'items':
-        await Promise.all([
-          getOrderReports('topSellingItems', filters),
-          getOrderReports('revenueByCategory', filters)
-        ]);
-        break;
-      case 'performance':
-        await Promise.all([
-          getOrderReports('orderStatusDistribution', filters)
-        ]);
-        break;
-      default:
-        await getAllReports(filters);
+    try {
+      // Build filters object with user role context in mind
+      let filters = {
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
+      };
+      
+      // Add restaurant filter
+      if (selectedRestaurant) {
+        filters.restaurantId = selectedRestaurant;
+      } else if (user?.restaurantId) {
+        filters.restaurantId = user.restaurantId;
+        setSelectedRestaurant(user.restaurantId);
+      }
+      
+      // Add branch filter
+      if (selectedBranch) {
+        filters.branchId = selectedBranch;
+      } else if (user?.branchId) {
+        filters.branchId = user.branchId;
+        setSelectedBranch(user.branchId);
+      }
+      
+      console.log('OrderReports: Fetching reports with filters:', {
+        ...filters,
+        activeTab
+      });
+      
+      // Always include orderStatusDistribution in reports for accurate order count
+      // unless we're on the performance tab which already gets that data
+      const includeStatusData = activeTab !== 'performance';
+      
+      // Fetch relevant report types based on active tab
+      switch (activeTab) {
+        case 'sales':
+          await Promise.all([
+            getOrderReports('daily', filters),
+            getOrderReports('monthly', filters),
+            getOrderReports('revenueTrends', filters),
+            ...(includeStatusData ? [getOrderReports('orderStatusDistribution', filters)] : [])
+          ]);
+          break;
+        case 'items':
+          await Promise.all([
+            getOrderReports('topSellingItems', filters),
+            getOrderReports('revenueByCategory', filters),
+            ...(includeStatusData ? [getOrderReports('orderStatusDistribution', filters)] : [])
+          ]);
+          break;
+        case 'performance':
+          await Promise.all([
+            getOrderReports('orderStatusDistribution', filters)
+          ]);
+          break;
+        default:
+          await getAllReports(filters);
+      }
+      
+      console.log('OrderReports: Reports fetched successfully:', orderReports);
+    } catch (error) {
+      console.error('OrderReports: Error fetching reports:', error);
     }
   };
 
@@ -199,8 +283,7 @@ const OrderReports = () => {
   const toggleTab = (tab) => {
     if (activeTab !== tab) {
       setActiveTab(tab);
-      // Fetch reports when tab changes
-      setTimeout(fetchReports, 0);
+      // The useEffect will handle fetching when activeTab changes
     }
   };
 
@@ -220,8 +303,7 @@ const OrderReports = () => {
       endDate: format(today, 'yyyy-MM-dd')
     });
     
-    // Fetch reports with reset filters
-    setTimeout(fetchReports, 0);
+    // The useEffect will handle fetching when dependencies change
   };
 
   // Handle export
@@ -231,7 +313,7 @@ const OrderReports = () => {
       endDate: dateRange.endDate,
       restaurantId: selectedRestaurant,
       branchId: selectedBranch,
-      reportTitle: reportTitle || `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Report`
+      reportTitle: reportTitle || getReportTitle()
     };
     
     if (exportFormat === 'pdf') {
@@ -241,11 +323,6 @@ const OrderReports = () => {
     }
     
     setExportModal(false);
-  };
-
-  // Format currency
-  const formatCurrency = (amount) => {
-    return formatCurrencyByCountry(amount, countryCode);
   };
 
   // Format date
@@ -259,23 +336,68 @@ const OrderReports = () => {
 
   // Get total revenue
   const getTotalRevenue = () => {
-    if (orderReports.daily && orderReports.daily.data) {
-      return formatCurrency(
-        orderReports.daily.data.reduce(
-          (sum, item) => sum + parseFloat(item.revenue), 0
-        )
+    console.log('getTotalRevenue: orderReports structure:', orderReports);
+    
+    if (orderReports && orderReports.daily && orderReports.daily.data && Array.isArray(orderReports.daily.data)) {
+      const total = orderReports.daily.data.reduce(
+        (sum, item) => sum + parseFloat(item.revenue || 0), 0
       );
+      console.log('getTotalRevenue: calculated total:', total);
+      return formatCurrency(total);
     }
+    
+    console.log('getTotalRevenue: No data available, returning 0');
     return formatCurrency(0);
   };
 
-  // Get order count
+  // Get order count - extract from any available report data
   const getOrderCount = () => {
-    if (orderReports.daily && orderReports.daily.data) {
-      return orderReports.daily.data.reduce(
-        (sum, item) => sum + parseInt(item.orderCount), 0
+    console.log('getOrderCount: orderReports structure:', orderReports);
+    
+    // Try to get count from daily reports first (most detailed)
+    if (orderReports && orderReports.daily && orderReports.daily.data && Array.isArray(orderReports.daily.data)) {
+      const total = orderReports.daily.data.reduce(
+        (sum, item) => sum + parseInt(item.orderCount || 0), 0
       );
+      console.log('getOrderCount: calculated total from daily data:', total);
+      if (total > 0) return total;
     }
+    
+    // If daily data doesn't have order count, try monthly data
+    if (orderReports && orderReports.monthly && orderReports.monthly.data && Array.isArray(orderReports.monthly.data)) {
+      const total = orderReports.monthly.data.reduce(
+        (sum, item) => sum + parseInt(item.orderCount || 0), 0
+      );
+      console.log('getOrderCount: calculated total from monthly data:', total);
+      if (total > 0) return total;
+    }
+    
+    // Try order status distribution for a count
+    if (orderReports && orderReports.orderStatusDistribution && orderReports.orderStatusDistribution.data) {
+      const statusData = orderReports.orderStatusDistribution.data;
+      if (typeof statusData === 'object') {
+        const total = Object.values(statusData).reduce(
+          (sum, status) => sum + parseInt(status.count || 0), 0
+        );
+        console.log('getOrderCount: calculated total from status data:', total);
+        if (total > 0) return total;
+      }
+    }
+    
+    // Try to get count from top selling items - this is a last resort approximation
+    if (orderReports && orderReports.topSellingItems && orderReports.topSellingItems.data 
+        && Array.isArray(orderReports.topSellingItems.data)) {
+      // This is not exact since items can be ordered multiple times in a single order
+      const estimatedCount = Math.ceil(
+        orderReports.topSellingItems.data.reduce(
+          (sum, item) => sum + parseInt(item.quantity || 0), 0
+        ) / 2 // Rough estimate assuming average of 2 items per order
+      );
+      console.log('getOrderCount: estimated total from item data:', estimatedCount);
+      if (estimatedCount > 0) return estimatedCount;
+    }
+    
+    console.log('getOrderCount: No data available in any reports, returning 0');
     return 0;
   };
 
@@ -309,26 +431,57 @@ const OrderReports = () => {
 
   // Chart data for daily sales
   const getDailySalesChart = () => {
-    if (!orderReports.daily || !orderReports.daily.data) {
+    console.log('getDailySalesChart: orderReports.daily:', orderReports?.daily);
+    
+    if (!orderReports || !orderReports.daily || !orderReports.daily.data || !Array.isArray(orderReports.daily.data)) {
+      console.log('getDailySalesChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
+    // Filter out any invalid data points
+    const data = orderReports.daily.data.filter(item => item && item.date);
+    console.log('getDailySalesChart: Processing data:', data);
+    
+    if (data.length === 0) {
+      console.log('getDailySalesChart: No valid data points after filtering');
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
+
+    // Sort data by date
+    const sortedData = [...data].sort((a, b) => new Date(a.date) - new Date(b.date));
+
     return {
-      labels: orderReports.daily.data.map(item => format(new Date(item.date), 'MMM dd')),
+      labels: sortedData.map(item => {
+        try {
+          return format(new Date(item.date), 'MMM dd');
+        } catch (error) {
+          console.error('Error formatting date:', item.date, error);
+          return 'Invalid date';
+        }
+      }),
       datasets: [
         {
           label: 'Revenue',
-          data: orderReports.daily.data.map(item => parseFloat(item.revenue)),
+          data: sortedData.map(item => {
+            const revenue = parseFloat(item.revenue);
+            return isNaN(revenue) ? 0 : revenue;
+          }),
           backgroundColor: chartColors.primary,
           borderColor: chartColors.primaryBorder,
           borderWidth: 1
         },
         {
           label: 'Orders',
-          data: orderReports.daily.data.map(item => parseInt(item.orderCount)),
+          data: sortedData.map(item => {
+            const count = parseInt(item.orderCount);
+            return isNaN(count) ? 0 : count;
+          }),
           backgroundColor: chartColors.success,
           borderColor: chartColors.successBorder,
           borderWidth: 1,
@@ -340,19 +493,47 @@ const OrderReports = () => {
 
   // Chart data for monthly sales
   const getMonthlySalesChart = () => {
-    if (!orderReports.monthly || !orderReports.monthly.data) {
+    if (!orderReports.monthly || !orderReports.monthly.data || !Array.isArray(orderReports.monthly.data)) {
+      console.log('getMonthlySalesChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
+    // Filter out any invalid data points
+    const data = orderReports.monthly.data.filter(item => item && item.month);
+    
+    if (data.length === 0) {
+      console.log('getMonthlySalesChart: No valid data points after filtering');
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
+
+    // Month order for sorting
+    const monthOrder = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    // Sort data by month
+    const sortedData = [...data].sort((a, b) => {
+      const aIndex = monthOrder.indexOf(a.month);
+      const bIndex = monthOrder.indexOf(b.month);
+      return aIndex - bIndex;
+    });
+
     return {
-      labels: orderReports.monthly.data.map(item => item.month),
+      labels: sortedData.map(item => item.month),
       datasets: [
         {
           label: 'Revenue',
-          data: orderReports.monthly.data.map(item => parseFloat(item.revenue)),
+          data: sortedData.map(item => {
+            const revenue = parseFloat(item.revenue);
+            return isNaN(revenue) ? 0 : revenue;
+          }),
           backgroundColor: chartColors.info,
           borderColor: chartColors.infoBorder,
           borderWidth: 2,
@@ -364,18 +545,42 @@ const OrderReports = () => {
 
   // Chart data for order types
   const getOrderTypesChart = () => {
-    if (!orderReports.revenueTrends || !orderReports.revenueTrends.data) {
+    if (!orderReports.revenueTrends || !orderReports.revenueTrends.data || !Array.isArray(orderReports.revenueTrends.data)) {
+      console.log('getOrderTypesChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
-    // Sum up by order type across all months
-    const data = orderReports.revenueTrends.data;
-    const dineInTotal = data.reduce((sum, item) => sum + parseFloat(item.dineIn || 0), 0);
-    const takeoutTotal = data.reduce((sum, item) => sum + parseFloat(item.takeout || 0), 0);
-    const deliveryTotal = data.reduce((sum, item) => sum + parseFloat(item.delivery || 0), 0);
+    // Filter valid data points
+    const data = orderReports.revenueTrends.data.filter(item => item);
+    
+    if (data.length === 0) {
+      console.log('getOrderTypesChart: No valid data points after filtering');
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
+
+    // Sum up by order type across all months with safeguards against NaN
+    const dineInTotal = data.reduce((sum, item) => {
+      const value = parseFloat(item.dineIn);
+      return sum + (isNaN(value) ? 0 : value);
+    }, 0);
+    
+    const takeoutTotal = data.reduce((sum, item) => {
+      const value = parseFloat(item.takeout);
+      return sum + (isNaN(value) ? 0 : value);
+    }, 0);
+    
+    const deliveryTotal = data.reduce((sum, item) => {
+      const value = parseFloat(item.delivery);
+      return sum + (isNaN(value) ? 0 : value);
+    }, 0);
+
+    console.log('getOrderTypesChart: Calculated totals:', { dineInTotal, takeoutTotal, deliveryTotal });
 
     return {
       labels: ['Dine-In', 'Takeout', 'Delivery'],
@@ -400,27 +605,58 @@ const OrderReports = () => {
 
   // Chart data for top selling items
   const getTopItemsChart = () => {
-    if (!orderReports.topSellingItems || !orderReports.topSellingItems.data) {
+    if (!orderReports.topSellingItems || !orderReports.topSellingItems.data || !Array.isArray(orderReports.topSellingItems.data)) {
+      console.log('getTopItemsChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
+    // Filter valid items and limit to top 10 for better visualization
+    const validItems = orderReports.topSellingItems.data
+      .filter(item => item && item.name)
+      .sort((a, b) => {
+        const quantityA = parseInt(a.quantity) || 0;
+        const quantityB = parseInt(b.quantity) || 0;
+        return quantityB - quantityA;  // Sort by quantity descending
+      })
+      .slice(0, 10);  // Limit to top 10
+    
+    if (validItems.length === 0) {
+      console.log('getTopItemsChart: No valid items after filtering');
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
+
+    // Generate background colors array with enough colors for all items
+    const generateBackgroundColors = (count) => {
+      const baseColors = [
+        chartColors.primary,
+        chartColors.success,
+        chartColors.warning,
+        chartColors.danger,
+        chartColors.info,
+        chartColors.purple
+      ];
+      
+      // Repeat the base colors if needed
+      const repeats = Math.ceil(count / baseColors.length);
+      return Array.from({ length: repeats }, () => baseColors).flat().slice(0, count);
+    };
+
     return {
-      labels: orderReports.topSellingItems.data.map(item => item.name),
+      labels: validItems.map(item => item.name),
       datasets: [
         {
           label: 'Quantity Sold',
-          data: orderReports.topSellingItems.data.map(item => parseInt(item.quantity)),
-          backgroundColor: [
-            chartColors.primary,
-            chartColors.success,
-            chartColors.warning,
-            chartColors.danger,
-            chartColors.info,
-            chartColors.purple
-          ],
+          data: validItems.map(item => {
+            const quantity = parseInt(item.quantity);
+            return isNaN(quantity) ? 0 : quantity;
+          }),
+          backgroundColor: generateBackgroundColors(validItems.length),
           borderWidth: 1
         }
       ]
@@ -429,26 +665,57 @@ const OrderReports = () => {
 
   // Chart data for category revenue
   const getCategoryRevenueChart = () => {
-    if (!orderReports.revenueByCategory || !orderReports.revenueByCategory.data) {
+    if (!orderReports.revenueByCategory || !orderReports.revenueByCategory.data || !Array.isArray(orderReports.revenueByCategory.data)) {
+      console.log('getCategoryRevenueChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
+    // Filter valid categories and sort by revenue
+    const validCategories = orderReports.revenueByCategory.data
+      .filter(item => item && item.name)
+      .sort((a, b) => {
+        const revenueA = parseFloat(a.revenue) || 0;
+        const revenueB = parseFloat(b.revenue) || 0;
+        return revenueB - revenueA;  // Sort by revenue descending
+      });
+    
+    if (validCategories.length === 0) {
+      console.log('getCategoryRevenueChart: No valid categories after filtering');
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
+
+    // Generate background colors array with enough colors for all categories
+    const generateBackgroundColors = (count) => {
+      const baseColors = [
+        chartColors.primary,
+        chartColors.success,
+        chartColors.warning,
+        chartColors.danger,
+        chartColors.info,
+        chartColors.purple
+      ];
+      
+      // Repeat the base colors if needed
+      const repeats = Math.ceil(count / baseColors.length);
+      return Array.from({ length: repeats }, () => baseColors).flat().slice(0, count);
+    };
+
     return {
-      labels: orderReports.revenueByCategory.data.map(item => item.name),
+      labels: validCategories.map(item => item.name),
       datasets: [
         {
           label: 'Revenue',
-          data: orderReports.revenueByCategory.data.map(item => parseFloat(item.revenue)),
-          backgroundColor: [
-            chartColors.primary,
-            chartColors.success,
-            chartColors.warning,
-            chartColors.danger,
-            chartColors.info
-          ],
+          data: validCategories.map(item => {
+            const revenue = parseFloat(item.revenue);
+            return isNaN(revenue) ? 0 : revenue;
+          }),
+          backgroundColor: generateBackgroundColors(validCategories.length),
           borderWidth: 1
         }
       ]
@@ -458,103 +725,174 @@ const OrderReports = () => {
   // Chart data for order status distribution
   const getOrderStatusChart = () => {
     if (!orderReports.orderStatusDistribution || !orderReports.orderStatusDistribution.data) {
+      console.log('getOrderStatusChart: No valid data available');
       return {
         labels: [],
         datasets: []
       };
     }
 
-    const statusData = orderReports.orderStatusDistribution.data;
-    const labels = Object.keys(statusData);
-    const counts = labels.map(label => parseInt(statusData[label].count));
-    
-    const colorMap = {
-      'Pending': chartColors.warning,
-      'Processing': chartColors.info,
-      'Completed': chartColors.success,
-      'Cancelled': chartColors.danger
-    };
-    
-    const borderColorMap = {
-      'Pending': chartColors.warningBorder,
-      'Processing': chartColors.infoBorder,
-      'Completed': chartColors.successBorder,
-      'Cancelled': chartColors.dangerBorder
-    };
+    try {
+      const statusData = orderReports.orderStatusDistribution.data;
+      
+      // Ensure we have an object with status data
+      if (!statusData || typeof statusData !== 'object') {
+        console.log('getOrderStatusChart: Status data is not an object:', statusData);
+        return {
+          labels: [],
+          datasets: []
+        };
+      }
+      
+      const labels = Object.keys(statusData).filter(key => 
+        statusData[key] && (statusData[key].count !== undefined)
+      );
+      
+      if (labels.length === 0) {
+        console.log('getOrderStatusChart: No valid status labels found');
+        return {
+          labels: [],
+          datasets: []
+        };
+      }
+      
+      const counts = labels.map(label => {
+        const count = parseInt(statusData[label].count);
+        return isNaN(count) ? 0 : count;
+      });
+      
+      console.log('getOrderStatusChart: Processing status data:', { labels, counts });
+      
+      const colorMap = {
+        'Pending': chartColors.warning,
+        'Processing': chartColors.info,
+        'Completed': chartColors.success,
+        'Cancelled': chartColors.danger
+      };
+      
+      const borderColorMap = {
+        'Pending': chartColors.warningBorder,
+        'Processing': chartColors.infoBorder,
+        'Completed': chartColors.successBorder,
+        'Cancelled': chartColors.dangerBorder
+      };
 
-    return {
-      labels,
-      datasets: [
-        {
-          data: counts,
-          backgroundColor: labels.map(label => colorMap[label] || chartColors.primary),
-          borderColor: labels.map(label => borderColorMap[label] || chartColors.primaryBorder),
-          borderWidth: 1
-        }
-      ]
-    };
+      return {
+        labels,
+        datasets: [
+          {
+            data: counts,
+            backgroundColor: labels.map(label => colorMap[label] || chartColors.primary),
+            borderColor: labels.map(label => borderColorMap[label] || chartColors.primaryBorder),
+            borderWidth: 1
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Error generating order status chart:', error);
+      return {
+        labels: [],
+        datasets: []
+      };
+    }
   };
 
-  // Chart configurations
+  // Chart configurations (Chart.js 2.x format)
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top',
-      },
-      tooltip: {
-        callbacks: {
-          label: function(context) {
-            let label = context.dataset.label || '';
-            if (label) {
-              label += ': ';
-            }
-            if (context.parsed.y !== null) {
-              if (label.includes('Revenue')) {
-                label += formatCurrency(context.parsed.y);
-              } else {
-                label += context.parsed.y;
-              }
-            }
-            return label;
+    legend: {
+      display: true,
+      position: 'top',
+    },
+    tooltips: {
+      callbacks: {
+        label: function(tooltipItem, data) {
+          let label = data.datasets[tooltipItem.datasetIndex].label || '';
+          if (label) {
+            label += ': ';
           }
+          if (tooltipItem.yLabel !== null) {
+            if (label.includes('Revenue')) {
+              label += formatCurrency(tooltipItem.yLabel);
+            } else {
+              label += tooltipItem.yLabel;
+            }
+          }
+          return label;
         }
       }
     }
   };
 
-  // Daily sales chart options with dual y-axes
+  // Daily sales chart options with dual y-axes (Chart.js 2.x format)
   const dailySalesOptions = {
     ...chartOptions,
     scales: {
-      y: {
-        type: 'linear',
-        display: true,
-        position: 'left',
-        title: {
+      yAxes: [
+        {
+          type: 'linear',
           display: true,
-          text: 'Revenue'
+          position: 'left',
+          id: 'y-axis-revenue',
+          scaleLabel: {
+            display: true,
+            labelString: 'Revenue'
+          },
+          ticks: {
+            callback: function(value) {
+              return formatCurrency(value);
+            }
+          }
         },
-        ticks: {
-          callback: function(value) {
-            return formatCurrency(value);
+        {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          id: 'y-axis-2',
+          scaleLabel: {
+            display: true,
+            labelString: 'Order Count'
+          },
+          gridLines: {
+            drawOnChartArea: false
           }
         }
-      },
-      'y-axis-2': {
-        type: 'linear',
-        display: true,
-        position: 'right',
-        title: {
-          display: true,
-          text: 'Order Count'
-        },
-        grid: {
-          drawOnChartArea: false
-        }
+      ],
+      xAxes: [{
+        display: true
+      }]
+    }
+  };
+
+  // Get report title based on selected filters
+  const getReportTitle = () => {
+    let title = '';
+    
+    // Add branch information
+    if (selectedBranch && branches) {
+      const branch = branches.find(b => b._id === selectedBranch);
+      if (branch) {
+        title += `${branch.name} Branch - `;
       }
     }
+    // Add restaurant information
+    else if (selectedRestaurant && restaurants) {
+      const restaurant = restaurants.find(r => r._id === selectedRestaurant);
+      if (restaurant) {
+        title += `${restaurant.name} - `;
+      }
+    }
+    
+    // Add report type
+    title += activeTab === 'sales' ? 'Sales Reports' : 
+             activeTab === 'items' ? 'Item Reports' : 
+             activeTab === 'performance' ? 'Performance Reports' : 'Order Reports';
+    
+    // Add date range
+    title += ` (${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)})`;
+    
+    return title;
   };
 
   return (
@@ -567,7 +905,14 @@ const OrderReports = () => {
               <CardHeader className="border-0">
                 <Row className="align-items-center">
                   <Col xs="8">
-                    <h3 className="mb-0">Order Reports</h3>
+                    <h3 className="mb-0">{getReportTitle()}</h3>
+                    <p className="text-muted mb-0">
+                      {loading ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        `${getOrderCount()} ${getOrderCount() === 1 ? 'order' : 'orders'} found`
+                      )}
+                    </p>
                   </Col>
                   <Col className="text-right" xs="4">
                     <Button
@@ -709,8 +1054,9 @@ const OrderReports = () => {
                                   bsSize="sm"
                                   value={selectedRestaurant}
                                   onChange={handleRestaurantChange}
+                                  disabled={user.role !== 'Super_Admin'}
                                 >
-                                  <option value="">All Restaurants</option>
+                                  {user.role === 'Super_Admin' && <option value="">All Restaurants</option>}
                                   {restaurants.map(restaurant => (
                                     <option key={restaurant._id} value={restaurant._id}>
                                       {restaurant.name}
@@ -728,8 +1074,8 @@ const OrderReports = () => {
                                   id="branch"
                                   bsSize="sm"
                                   value={selectedBranch}
-                                  onChange={(e) => setSelectedBranch(e.target.value)}
-                                  disabled={!selectedRestaurant}
+                                  onChange={handleBranchChange}
+                                  disabled={!selectedRestaurant || (user.role === 'Branch_Admin' && user.branchId)}
                                 >
                                   <option value="">All Branches</option>
                                   {branches.map(branch => (
@@ -942,14 +1288,21 @@ const OrderReports = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {orderReports.daily && orderReports.daily.data && orderReports.daily.data.map((day, index) => (
-                                  <tr key={index}>
-                                    <td>{formatDate(day.date)}</td>
-                                    <td>{day.orderCount}</td>
-                                    <td>{formatCurrency(day.revenue)}</td>
-                                    <td>{formatCurrency(day.orderCount > 0 ? day.revenue / day.orderCount : 0)}</td>
-                                  </tr>
-                                ))}
+                                {orderReports.daily && orderReports.daily.data && orderReports.daily.data.map((day, index) => {
+                                  // Ensure day.revenue is a number
+                                  const revenue = parseFloat(day.revenue) || 0;
+                                  const orderCount = parseInt(day.orderCount) || 0;
+                                  const avgOrderValue = orderCount > 0 ? revenue / orderCount : 0;
+                                  
+                                  return (
+                                    <tr key={index}>
+                                      <td>{formatDate(day.date)}</td>
+                                      <td>{orderCount}</td>
+                                      <td>{formatCurrency(revenue)}</td>
+                                      <td>{formatCurrency(avgOrderValue)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </Table>
 
@@ -963,13 +1316,19 @@ const OrderReports = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {orderReports.monthly && orderReports.monthly.data && orderReports.monthly.data.map((month, index) => (
-                                  <tr key={index}>
-                                    <td>{month.month}</td>
-                                    <td>{month.orderCount}</td>
-                                    <td>{formatCurrency(month.revenue)}</td>
-                                  </tr>
-                                ))}
+                                {orderReports.monthly && orderReports.monthly.data && orderReports.monthly.data.map((month, index) => {
+                                  // Ensure month.revenue is a number
+                                  const revenue = parseFloat(month.revenue) || 0;
+                                  const orderCount = parseInt(month.orderCount) || 0;
+                                  
+                                  return (
+                                    <tr key={index}>
+                                      <td>{month.month}</td>
+                                      <td>{orderCount}</td>
+                                      <td>{formatCurrency(revenue)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </Table>
 
@@ -985,15 +1344,23 @@ const OrderReports = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {orderReports.revenueTrends && orderReports.revenueTrends.data && orderReports.revenueTrends.data.map((month, index) => (
-                                  <tr key={index}>
-                                    <td>{month.month}</td>
-                                    <td>{formatCurrency(month.dineIn)}</td>
-                                    <td>{formatCurrency(month.takeout)}</td>
-                                    <td>{formatCurrency(month.delivery)}</td>
-                                    <td>{formatCurrency(parseFloat(month.dineIn) + parseFloat(month.takeout) + parseFloat(month.delivery))}</td>
-                                  </tr>
-                                ))}
+                                {orderReports.revenueTrends && orderReports.revenueTrends.data && orderReports.revenueTrends.data.map((month, index) => {
+                                  // Ensure all values are numbers
+                                  const dineIn = parseFloat(month.dineIn) || 0;
+                                  const takeout = parseFloat(month.takeout) || 0;
+                                  const delivery = parseFloat(month.delivery) || 0;
+                                  const total = dineIn + takeout + delivery;
+                                  
+                                  return (
+                                    <tr key={index}>
+                                      <td>{month.month}</td>
+                                      <td>{formatCurrency(dineIn)}</td>
+                                      <td>{formatCurrency(takeout)}</td>
+                                      <td>{formatCurrency(delivery)}</td>
+                                      <td>{formatCurrency(total)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </Table>
                           </div>
@@ -1057,15 +1424,22 @@ const OrderReports = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {orderReports.topSellingItems && orderReports.topSellingItems.data && orderReports.topSellingItems.data.map((item, index) => (
-                                  <tr key={index}>
-                                    <td>{index + 1}</td>
-                                    <td>{item.name}</td>
-                                    <td>{item.quantity}</td>
-                                    <td>{formatCurrency(item.revenue)}</td>
-                                    <td>{formatCurrency(item.quantity > 0 ? item.revenue / item.quantity : 0)}</td>
-                                  </tr>
-                                ))}
+                                {orderReports.topSellingItems && orderReports.topSellingItems.data && orderReports.topSellingItems.data.map((item, index) => {
+                                  // Ensure all values are numbers
+                                  const quantity = parseInt(item.quantity) || 0;
+                                  const revenue = parseFloat(item.revenue) || 0;
+                                  const avgPrice = quantity > 0 ? revenue / quantity : 0;
+                                  
+                                  return (
+                                    <tr key={index}>
+                                      <td>{index + 1}</td>
+                                      <td>{item.name}</td>
+                                      <td>{quantity}</td>
+                                      <td>{formatCurrency(revenue)}</td>
+                                      <td>{formatCurrency(avgPrice)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </Table>
 
@@ -1079,19 +1453,26 @@ const OrderReports = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                {orderReports.revenueByCategory && orderReports.revenueByCategory.data && orderReports.revenueByCategory.data.map((category, index) => {
+                                {orderReports.revenueByCategory && orderReports.revenueByCategory.data && (() => {
+                                  // Calculate total revenue once
                                   const total = orderReports.revenueByCategory.data.reduce(
-                                    (sum, cat) => sum + parseFloat(cat.revenue), 0
+                                    (sum, cat) => sum + parseFloat(cat.revenue || 0), 0
                                   );
-                                  const percentage = (parseFloat(category.revenue) / total * 100).toFixed(2);
-                                  return (
-                                    <tr key={index}>
-                                      <td>{category.name}</td>
-                                      <td>{formatCurrency(category.revenue)}</td>
-                                      <td>{percentage}%</td>
-                                    </tr>
-                                  );
-                                })}
+                                  
+                                  return orderReports.revenueByCategory.data.map((category, index) => {
+                                    // Ensure revenue is a number
+                                    const revenue = parseFloat(category.revenue) || 0;
+                                    const percentage = total > 0 ? ((revenue / total) * 100).toFixed(2) : '0.00';
+                                    
+                                    return (
+                                      <tr key={index}>
+                                        <td>{category.name}</td>
+                                        <td>{formatCurrency(revenue)}</td>
+                                        <td>{percentage}%</td>
+                                      </tr>
+                                    );
+                                  });
+                                })()}
                               </tbody>
                             </Table>
                           </div>
@@ -1142,22 +1523,28 @@ const OrderReports = () => {
                               </thead>
                               <tbody>
                                 {orderReports.orderStatusDistribution && orderReports.orderStatusDistribution.data && 
-                                  Object.entries(orderReports.orderStatusDistribution.data).map(([status, data], index) => (
-                                    <tr key={index}>
-                                      <td>
-                                        <Badge color={
-                                          status === 'Completed' ? 'success' :
-                                          status === 'Processing' ? 'info' :
-                                          status === 'Pending' ? 'warning' :
-                                          'danger'
-                                        } pill>
-                                          {status}
-                                        </Badge>
-                                      </td>
-                                      <td>{data.count}</td>
-                                      <td>{data.percentage}%</td>
-                                    </tr>
-                                  ))
+                                  Object.entries(orderReports.orderStatusDistribution.data).map(([status, data], index) => {
+                                    // Ensure we have numeric data
+                                    const count = parseInt(data.count) || 0;
+                                    const percentage = parseFloat(data.percentage) || 0;
+                                    
+                                    return (
+                                      <tr key={index}>
+                                        <td>
+                                          <Badge color={
+                                            status === 'Completed' ? 'success' :
+                                            status === 'Processing' ? 'info' :
+                                            status === 'Pending' ? 'warning' :
+                                            'danger'
+                                          } pill>
+                                            {status}
+                                          </Badge>
+                                        </td>
+                                        <td>{count}</td>
+                                        <td>{percentage.toFixed(2)}%</td>
+                                      </tr>
+                                    );
+                                  })
                                 }
                               </tbody>
                             </Table>

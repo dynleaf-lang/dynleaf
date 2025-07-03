@@ -33,8 +33,8 @@ const StableDataProvider = ({ children }) => {
   const { tables, getTables, getTablesWithOrders, reservations, getReservations, loading: tablesLoading } = useContext(TableContext);
   const { orders, getAllOrders, loading: ordersLoading } = useContext(OrderContext);
   const { customers, getAllCustomers, loading: customersLoading } = useContext(CustomerContext);
-  const { menuItems, getAllMenuItems, loading: menuItemsLoading } = useContext(MenuContext); // Add MenuContext data
-  const { categories, getAllCategories, loading: categoriesLoading } = useContext(CategoryContext); // Add CategoryContext data
+  const { menuItems, fetchMenuItems, loading: menuItemsLoading } = useContext(MenuContext); // Fix: use fetchMenuItems
+  const { categories, fetchCategories, loading: categoriesLoading } = useContext(CategoryContext); // Fix: use fetchCategories
 
   // Refs to track if data has been fetched
   const fetchedRef = useRef({
@@ -180,39 +180,57 @@ const StableDataProvider = ({ children }) => {
       const tertiaryPromises = [];
       
       // Fetch customers
-      if (!fetchedRef.current.customers && user) {
-        const filters = {};
-        if (user.role !== 'Super_Admin') {
-          if (user.restaurantId) filters.restaurantId = user.restaurantId;
-          if (user.branchId) filters.branchId = user.branchId;
+      if (!fetchedRef.current.customers && user && getAllCustomers) {
+        try {
+          const filters = {};
+          if (user.role !== 'Super_Admin') {
+            if (user.restaurantId) filters.restaurantId = user.restaurantId;
+            if (user.branchId) filters.branchId = user.branchId;
+          }
+          tertiaryPromises.push(getAllCustomers(filters).then(() => {
+            fetchedRef.current.customers = true;
+          }).catch(err => {
+            console.error("Error fetching customers:", err);
+            fetchedRef.current.customers = true; // Mark as attempted
+          }));
+        } catch (err) {
+          console.error("Error setting up customers fetch:", err);
         }
-        tertiaryPromises.push(getAllCustomers(filters).then(() => {
-          fetchedRef.current.customers = true;
-        }));
       }
 
       // Fetch menu items
-      if (!fetchedRef.current.menuItems && user) {
-        const filters = {};
-        if (user.role !== 'Super_Admin') {
-          if (user.restaurantId) filters.restaurantId = user.restaurantId;
-          if (user.branchId) filters.branchId = user.branchId;
+      if (!fetchedRef.current.menuItems && user && fetchMenuItems) {
+        try {
+          const filters = {};
+          if (user.role !== 'Super_Admin') {
+            if (user.restaurantId) filters.restaurantId = user.restaurantId;
+            if (user.branchId) filters.branchId = user.branchId;
+          }
+          tertiaryPromises.push(fetchMenuItems(filters).then(() => {
+            fetchedRef.current.menuItems = true;
+          }).catch(err => {
+            console.error("Error fetching menu items:", err);
+            fetchedRef.current.menuItems = true; // Mark as attempted to prevent infinite retries
+          }));
+        } catch (err) {
+          console.error("Error setting up menu items fetch:", err);
         }
-        tertiaryPromises.push(getAllMenuItems(filters).then(() => {
-          fetchedRef.current.menuItems = true;
-        }));
       }
 
       // Fetch categories
-      if (!fetchedRef.current.categories && user) {
-        const filters = {};
-        if (user.role !== 'Super_Admin') {
-          if (user.restaurantId) filters.restaurantId = user.restaurantId;
-          if (user.branchId) filters.branchId = user.branchId;
+      if (!fetchedRef.current.categories && user && fetchCategories) {
+        try {
+          const restaurantId = user.role === 'Super_Admin' ? null : user.restaurantId;
+          const branchId = user.role === 'Super_Admin' ? null : user.branchId;
+          tertiaryPromises.push(fetchCategories(restaurantId, branchId).then(() => {
+            fetchedRef.current.categories = true;
+          }).catch(err => {
+            console.error("Error fetching categories:", err);
+            fetchedRef.current.categories = true; // Mark as attempted to prevent infinite retries
+          }));
+        } catch (err) {
+          console.error("Error setting up categories fetch:", err);
         }
-        tertiaryPromises.push(getAllCategories(filters).then(() => {
-          fetchedRef.current.categories = true;
-        }));
       }
       
       // Wait for tertiary data

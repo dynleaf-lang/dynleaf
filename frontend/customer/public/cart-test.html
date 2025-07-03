@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart Persistence Test</title>
+</head>
+<body>
+    <h1>Cart Persistence Test</h1>
+    
+    <div>
+        <h3>Current Cart State:</h3>
+        <div id="cart-state"></div>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <button onclick="addTestItem()">Add Test Item</button>
+        <button onclick="clearCart()">Clear Cart</button>
+        <button onclick="refreshPage()">Refresh Page</button>
+        <button onclick="showCartState()">Show Cart State</button>
+    </div>
+    
+    <div>
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Click "Add Test Item" to add an item to localStorage</li>
+            <li>Click "Refresh Page" to test persistence</li>
+            <li>The item should still be there after refresh</li>
+        </ol>
+    </div>
+
+    <script>
+        function showCartState() {
+            const cart = localStorage.getItem('cart');
+            const stateDiv = document.getElementById('cart-state');
+            
+            if (cart) {
+                const parsedCart = JSON.parse(cart);
+                stateDiv.innerHTML = `
+                    <strong>Items in cart:</strong> ${parsedCart.length}<br>
+                    <strong>Raw data:</strong> ${cart}
+                `;
+            } else {
+                stateDiv.innerHTML = '<strong>No cart found in localStorage</strong>';
+            }
+        }
+        
+        function addTestItem() {
+            const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+            const newItem = {
+                id: 'test-' + Date.now(),
+                name: 'Test Item ' + (cart.length + 1),
+                title: 'Test Item ' + (cart.length + 1),
+                price: 9.99,
+                quantity: 1,
+                selectedOptions: []
+            };
+            
+            cart.push(newItem);
+            localStorage.setItem('cart', JSON.stringify(cart));
+            console.log('Added test item:', newItem);
+            showCartState();
+        }
+        
+        function clearCart() {
+            localStorage.removeItem('cart');
+            console.log('Cart cleared');
+            showCartState();
+        }
+        
+        function refreshPage() {
+            window.location.reload();
+        }
+        
+        // Show initial state
+        window.onload = function() {
+            showCartState();
+        };
+    </script>
+</body>
+</html>

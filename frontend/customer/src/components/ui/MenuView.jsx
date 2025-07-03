@@ -8,13 +8,37 @@ import CartButton from './CartButton';
 import EnhancedCart from './EnhancedCart';
 import { theme } from '../../data/theme';
 
+// Helper function to get proper table display name
+const getTableDisplayName = (table) => {
+  // If table.name exists but contains "Table undefined", extract a better identifier
+  if (table.name === "Table undefined") {
+    // Try to get a better identifier
+    if (table.number) return `Table ${table.number}`;
+    if (table.id) return `Table ${table.id}`;
+    return "Table";
+  }
+  
+  // If table.name exists and is not "Table undefined", use it
+  if (table.name && table.name !== "undefined") return table.name;
+  
+  // If table.name doesn't exist or is "undefined", try other properties
+  if (table.number) return `Table ${table.number}`;
+  if (table.id) return `Table ${table.id}`;
+  
+  // Fallback
+  return "Table";
+};
+
 const MenuView = () => {
   const { restaurant, branch, table, menuItems, categories, loading, error } = useRestaurant();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
+    
    
-  
+   
+
+
   // Memoized handler for category selection to avoid recreating function on each render
   const handleCategorySelect = useCallback((categoryId) => {
     setSelectedCategory(categoryId);
@@ -214,7 +238,7 @@ const MenuView = () => {
               fontWeight: 'bold',
               marginBottom: '8px'
             }}>
-              Table: {table.name}
+              {getTableDisplayName(table)}
             </div>
           )}
           

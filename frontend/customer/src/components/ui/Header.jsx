@@ -2,11 +2,14 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { theme } from "../../data/theme";
 import { useResponsive } from "../../context/ResponsiveContext";
+import { useAuth } from "../../context/AuthContext";
+import ProfileButton from "../auth/ProfileButton";
 
-const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber }) => {
+const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber, openLoginModal }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(2);
   const { isMobile, isTablet } = useResponsive();
+  const { isAuthenticated, user } = useAuth();
   
   // Only show restaurant info in header on mobile views
   // (on desktop/tablet it's shown in the sidebar)
@@ -104,348 +107,58 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           )}
         </div>
 
-        {/* Right section with actions and profile */}
-        <div style={{ 
+        {/* Right-side Actions */}
+        <div style={{
           display: "flex", 
-          alignItems: "center", 
-          gap: isMobile ? "12px" : "16px"
+          alignItems: "center",
+          gap: theme.spacing.md
         }}>
-          {/* Search button - only on medium/large screens */}
-          {!isMobile && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: theme.spacing.sm,
-                padding: `${theme.spacing.sm} ${theme.spacing.md}`,
-                borderRadius: theme.borderRadius.pill,
-                border: `1px solid ${theme.colors.border}`,
-                backgroundColor: "#FFFFFF",
-                color: theme.colors.text.secondary,
-                cursor: "pointer",
-                boxShadow: theme.shadows.sm,
-                transition: "all 0.2s ease"
-              }}
-            >
-              <span className="material-icons">search</span>
-              <span style={{
-                fontSize: theme.typography.sizes.sm,
-                fontWeight: theme.typography.fontWeights.medium
-              }}>
-                Search menu...
-              </span>
-            </motion.button>
-          )}
-
-          {/* Notifications */}
-          <div style={{ position: "relative" }}>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              aria-label="Notifications"
-              onClick={toggleNotifications}
-              style={{
-                border: "none",
-                background: notificationsOpen ? 
-                  (isMobile ? theme.colors.background : `${theme.colors.primary}15`) : 
-                  (isMobile ? "transparent" : "#FFFFFF"),
-                color: notificationsOpen ? theme.colors.primary : theme.colors.text.secondary,
-                width: isMobile ? "44px" : "40px",
-                height: isMobile ? "44px" : "40px",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                position: "relative",
-                boxShadow: notificationsOpen || !isMobile ? theme.shadows.sm : "none",
-                WebkitTapHighlightColor: "transparent",
-                touchAction: "manipulation"
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? "24px" : "22px" }}>notifications</span>
-              {notificationCount > 0 && (
-                <span
-                  style={{
-                    backgroundColor: theme.colors.primary,
-                    width: "18px",
-                    height: "18px",
-                    borderRadius: "50%",
-                    position: "absolute",
-                    top: "3px",
-                    right: "3px",
-                    fontSize: "10px",
-                    color: "white",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: theme.typography.fontWeights.bold,
-                    border: "2px solid white",
-                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                  }}
-                >
-                  {notificationCount}
-                </span>
-              )}
-            </motion.button>
-            
-            {/* Dropdown notifications panel */}
-            <AnimatePresence>
-              {notificationsOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  transition={{ duration: 0.2 }}
-                  style={{
-                    position: "absolute",
-                    top: "48px",
-                    right: isMobile ? "-10px" : "-10px",
-                    backgroundColor: "white",
-                    borderRadius: theme.borderRadius.md,
-                    boxShadow: isMobile ? theme.shadows.lg : theme.shadows.xl,
-                    width: isMobile ? "calc(100vw - 40px)" : "320px",
-                    maxWidth: "400px",
-                    zIndex: 1001,
-                    overflow: "hidden",
-                    border: !isMobile ? `1px solid ${theme.colors.border}` : "none"
-                  }}
-                >
-                  <div style={{
-                    padding: theme.spacing.md,
-                    borderBottom: `1px solid ${theme.colors.border}`,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    backgroundColor: isMobile ? "#FFFFFF" : theme.colors.backgroundAlt
-                  }}>
-                    <h4 style={{ 
-                      margin: 0, 
-                      fontWeight: theme.typography.fontWeights.semibold,
-                      color: theme.colors.text.primary
-                    }}>
-                      Notifications
-                    </h4>
-                    <button
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        fontSize: theme.typography.sizes.xs,
-                        color: theme.colors.primary,
-                        cursor: "pointer",
-                        padding: "8px",
-                        margin: "-8px",
-                        borderRadius: theme.borderRadius.sm
-                      }}
-                      onClick={() => setNotificationsOpen(false)}
-                    >
-                      Mark all as read
-                    </button>
-                  </div>
-                  
-                  <div style={{ maxHeight: isMobile ? "60vh" : "400px", overflowY: "auto" }}>
-                    <div style={{ 
-                      padding: theme.spacing.md, 
-                      borderBottom: `1px solid ${theme.colors.border}`,
-                      backgroundColor: "#f9f9f9"  
-                    }}>
-                      <div style={{ 
-                        display: "flex", 
-                        gap: theme.spacing.sm,
-                        alignItems: "flex-start"
-                      }}>
-                        <span className="material-icons" style={{ 
-                          color: theme.colors.primary, 
-                          backgroundColor: `${theme.colors.primary}15`,
-                          padding: "6px",
-                          borderRadius: "50%"
-                        }}>
-                          local_offer
-                        </span>
-                        <div>
-                          <p style={{ margin: 0, fontWeight: theme.typography.fontWeights.medium }}>
-                            15% Off Weekend Special
-                          </p>
-                          <p style={{ 
-                            margin: "4px 0 0", 
-                            fontSize: theme.typography.sizes.xs,
-                            color: theme.colors.text.secondary
-                          }}>
-                            Valid until Sunday
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div style={{ 
-                      padding: theme.spacing.md,
-                      borderBottom: `1px solid ${theme.colors.border}` 
-                    }}>
-                      <div style={{ 
-                        display: "flex", 
-                        gap: theme.spacing.sm,
-                        alignItems: "flex-start" 
-                      }}>
-                        <span className="material-icons" style={{ 
-                          color: theme.colors.info, 
-                          backgroundColor: `${theme.colors.info}15`,
-                          padding: "6px",
-                          borderRadius: "50%"
-                        }}>
-                          receipt_long
-                        </span>
-                        <div>
-                          <p style={{ margin: 0, fontWeight: theme.typography.fontWeights.medium }}>
-                            Your order is ready!
-                          </p>
-                          <p style={{ 
-                            margin: "4px 0 0", 
-                            fontSize: theme.typography.sizes.xs,
-                            color: theme.colors.text.secondary
-                          }}>
-                            Order #2458 is ready for pickup.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Additional notification item */}
-                    {!isMobile && (
-                      <div style={{ 
-                        padding: theme.spacing.md,
-                        borderBottom: `1px solid ${theme.colors.border}` 
-                      }}>
-                        <div style={{ 
-                          display: "flex", 
-                          gap: theme.spacing.sm,
-                          alignItems: "flex-start" 
-                        }}>
-                          <span className="material-icons" style={{ 
-                            color: theme.colors.success, 
-                            backgroundColor: `${theme.colors.success}15`,
-                            padding: "6px",
-                            borderRadius: "50%"
-                          }}>
-                            loyalty
-                          </span>
-                          <div>
-                            <p style={{ margin: 0, fontWeight: theme.typography.fontWeights.medium }}>
-                              Earned 50 loyalty points!
-                            </p>
-                            <p style={{ 
-                              margin: "4px 0 0", 
-                              fontSize: theme.typography.sizes.xs,
-                              color: theme.colors.text.secondary
-                            }}>
-                              From your last order. You now have 250 points.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* View all link - only for medium/large screens */}
-                  {!isMobile && (
-                    <div style={{
-                      padding: theme.spacing.md,
-                      borderTop: `1px solid ${theme.colors.border}`,
-                      textAlign: "center"
-                    }}>
-                      <button
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: theme.colors.primary,
-                          fontWeight: theme.typography.fontWeights.medium,
-                          cursor: "pointer",
-                          padding: 0
-                        }}
-                      >
-                        View all notifications
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          
-          {/* Cart icon - only on medium/large screens */}
-          {!isMobile && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              aria-label="Cart"
-              style={{
-                border: "none",
-                background: "#FFFFFF",
-                color: theme.colors.text.secondary,
-                width: "40px",
-                height: "40px",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                position: "relative",
-                boxShadow: theme.shadows.sm,
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: "22px" }}>shopping_cart</span>
-              <span
-                style={{
-                  backgroundColor: theme.colors.primary,
-                  width: "18px",
-                  height: "18px",
-                  borderRadius: "50%",
-                  position: "absolute",
-                  top: "3px",
-                  right: "3px",
-                  fontSize: "10px",
-                  color: "white",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: theme.typography.fontWeights.bold,
-                  border: "2px solid white",
-                  boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                }}
-              >
-                2
-              </span>
-            </motion.button>
-          )}
-
-          {/* User Profile - different styling on medium/large screens */}
+          {/* Show notification icon */}
           <motion.div
-            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            style={{
-              width: isMobile ? "44px" : "40px",
-              height: isMobile ? "44px" : "40px",
-              borderRadius: "50%",
-              overflow: "hidden",
-              cursor: "pointer",
-              border: `2px solid ${theme.colors.primary}30`,
-              boxShadow: isMobile ? theme.shadows.sm : theme.shadows.md,
-              display: isMobile ? "block" : "none" // Hide on tablet/desktop as it's in the side menu
+            style={{ 
+              position: "relative",
+              cursor: "pointer"
             }}
+            onClick={toggleNotifications}
           >
-            <img
-              src={profileSrc || "https://ui-avatars.com/api/?name=Guest&background=FF4757&color=fff"}
-              alt="User profile"
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
+            {/* Notification Bell */}
+            <span className="material-icons" style={{
+              color: theme.colors.text.secondary,
+              fontSize: "24px"
+            }}>
+              {notificationCount > 0 ? "notifications_active" : "notifications"}
+            </span>
+            
+            {/* Notification Count Badge */}
+            {notificationCount > 0 && (
+              <span style={{
+                position: "absolute",
+                top: "-5px",
+                right: "-5px",
+                backgroundColor: theme.colors.primary,
+                color: "#fff",
+                borderRadius: "50%",
+                width: "16px",
+                height: "16px",
+                fontSize: "10px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: theme.typography.fontWeights.bold
+              }}>
+                {notificationCount}
+              </span>
+            )}
           </motion.div>
+
+          {/* Profile Button (Login or Profile Avatar) */}
+          <ProfileButton openLoginModal={openLoginModal} />
         </div>
       </div>
+      
+      {/* Restaurant Info (Mobile Only) */}
+       
       
       {/* For medium/large screens - secondary navigation row */}
       {!isMobile && (

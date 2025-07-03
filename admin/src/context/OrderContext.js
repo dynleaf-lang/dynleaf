@@ -28,24 +28,9 @@ export const OrderProvider = ({ children }) => {
   const initialFetchDone = useRef(false);
   const restaurantsFetchDone = useRef(false);
   const dateFetchStarted = useRef(Date.now());
-
-  // Debug counter
-  const fetchCounter = useRef({
-    getAllOrders: 0,
-    getRestaurants: 0
-  });
   
   // Get all orders with optional filters - prevent excessive fetching
   const getAllOrders = useCallback(async (filters = {}, forceRefresh = false) => {
-    // If we've already fetched orders and this isn't a forced refresh, return cached data
-    if (orders.length > 0 && !forceRefresh && !filters.restaurantId && !filters.branchId) {
-      return { success: true, orders };
-    }
-    
-    // Track fetch count
-    fetchCounter.current.getAllOrders++;
-    console.log(`[FETCH] getAllOrders called ${fetchCounter.current.getAllOrders} times`);
-
     setLoading(true);
     setError(null);
     
@@ -59,29 +44,49 @@ export const OrderProvider = ({ children }) => {
       if (filters.branchId) queryParams.append('branchId', filters.branchId);
       else if (user?.branchId) queryParams.append('branchId', user.branchId);
       
-      if (filters.orderStatus) queryParams.append('status', filters.orderStatus);
-      if (filters.orderType) queryParams.append('type', filters.orderType);
+      if (filters.orderStatus) queryParams.append('orderStatus', filters.orderStatus);
+      if (filters.orderType) queryParams.append('OrderType', filters.orderType); // Backend expects OrderType
       if (filters.startDate) queryParams.append('startDate', filters.startDate);
       if (filters.endDate) queryParams.append('endDate', filters.endDate);
       
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
-      const response = await api.get(`/orders${query}`);
+      // Use different endpoints based on user role and filters
+      let endpoint = '/orders';
       
-      // Ensure response.data is an array before setting it
-      const ordersData = Array.isArray(response.data) ? response.data : [];
+      // For Super_Admin with filters, use the specialized endpoint
+      if (user?.role === 'Super_Admin' && (filters.restaurantId || filters.branchId || filters.orderStatus || filters.orderType || filters.startDate || filters.endDate)) {
+        endpoint = '/orders/all';
+      }
+      // For regular users, the /orders endpoint will automatically filter based on user's permissions
+      
+      const response = await api.get(`${endpoint}${query}`);
+      
+      // Handle different response formats
+      let ordersData;
+      if (response.data.data && Array.isArray(response.data.data)) {
+        // Standard success response format with data wrapper
+        ordersData = response.data.data;
+      } else if (Array.isArray(response.data)) {
+        // Direct array response
+        ordersData = response.data;
+      } else {
+        // Fallback to empty array
+        ordersData = [];
+      }
       
       // Update state with the fetched orders
       setOrders(ordersData);
       return { success: true, orders: ordersData };
     } catch (err) {
+      console.error('Error fetching orders:', err);
       const errorMsg = err.response?.data?.message || 'Failed to fetch orders';
       setError(errorMsg);
       return { success: false, message: errorMsg };
     } finally {
       setLoading(false);
     }
-  }, [user, orders]);
+  }, [user]); // Remove orders dependency to prevent infinite loop
 
   // Get order reports with optional filters
   const getOrderReports = useCallback(async (reportType, filters = {}) => {
@@ -89,6 +94,8 @@ export const OrderProvider = ({ children }) => {
     setError(null);
     
     try {
+      console.log(`OrderContext: Fetching ${reportType} reports with filters:`, filters);
+      
       // Build the query string based on filters
       const queryParams = new URLSearchParams();
       
@@ -103,15 +110,73 @@ export const OrderProvider = ({ children }) => {
       
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
-      // For demo purposes, we'll simulate API responses
-      // In a real implementation, replace with actual API calls
-      const response = await api.get(`/orders/reports/${reportType}${query}`).catch(() => {
-        // Fallback for demo if endpoint doesn't exist
-        return mockReportData(reportType);
-      });
+      // Use real API endpoint based on report type
+      let endpoint = '';
+      
+      switch (reportType) {
+        case 'daily':
+        case 'weekly':
+        case 'monthly':
+          endpoint = `/orders/reports/${reportType}${query}`;
+          break;
+        case 'topSellingItems':
+          endpoint = `/orders/reports/items/top${query}`;
+          break;
+        case 'revenueByCategory':
+          endpoint = `/orders/reports/revenue/category${query}`;
+          break;
+        case 'orderStatusDistribution':
+          endpoint = `/orders/statistics${query}`;
+          break;
+        case 'revenueTrends':
+          endpoint = `/orders/reports/trends${query}`;
+          break;
+        default:
+          endpoint = `/orders/reports/${reportType}${query}`;
+      }
+      
+      console.log(`OrderContext: Fetching data from endpoint: ${endpoint}`);
+      
+      let reportData;
+      try {
+        // Fetch real data from the API
+        const apiResponse = await api.get(endpoint);
+        
+        if (apiResponse.data && (apiResponse.data.data || Array.isArray(apiResponse.data))) {
+          reportData = {
+            data: apiResponse.data.data || apiResponse.data
+          };
+          console.log(`OrderContext: Successfully fetched real data for ${reportType}`, reportData);
+        } else {
+          throw new Error('Invalid API response format');
+        }
+      } catch (apiError) {
+          console.error(`OrderContext: API call failed for ${reportType}:`, apiError);
+          
+          // Special handling for specific report types
+          if (reportType === 'orderStatusDistribution') {
+            // Try to use statistics endpoint for order status data
+            try {
+              const statsResponse = await api.get('/orders/statistics' + query);
+              if (statsResponse.data) {
+                reportData = processOrderStatisticsForStatusDistribution(statsResponse.data);
+                console.log(`OrderContext: Processed order statistics for status distribution:`, reportData);
+                return reportData;
+              }
+            } catch (statsError) {
+              console.error(`OrderContext: Statistics endpoint failed too:`, statsError);
+              setError(`Failed to fetch order status distribution data: ${statsError.message || 'Unknown error'}`);
+              return { success: false, message: `Failed to fetch order status distribution data` };
+            }
+          }
+          
+          // Return error information to the UI
+          setError(`Failed to fetch ${reportType} report data: ${apiError.message || 'Unknown error'}`);
+          return { success: false, message: `Failed to fetch ${reportType} report data` };
+      }
       
       // Store the reports in the appropriate state based on type
-      const reportData = response.data || [];
+      console.log(`OrderContext: Setting ${reportType} report data:`, reportData);
       
       setOrderReports(prev => ({
         ...prev,
@@ -120,6 +185,7 @@ export const OrderProvider = ({ children }) => {
       
       return { success: true, reports: reportData };
     } catch (err) {
+      console.error(`OrderContext: Error fetching ${reportType} reports:`, err);
       const errorMsg = err.response?.data?.message || `Failed to fetch ${reportType} reports`;
       setError(errorMsg);
       return { success: false, message: errorMsg };
@@ -134,19 +200,39 @@ export const OrderProvider = ({ children }) => {
     setError(null);
     
     try {
-      // In production, use an actual API endpoint for reports
       const reports = {};
+      const errors = [];
       
-      // Fetch all report types
-      reports.daily = await getOrderReports('daily', filters).then(res => res.reports);
-      reports.weekly = await getOrderReports('weekly', filters).then(res => res.reports);
-      reports.monthly = await getOrderReports('monthly', filters).then(res => res.reports);
-      reports.topSellingItems = await getOrderReports('topSellingItems', filters).then(res => res.reports);
-      reports.revenueByCategory = await getOrderReports('revenueByCategory', filters).then(res => res.reports);
-      reports.orderStatusDistribution = await getOrderReports('orderStatusDistribution', filters).then(res => res.reports);
-      reports.revenueTrends = await getOrderReports('revenueTrends', filters).then(res => res.reports);
+      // Fetch all report types with improved error handling
+      const reportTypes = ['daily', 'weekly', 'monthly', 'topSellingItems', 'revenueByCategory', 'orderStatusDistribution', 'revenueTrends'];
       
+      // Process each report type
+      for (const type of reportTypes) {
+        try {
+          const result = await getOrderReports(type, filters);
+          if (result.success) {
+            reports[type] = result.reports;
+          } else {
+            errors.push(`${type}: ${result.message}`);
+            reports[type] = { data: [] }; // Empty placeholder for failed reports
+          }
+        } catch (reportError) {
+          console.error(`Error fetching ${type} report:`, reportError);
+          errors.push(`${type}: ${reportError.message || 'Unknown error'}`);
+          reports[type] = { data: [] }; // Empty placeholder for failed reports
+        }
+      }
+      
+      // Update state with all reports (even if some failed)
       setOrderReports(reports);
+      
+      // Set error if any reports failed
+      if (errors.length > 0) {
+        const errorMessage = `Some reports failed to load: ${errors.join('; ')}`;
+        setError(errorMessage);
+        return { success: false, message: errorMessage, partialReports: reports };
+      }
+      
       return { success: true, reports };
     } catch (err) {
       const errorMsg = err.response?.data?.message || 'Failed to fetch reports';
@@ -175,13 +261,9 @@ export const OrderProvider = ({ children }) => {
       
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
-      // For production, use an actual API endpoint for report generation
+      // Use the real API endpoint for report generation
       const response = await api.get(`/orders/report/${reportType}/download${query}`, {
         responseType: 'blob'
-      }).catch(() => {
-        // Mock the response for demo purposes
-        const mockBlob = new Blob(['Order report data'], { type: 'application/pdf' });
-        return { data: mockBlob };
       });
       
       // Create a download link and trigger download
@@ -221,13 +303,9 @@ export const OrderProvider = ({ children }) => {
       
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
-      // For production, use an actual API endpoint for export
+      // Use the real API endpoint for export
       const response = await api.get(`/orders/export/${format}${query}`, {
         responseType: 'blob'
-      }).catch(() => {
-        // Mock the response for demo purposes
-        const mockBlob = new Blob(['Order export data'], { type: format === 'csv' ? 'text/csv' : 'application/vnd.ms-excel' });
-        return { data: mockBlob };
       });
       
       // Create a download link and trigger download
@@ -251,15 +329,6 @@ export const OrderProvider = ({ children }) => {
 
   // Get restaurants with country information - prevent excessive fetching
   const getRestaurants = useCallback(async (forceRefresh = false) => {
-    // If we've already fetched restaurants and this isn't a forced refresh, return cached data
-    if (restaurants.length > 0 && !forceRefresh) {
-      return { success: true, restaurants };
-    }
-    
-    // Track fetch count
-    fetchCounter.current.getRestaurants++;
-    console.log(`[FETCH] getRestaurants called ${fetchCounter.current.getRestaurants} times`);
-    
     setLoading(true);
     setError(null);
     
@@ -288,7 +357,7 @@ export const OrderProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [user, restaurants]);
+  }, [user]); // Remove restaurants dependency to prevent infinite loop
 
   // Get branches for a restaurant
   const getBranchesForRestaurant = useCallback(async (restaurantId) => {
@@ -327,19 +396,44 @@ export const OrderProvider = ({ children }) => {
     setError(null);
     
     try {
-      const response = await api.put(`/orders/${orderId}/status`, { status });
+      console.log('Updating order status:', orderId, 'to:', status);
+      
+      const response = await api.patch(`/orders/${orderId}/status`, { 
+        orderStatus: status  // Backend expects 'orderStatus', not 'status'
+      });
+      
+      console.log('Status update response:', response.data);
       
       // Update orders state with the updated order, ensuring orders is an array
       setOrders(prevOrders => {
         if (!Array.isArray(prevOrders)) {
-          return [response.data];
+          return [response.data.data || response.data];
         }
-        return prevOrders.map(order => order._id === orderId ? response.data : order);
+        return prevOrders.map(order => 
+          order._id === orderId ? (response.data.data || response.data) : order
+        );
       });
       
-      return { success: true, order: response.data };
+      return { success: true, order: response.data.data || response.data };
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Failed to update order status';
+      console.error('Error updating order status:', err);
+      
+      let errorMsg = 'Failed to update order status';
+      
+      if (err.response) {
+        console.error('Server error response:', err.response.status, err.response.data);
+        
+        if (err.response.status === 404) {
+          errorMsg = 'Order not found';
+        } else if (err.response.status === 400) {
+          errorMsg = err.response.data?.message || 'Invalid status value';
+        } else if (err.response.data?.message) {
+          errorMsg = err.response.data.message;
+        }
+      } else if (err.request) {
+        errorMsg = 'Network error - please check your connection';
+      }
+      
       setError(errorMsg);
       return { success: false, message: errorMsg };
     } finally {
@@ -353,7 +447,11 @@ export const OrderProvider = ({ children }) => {
     setError(null);
     
     try {
+      console.log('Deleting order:', orderId);
+      
       await api.delete(`/orders/${orderId}`);
+      
+      console.log('Order deleted successfully');
       
       // Remove the deleted order from state, ensuring orders is an array
       setOrders(prevOrders => {
@@ -365,7 +463,24 @@ export const OrderProvider = ({ children }) => {
       
       return { success: true };
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Failed to delete order';
+      console.error('Error deleting order:', err);
+      
+      let errorMsg = 'Failed to delete order';
+      
+      if (err.response) {
+        console.error('Server error response:', err.response.status, err.response.data);
+        
+        if (err.response.status === 404) {
+          errorMsg = 'Order not found';
+        } else if (err.response.status === 403) {
+          errorMsg = 'You do not have permission to delete this order';
+        } else if (err.response.data?.message) {
+          errorMsg = err.response.data.message;
+        }
+      } else if (err.request) {
+        errorMsg = 'Network error - please check your connection';
+      }
+      
       setError(errorMsg);
       return { success: false, message: errorMsg };
     } finally {
@@ -379,12 +494,51 @@ export const OrderProvider = ({ children }) => {
     setError(null);
     
     try {
+      console.log('Generating invoice for order:', orderId);
+      
+      // Check if we have a valid token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+      
       const response = await api.get(`/orders/${orderId}/invoice`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 30000 // 30 second timeout for PDF generation
       });
       
+      console.log('Invoice response received:', response.status, response.headers);
+      
+      // Check if response is actually a PDF
+      const contentType = response.headers['content-type'] || response.headers['Content-Type'];
+      console.log('Content-Type:', contentType);
+      
+      if (contentType && !contentType.includes('application/pdf')) {
+        console.error('Unexpected content type:', contentType);
+        
+        // If it's JSON, try to parse error message
+        if (contentType.includes('application/json')) {
+          const text = await response.data.text();
+          try {
+            const errorData = JSON.parse(text);
+            throw new Error(errorData.message || 'Server returned error instead of PDF');
+          } catch {
+            throw new Error('Server returned unexpected response format');
+          }
+        }
+        
+        throw new Error('Invalid response format - expected PDF');
+      }
+      
+      // Ensure we have data
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Empty response received from server');
+      }
+      
+      console.log('PDF size:', response.data.size, 'bytes');
+      
       // Create a download link and trigger download
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `invoice-${orderId}.pdf`);
@@ -392,9 +546,44 @@ export const OrderProvider = ({ children }) => {
       link.click();
       document.body.removeChild(link);
       
+      // Clean up the object URL
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+      
+      console.log('Invoice download initiated successfully');
       return { success: true };
+      
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Failed to generate invoice';
+      console.error('Invoice generation error:', err);
+      
+      let errorMsg = 'Failed to generate invoice';
+      
+      if (err.response) {
+        // Server responded with error status
+        console.error('Server error response:', err.response.status, err.response.statusText);
+        
+        if (err.response.status === 404) {
+          errorMsg = 'Order not found';
+        } else if (err.response.status === 401) {
+          errorMsg = 'Authentication required - please log in again';
+        } else if (err.response.status === 500) {
+          errorMsg = 'Server error while generating invoice';
+        } else if (err.response.data) {
+          // Try to extract error message from response
+          if (typeof err.response.data === 'string') {
+            errorMsg = err.response.data;
+          } else if (err.response.data.message) {
+            errorMsg = err.response.data.message;
+          }
+        }
+      } else if (err.request) {
+        // Network error
+        console.error('Network error:', err.request);
+        errorMsg = 'Network error - please check your connection and try again';
+      } else {
+        // Other error
+        errorMsg = err.message || errorMsg;
+      }
+      
       setError(errorMsg);
       return { success: false, message: errorMsg };
     } finally {
@@ -402,98 +591,37 @@ export const OrderProvider = ({ children }) => {
     }
   }, []);
 
-  // Mock report data for demo purposes
-  const mockReportData = (reportType) => {
-    const today = new Date();
-    const mockData = {};
+  // Helper function to process order statistics data for status distribution
+  const processOrderStatisticsForStatusDistribution = (statsData) => {
+    if (!statsData || !statsData.ordersByStatus) return { data: {} };
     
-    switch(reportType) {
-      case 'daily':
-        mockData.data = Array.from({ length: 7 }, (_, i) => ({
-          date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - i).toISOString().split('T')[0],
-          orderCount: Math.floor(Math.random() * 50) + 10,
-          revenue: (Math.random() * 2000 + 500).toFixed(2)
-        }));
-        break;
-        
-      case 'weekly':
-        mockData.data = Array.from({ length: 4 }, (_, i) => ({
-          week: `Week ${i+1}`,
-          orderCount: Math.floor(Math.random() * 200) + 50,
-          revenue: (Math.random() * 10000 + 2000).toFixed(2)
-        }));
-        break;
-        
-      case 'monthly':
-        mockData.data = Array.from({ length: 12 }, (_, i) => {
-          const month = new Date(today.getFullYear(), i, 1);
-          return {
-            month: month.toLocaleString('default', { month: 'long' }),
-            orderCount: Math.floor(Math.random() * 500) + 100,
-            revenue: (Math.random() * 30000 + 5000).toFixed(2)
-          };
-        });
-        break;
-        
-      case 'topSellingItems':
-        mockData.data = [
-          { name: 'Burger', quantity: Math.floor(Math.random() * 100) + 50, revenue: (Math.random() * 2000 + 500).toFixed(2) },
-          { name: 'Pizza', quantity: Math.floor(Math.random() * 100) + 30, revenue: (Math.random() * 1500 + 400).toFixed(2) },
-          { name: 'Pasta', quantity: Math.floor(Math.random() * 80) + 20, revenue: (Math.random() * 1200 + 300).toFixed(2) },
-          { name: 'Salad', quantity: Math.floor(Math.random() * 60) + 15, revenue: (Math.random() * 800 + 200).toFixed(2) },
-          { name: 'Sandwich', quantity: Math.floor(Math.random() * 50) + 10, revenue: (Math.random() * 600 + 150).toFixed(2) }
-        ];
-        break;
-        
-      case 'revenueByCategory':
-        mockData.data = [
-          { name: 'Main Course', revenue: (Math.random() * 20000 + 5000).toFixed(2) },
-          { name: 'Appetizers', revenue: (Math.random() * 10000 + 2000).toFixed(2) },
-          { name: 'Desserts', revenue: (Math.random() * 8000 + 1000).toFixed(2) },
-          { name: 'Beverages', revenue: (Math.random() * 5000 + 1000).toFixed(2) },
-          { name: 'Sides', revenue: (Math.random() * 3000 + 500).toFixed(2) }
-        ];
-        break;
-        
-      case 'orderStatusDistribution':
-        const pendingCount = Math.floor(Math.random() * 100) + 10;
-        const processingCount = Math.floor(Math.random() * 80) + 20;
-        const completedCount = Math.floor(Math.random() * 200) + 50;
-        const cancelledCount = Math.floor(Math.random() * 30) + 5;
-        const total = pendingCount + processingCount + completedCount + cancelledCount;
-        
-        mockData.data = {
-          Pending: { count: pendingCount, percentage: (pendingCount / total * 100).toFixed(2) },
-          Processing: { count: processingCount, percentage: (processingCount / total * 100).toFixed(2) },
-          Completed: { count: completedCount, percentage: (completedCount / total * 100).toFixed(2) },
-          Cancelled: { count: cancelledCount, percentage: (cancelledCount / total * 100).toFixed(2) }
-        };
-        break;
-        
-      case 'revenueTrends':
-        mockData.data = Array.from({ length: 12 }, (_, i) => {
-          const month = new Date(today.getFullYear(), i, 1);
-          return {
-            month: month.toLocaleString('default', { month: 'long' }),
-            dineIn: (Math.random() * 10000 + 2000).toFixed(2),
-            takeout: (Math.random() * 8000 + 1000).toFixed(2),
-            delivery: (Math.random() * 12000 + 3000).toFixed(2)
-          };
-        });
-        break;
-        
-      default:
-        mockData.data = [];
-    }
+    const statusMap = {};
+    let totalOrders = 0;
     
-    return mockData;
+    // Process order status data
+    statsData.ordersByStatus.forEach(status => {
+      totalOrders += status.count;
+      statusMap[status._id] = {
+        count: status.count,
+        revenue: status.revenue
+      };
+    });
+    
+    // Calculate percentages
+    Object.keys(statusMap).forEach(status => {
+      statusMap[status].percentage = ((statusMap[status].count / totalOrders) * 100).toFixed(2);
+    });
+    
+    return { data: statusMap };
   };
+
+  // Note: Mock data functionality has been removed. 
+  // All reports now use real data from the backend API endpoints.
 
   // Initialize by fetching orders if the context is newly mounted - FIX LOOP ISSUE
   useEffect(() => {
     // Prevent multiple fetches and only fetch on first mount
     if (user && !initialFetchDone.current) {
-      console.log('[INIT] Initial OrderContext fetch started');
       initialFetchDone.current = true;
       
       const initializeData = async () => {

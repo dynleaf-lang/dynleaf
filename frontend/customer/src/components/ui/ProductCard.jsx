@@ -18,8 +18,10 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
   }
   
   if (!Array.isArray(product.sizeVariants)) { 
-    product.sizeVariants = [];  }
-      const { addToCart } = useCart();
+    product.sizeVariants = [];  
+  }
+  
+  const { addItem } = useCart();
   const { currencySymbol, formatCurrency } = useCurrency();
   const [showOptions, setShowOptions] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState({});
@@ -162,9 +164,9 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           value: variantName,
           price: parseFloat(lowestPriceSizeVariant.price) || 0
         }];
-        addToCart(product, quantity, formattedOptions, sourcePosition);
+        addItem(product, quantity, formattedOptions, sourcePosition);
       } else {
-        addToCart(product, quantity, [], sourcePosition);
+        addItem(product, quantity, [], sourcePosition);
       }
     }
   };
@@ -275,7 +277,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       console.log("Modal position for animation:", sourcePosition);
     }
 
-    addToCart(product, quantity, formattedOptions, sourcePosition);
+    addItem(product, quantity, formattedOptions, sourcePosition);
     setShowOptions(false);
     setSelectedOptions({});
     setQuantity(1);

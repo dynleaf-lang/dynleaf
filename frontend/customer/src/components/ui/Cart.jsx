@@ -2,9 +2,11 @@ import React, { useState, useEffect, memo, useCallback, createContext, useContex
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
-import { useCurrency } from '../../context/CurrencyContext'; 
+import { useCurrency } from '../../context/CurrencyContext';
+import { useAuth } from '../../context/AuthContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
+import CheckoutAuth from './CheckoutAuth';
 
 // Import enhanced components
 import EmptyCart from './EmptyCart';
@@ -1241,7 +1243,8 @@ const CartWithProvider = ({ isOpen, onClose }) => {
 const CartComponent = ({ isOpen, onClose }) => {
   const { 
     cartItems, 
-    cartTotal, 
+    cartTotal,
+    cartLoaded,
     removeFromCart, 
     updateQuantity, 
     clearCart,
@@ -1251,12 +1254,16 @@ const CartComponent = ({ isOpen, onClose }) => {
     orderPlaced,
     setOrderPlaced,
     currentOrder,
-    setCurrentOrder
+    setCurrentOrder,
+    debugCartState
   } = useCart();
   const { orderType, setOrderType } = useOrderType();
   const { restaurant, branch, table } = useRestaurant();
+  const { isAuthenticated } = useAuth();
   const { currencySymbol, formatCurrency } = useCurrency();
   const [checkoutStep, setCheckoutStep] = useState('cart');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
@@ -1264,6 +1271,15 @@ const CartComponent = ({ isOpen, onClose }) => {
   });
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Set loading based on cartLoaded state
+  useEffect(() => {
+    setIsLoading(!cartLoaded);
+    if (cartLoaded) {
+      console.log('Cart loaded, cartItems:', cartItems);
+      debugCartState?.();
+    }
+  }, [cartLoaded, cartItems, debugCartState]);
   
   // Reset checkout step when cart is opened
   useEffect(() => {
@@ -1284,7 +1300,13 @@ const CartComponent = ({ isOpen, onClose }) => {
     // Handler for proceeding to checkout step
     const handleProceedToCheckout = () => {
       if (cartItems.length > 0) {
-        setCheckoutStep('checkout');
+        // Check if user is authenticated before proceeding to checkout
+        if (isAuthenticated) {
+          setCheckoutStep('checkout');
+        } else {
+          // Show authentication modal if not authenticated
+          setShowAuthModal(true);
+        }
       }
     };
       // Handler for placing an order
@@ -1649,6 +1671,22 @@ const CartComponent = ({ isOpen, onClose }) => {
                 {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation" />}
               </AnimatePresence>
             </div>
+            
+            {/* Authentication Modal */}
+            <CheckoutAuth
+              isOpen={showAuthModal}
+              onClose={() => setShowAuthModal(false)}
+              onLoginClick={() => {
+                setShowAuthModal(false);
+                // Handle login - you might want to redirect to login page or show login modal
+                // For now, just close the modal and stay in cart
+              }}
+              onSignupClick={() => {
+                setShowAuthModal(false);
+                // Handle signup - you might want to redirect to signup page or show signup modal
+                // For now, just close the modal and stay in cart
+              }}
+            />
             
             {/* Add a global keyframe for spinner animation */}
             <style jsx global>{`

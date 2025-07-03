@@ -185,8 +185,8 @@ export const mapTableToFrontend = (table) => {
   
   return {
     _id: table._id,
-    id: table._id, // Adding id for compatibility
-    name: `Table ${table.tableNumber}`,
+    id: table.tableId, // Adding id for compatibility
+    name: table.TableName,
     tableNumber: table.tableNumber,
     capacity: table.capacity,
     isOccupied: table.status === 'occupied',

@@ -115,7 +115,8 @@ const Index = (props) => {
   useEffect(() => {
     if (!branchOrders || branchOrders.length === 0) {
       // If no orders data, use default chart data
-      setSalesChartData(chartExample1[chartExample1Data]);
+      const defaultChartData = chartExample1[chartExample1Data](null);
+      setSalesChartData(defaultChartData);
       setOrdersChartData(chartExample2.data);
       return;
     }
@@ -170,13 +171,15 @@ const Index = (props) => {
       });
       
       // Create chart datasets
+      const defaultDataset = chartExample1.data1(null).datasets[0];
+      
       const monthChartData = {
         labels: Object.keys(monthData),
         datasets: [
           {
             label: "Sales",
             data: Object.values(monthData),
-            ...chartExample1.data1.datasets[0]
+            ...defaultDataset
           }
         ]
       };
@@ -187,7 +190,7 @@ const Index = (props) => {
           {
             label: "Sales",
             data: Object.values(weekData),
-            ...chartExample1.data1.datasets[0]
+            ...defaultDataset
           }
         ]
       };

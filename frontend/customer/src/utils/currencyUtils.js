@@ -61,16 +61,24 @@ export const formatCurrencyByCountry = (amount, countryCode = 'DEFAULT') => {
   const currencyInfo = countryCurrencyMap[countryCode] || countryCurrencyMap.DEFAULT;
   
   try {
-    // Format using Intl.NumberFormat with the appropriate locale and currency
-    return new Intl.NumberFormat(currencyInfo.locale, {
+    // Check if amount is a whole number
+    const isWholeNumber = Math.floor(parseFloat(amount)) === parseFloat(amount);
+    
+    // Format using Intl.NumberFormat with appropriate fraction digits
+    const formatted = new Intl.NumberFormat(currencyInfo.locale, {
       style: 'currency',
       currency: currencyInfo.code,
-      minimumFractionDigits: 2,
+      minimumFractionDigits: isWholeNumber ? 0 : 2,
       maximumFractionDigits: 2
     }).format(amount);
+    
+    return formatted;
   } catch (error) {
     // Fallback to basic formatting if Intl fails
-    return `${currencyInfo.symbol}${parseFloat(amount).toFixed(2)}`;
+    // For the fallback, also handle whole numbers
+    const num = parseFloat(amount);
+    const isWholeNumber = Math.floor(num) === num;
+    return `${currencyInfo.symbol}${isWholeNumber ? num.toFixed(0) : num.toFixed(2)}`;
   }
 };
 

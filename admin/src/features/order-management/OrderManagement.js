@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -35,7 +35,8 @@ import {
 } from 'reactstrap';
 import { useOrder } from '../../context/OrderContext';
 import { AuthContext } from '../../context/AuthContext';
-import { formatCurrencyByCountry } from '../../utils/currencyUtils';
+import { useSocket } from '../../context/SocketContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import Header from '../../components/Headers/Header';
 import { 
   FaSearch, 
@@ -96,6 +97,46 @@ const OrderManagement = () => {
     direction: 'desc',
   });  const [activeTab, setActiveTab] = useState('all');
   const [activeOrderType, setActiveOrderType] = useState('all');
+  const [generatingInvoice, setGeneratingInvoice] = useState(null); // Track which order is generating invoice
+  const [updatingStatus, setUpdatingStatus] = useState(false); // Track status update loading
+  
+  // Notification state for better UX
+  const [notification, setNotification] = useState({
+    show: false,
+    type: 'success', // success, danger, warning, info
+    title: '',
+    message: '',
+    autoClose: true
+  });
+  
+  // Track recently updated orders for visual feedback
+  const [recentlyUpdatedOrders, setRecentlyUpdatedOrders] = useState(new Set());
+  
+  // Add ref to track initial fetch
+  const initialFetchDone = React.useRef(false);
+
+  // Notification helper function
+  const showNotification = (type, title, message, autoClose = true) => {
+    setNotification({
+      show: true,
+      type,
+      title,
+      message,
+      autoClose
+    });
+
+    // Auto-close notification after 4 seconds
+    if (autoClose) {
+      setTimeout(() => {
+        setNotification(prev => ({ ...prev, show: false }));
+      }, 4000);
+    }
+  };
+
+  // Close notification manually
+  const closeNotification = () => {
+    setNotification(prev => ({ ...prev, show: false }));
+  };
 
   const {
     orders: rawOrders,
@@ -103,7 +144,6 @@ const OrderManagement = () => {
     error,
     restaurants,
     branches,
-    countryCode,
     getAllOrders,
     getRestaurants,
     getBranchesForRestaurant,
@@ -116,78 +156,57 @@ const OrderManagement = () => {
   const orders = Array.isArray(rawOrders) ? rawOrders : [];
 
   const { user } = useContext(AuthContext);
-
-  // Initialize and load data
-  useEffect(() => {
-    if (user) {
-      applyFilters();
-    }
-  }, [user]);
-    // Filter orders when search term, filters, or orders list changes
-  useEffect(() => {
-    if (orders && orders.length > 0) {
-      filterOrders();
-    }
-  }, [searchTerm, statusFilter, orderTypeFilter, dateRange, orders, sortConfig, activeTab, activeOrderType]);
-
-  // Handle restaurant selection change
-  const handleRestaurantChange = async (e) => {
-    const restaurantId = e.target.value;
-    setSelectedRestaurant(restaurantId);
-    setSelectedBranch(''); // Reset branch selection
-    
-    if (restaurantId) {
-      await getBranchesForRestaurant(restaurantId);
-    }
-    applyFilters(restaurantId, '');
-  };
-
-  // Handle branch selection change
-  const handleBranchChange = async (e) => {
-    const branchId = e.target.value;
-    setSelectedBranch(branchId);
-    applyFilters(selectedRestaurant, branchId);
-  };
-
-  // Apply filters when querying for orders
-  const applyFilters = async (restaurantId = selectedRestaurant, branchId = selectedBranch) => {
-    const filters = {};
-    
-    // Location filters
-    if (restaurantId) filters.restaurantId = restaurantId;
-    if (branchId) filters.branchId = branchId;
-    
-    // Status and type filters
-    if (statusFilter) filters.orderStatus = statusFilter;
-    if (orderTypeFilter) filters.OrderType = orderTypeFilter;
-    
-    // Date range filters
-    if (dateRange.startDate) filters.startDate = dateRange.startDate;
-    if (dateRange.endDate) filters.endDate = dateRange.endDate;
-    
-    await getAllOrders(filters);
-  };
   
-  // Reset all filters
-  const resetFilters = async () => {
-    setSelectedRestaurant('');
-    setSelectedBranch('');
-    setStatusFilter('');
-    setOrderTypeFilter('');
-    setDateRange({
-      startDate: '',
-      endDate: '',
-    });
-    setSearchTerm('');
-    await getAllOrders();
+  // Currency context for proper currency formatting based on user's branch country
+  const { formatCurrency } = useCurrency();
+  
+  // Socket context for real-time updates
+  const { 
+    isConnected, 
+    onOrderUpdate, 
+    onStatusUpdate, 
+    onNewOrder,
+    offOrderUpdate,
+    offStatusUpdate,
+    offNewOrder
+  } = useSocket();
+
+  // Helper function to safely get order type
+  const getOrderType = (order) => {
+    return order?.OrderType || order?.orderType || 'Dine-In';
   };
+
+  // Helper function to safely get order status
+  const getOrderStatus = (order) => {
+    return order?.orderStatus || order?.status || 'Pending';
+  };
+
   // Client-side filtering and sorting
-  const filterOrders = () => {
+  const filterOrders = useCallback(() => {
     let filtered = [...orders];
     
     // Filter by active status tab
     if (activeTab !== 'all') {
-      filtered = filtered.filter(order => order.orderStatus.toLowerCase() === activeTab);
+      filtered = filtered.filter(order => {
+        const status = order.orderStatus || order.status || '';
+        
+        // Normalize status for comparison
+        const normalizedStatus = status.toLowerCase();
+        const targetStatus = activeTab.toLowerCase();
+        
+        // Handle various status format variations
+        if (targetStatus === 'pending') {
+          return normalizedStatus === 'pending' || normalizedStatus === 'new' || normalizedStatus === 'placed';
+        } else if (targetStatus === 'processing') {
+          return normalizedStatus === 'processing' || normalizedStatus === 'in_progress' || normalizedStatus === 'preparing';
+        } else if (targetStatus === 'completed') {
+          return normalizedStatus === 'completed' || normalizedStatus === 'complete' || normalizedStatus === 'delivered' || normalizedStatus === 'finished';
+        } else if (targetStatus === 'cancelled') {
+          return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled' || normalizedStatus === 'rejected';
+        }
+        
+        return normalizedStatus === targetStatus;
+      });
     }
     
     // Filter by active order type tab
@@ -202,10 +221,46 @@ const OrderManagement = () => {
     // Apply search term filter
     if (searchTerm) {
       const lowercasedTerm = searchTerm.toLowerCase();
-      filtered = filtered.filter(order => 
-        (order.orderId && order.orderId.toLowerCase().includes(lowercasedTerm)) ||
-        (order.customerId && order.customerId.name && order.customerId.name.toLowerCase().includes(lowercasedTerm))
-      );
+      filtered = filtered.filter(order => {
+        // Search in order ID
+        if (order.orderId && order.orderId.toLowerCase().includes(lowercasedTerm)) {
+          return true;
+        }
+        
+        // Search in customer data (object format)
+        if (order.customerId && typeof order.customerId === 'object' && order.customerId !== null) {
+          const customerName = order.customerId.name || order.customerId.firstName || '';
+          const customerPhone = order.customerId.phone || order.customerId.contactNumber || '';
+          const customerEmail = order.customerId.email || '';
+          
+          if (customerName.toLowerCase().includes(lowercasedTerm) ||
+              customerPhone.toLowerCase().includes(lowercasedTerm) ||
+              customerEmail.toLowerCase().includes(lowercasedTerm)) {
+            return true;
+          }
+        }
+        
+        // Search in customer data (string format)
+        if (order.customerId && typeof order.customerId === 'string' && 
+            order.customerId.toLowerCase().includes(lowercasedTerm)) {
+          return true;
+        }
+        
+        // Search in direct customer fields
+        if (order.customerName && order.customerName.toLowerCase().includes(lowercasedTerm)) {
+          return true;
+        }
+        
+        if (order.customerPhone && order.customerPhone.toLowerCase().includes(lowercasedTerm)) {
+          return true;
+        }
+        
+        if (order.customerEmail && order.customerEmail.toLowerCase().includes(lowercasedTerm)) {
+          return true;
+        }
+        
+        return false;
+      });
     }
     
     // Sort the filtered orders
@@ -240,6 +295,163 @@ const OrderManagement = () => {
     }
     
     setFilteredOrders(filtered);
+  }, [orders, activeTab, activeOrderType, searchTerm, sortConfig]);
+
+  // Initialize and load data
+  useEffect(() => {
+    if (user && !initialFetchDone.current) {
+      initialFetchDone.current = true;
+      
+      // Force refresh on first load to get fresh data
+      getAllOrders({}, true);
+      
+      // If Super_Admin, also get restaurants for filtering
+      if (user.role === 'Super_Admin') {
+        getRestaurants();
+      }
+    }
+  }, [user]); // Remove function dependencies to prevent infinite loop
+  // Filter orders when search term, filters, or orders list changes
+  useEffect(() => {
+    if (orders && orders.length > 0) {
+      filterOrders();
+    } else {
+      // If no orders, ensure filtered orders is also empty
+      setFilteredOrders([]);
+    }
+  }, [orders, filterOrders]); // Only depend on orders and the memoized filterOrders function
+
+  // Setup real-time socket listeners
+  useEffect(() => {
+    if (!isConnected) return;
+
+    // Handle order updates (created, updated, deleted)
+    const handleOrderUpdate = (data) => {
+      console.log('[SOCKET] Order update received:', data);
+      const { order, eventType } = data;
+      
+      // Force refresh orders to get the latest data
+      getAllOrders({}, true);
+      
+      // Show notification based on event type
+      if (eventType === 'created') {
+        showNotification(
+          'info',
+          'New Order Received!',
+          `Order #${order.orderId} has been placed.`,
+          true
+        );
+      } else if (eventType === 'updated') {
+        showNotification(
+          'success',
+          'Order Updated!',
+          `Order #${order.orderId} has been updated.`,
+          true
+        );
+      }
+    };
+
+    // Handle status updates specifically
+    const handleStatusUpdate = (data) => {
+      console.log('[SOCKET] Status update received:', data);
+      const { orderNumber, oldStatus, newStatus } = data;
+      
+      // Force refresh orders to get the latest data
+      getAllOrders({}, true);
+      
+      // Show status change notification
+      showNotification(
+        'info',
+        'Order Status Changed!',
+        `Order #${orderNumber} status changed from ${oldStatus} to ${newStatus}.`,
+        true
+      );
+    };
+
+    // Handle new order notifications
+    const handleNewOrder = (data) => {
+      console.log('[SOCKET] New order notification received:', data);
+      const { order } = data;
+      
+      // Force refresh orders to get the latest data
+      getAllOrders({}, true);
+      
+      // Show new order notification with sound/special styling
+      showNotification(
+        'success',
+        '🔔 New Order Alert!',
+        `Order #${order.orderId} has been placed. Total: ${formatCurrency(order.totalAmount)}`,
+        false // Don't auto-close for new orders
+      );
+    };
+
+    // Register event listeners
+    onOrderUpdate(handleOrderUpdate);
+    onStatusUpdate(handleStatusUpdate);
+    onNewOrder(handleNewOrder);
+
+    // Cleanup listeners when component unmounts or connection changes
+    return () => {
+      offOrderUpdate();
+      offStatusUpdate();
+      offNewOrder();
+    };
+  }, [isConnected]); // Only depend on isConnected to avoid infinite re-renders
+
+  // Handle restaurant selection change
+  const handleRestaurantChange = async (e) => {
+    const restaurantId = e.target.value;
+    setSelectedRestaurant(restaurantId);
+    setSelectedBranch(''); // Reset branch selection
+    
+    if (restaurantId) {
+      await getBranchesForRestaurant(restaurantId);
+    }
+    applyFilters(restaurantId, '');
+  };
+
+  // Handle branch selection change
+  const handleBranchChange = async (e) => {
+    const branchId = e.target.value;
+    setSelectedBranch(branchId);
+    applyFilters(selectedRestaurant, branchId);
+  };
+
+  // Apply filters when querying for orders
+  const applyFilters = async (restaurantId = selectedRestaurant, branchId = selectedBranch) => {
+    const filters = {};
+    
+    // Location filters
+    if (restaurantId) filters.restaurantId = restaurantId;
+    if (branchId) filters.branchId = branchId;
+    
+    // Status and type filters
+    if (statusFilter) filters.orderStatus = statusFilter;
+    if (orderTypeFilter) filters.orderType = orderTypeFilter; // Fixed: use orderType not OrderType
+    
+    // Date range filters
+    if (dateRange.startDate) filters.startDate = dateRange.startDate;
+    if (dateRange.endDate) filters.endDate = dateRange.endDate;
+    
+    await getAllOrders(filters, true); // Force refresh when applying filters
+  };
+  
+  // Reset all filters
+  const resetFilters = async () => {
+    setSelectedRestaurant('');
+    setSelectedBranch('');
+    setStatusFilter('');
+    setOrderTypeFilter('');
+    setDateRange({
+      startDate: '',
+      endDate: '',
+    });
+    setSearchTerm('');
+    setActiveTab('all');
+    setActiveOrderType('all');
+    
+    // Force refresh to get all orders without filters
+    await getAllOrders({}, true);
   };
 
   // Handle sorting
@@ -259,18 +471,54 @@ const OrderManagement = () => {
   // Open status update modal
   const handleOpenStatusModal = (order) => {
     setSelectedOrder(order);
-    setNewStatus(order.orderStatus);
+    setNewStatus(getOrderStatus(order));
     setShowStatusModal(true);
   };
 
   // Update order status
   const handleUpdateStatus = async () => {
+    setUpdatingStatus(true);
+    
     try {
-      await updateOrderStatus(selectedOrder._id, newStatus);
-      setShowStatusModal(false);
-      setSelectedOrder(null);
+      const result = await updateOrderStatus(selectedOrder._id, newStatus);
+      
+      if (result.success) {
+        setShowStatusModal(false);
+        
+        // Mark order as recently updated for visual feedback
+        setRecentlyUpdatedOrders(prev => new Set([...prev, selectedOrder._id]));
+        setTimeout(() => {
+          setRecentlyUpdatedOrders(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(selectedOrder._id);
+            return newSet;
+          });
+        }, 3000); // Remove highlight after 3 seconds
+        
+        setSelectedOrder(null);
+        // Show success notification
+        showNotification(
+          'success',
+          'Status Updated Successfully!',
+          `Order #${selectedOrder.orderId} status has been updated to "${newStatus}".`
+        );
+      } else {
+        // Show specific error notification
+        showNotification(
+          'danger',
+          'Failed to Update Status',
+          result.message || 'An unknown error occurred while updating the order status.'
+        );
+      }
     } catch (error) {
       console.error('Error updating status:', error);
+      showNotification(
+        'danger',
+        'Network Error',
+        error.message || 'Unable to connect to the server. Please check your connection and try again.'
+      );
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -283,20 +531,61 @@ const OrderManagement = () => {
   // Delete order
   const handleDeleteOrder = async () => {
     try {
-      await deleteOrder(selectedOrder._id);
-      setShowDeleteConfirm(false);
-      setSelectedOrder(null);
+      const result = await deleteOrder(selectedOrder._id);
+      
+      if (result.success) {
+        setShowDeleteConfirm(false);
+        setSelectedOrder(null);
+        showNotification(
+          'success',
+          'Order Deleted Successfully!',
+          `Order #${selectedOrder.orderId} has been permanently removed from your records.`
+        );
+      } else {
+        showNotification(
+          'danger',
+          'Failed to Delete Order',
+          result.message || 'An unknown error occurred while deleting the order.'
+        );
+      }
     } catch (error) {
       console.error('Error deleting order:', error);
+      showNotification(
+        'danger',
+        'Network Error',
+        error.message || 'Unable to connect to the server. Please check your connection and try again.'
+      );
     }
   };
 
   // Handle invoice generation
   const handleGenerateInvoice = async (order) => {
+    setGeneratingInvoice(order._id);
+    
     try {
-      await generateInvoice(order._id);
+      const result = await generateInvoice(order._id);
+      if (result.success) {
+        showNotification(
+          'success',
+          'Invoice Generated Successfully!',
+          `Invoice for Order #${order.orderId} has been generated and downloaded.`
+        );
+      } else {
+        showNotification(
+          'warning',
+          'Invoice Generation Failed',
+          result.message || 'Unable to generate invoice. Please try again.'
+        );
+      }
     } catch (error) {
       console.error('Error generating invoice:', error);
+      showNotification(
+        'danger',
+        'Network Error',
+        error.message || 'Unable to connect to the server. Please check your connection and try again.'
+      );
+    } finally {
+      setGeneratingInvoice(null);
     }
   };
 
@@ -309,10 +598,7 @@ const OrderManagement = () => {
     }
   };
 
-  // Format currency
-  const formatCurrency = (amount) => {
-    return formatCurrencyByCountry(amount, countryCode);
-  };
+
     // Count orders by type
   const countOrdersByType = (type) => {
     if (!Array.isArray(orders)) return 0;
@@ -326,6 +612,30 @@ const OrderManagement = () => {
   // Get total orders count
   const getTotalOrdersCount = () => {
     return Array.isArray(orders) ? orders.length : 0;
+  };
+
+  // Safe status filtering for tabs
+  const getOrdersByStatus = (status) => {
+    if (!Array.isArray(orders)) return 0;
+    
+    return orders.filter(order => {
+      const orderStatus = order.orderStatus || order.status || '';
+      const normalizedStatus = orderStatus.toLowerCase();
+      const targetStatus = status.toLowerCase();
+      
+      // Handle various status format variations
+      if (targetStatus === 'pending') {
+        return normalizedStatus === 'pending' || normalizedStatus === 'new' || normalizedStatus === 'placed';
+      } else if (targetStatus === 'processing') {
+        return normalizedStatus === 'processing' || normalizedStatus === 'in_progress' || normalizedStatus === 'preparing';
+      } else if (targetStatus === 'completed') {
+        return normalizedStatus === 'completed' || normalizedStatus === 'complete' || normalizedStatus === 'delivered' || normalizedStatus === 'finished';
+      } else if (targetStatus === 'cancelled') {
+        return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled' || normalizedStatus === 'rejected';
+      }
+      
+      return normalizedStatus === targetStatus;
+    }).length;
   };
     // Get the title based on user role and branch assignment
   const getTitle = () => {
@@ -376,7 +686,47 @@ const OrderManagement = () => {
   };
     // Render order status badge
   const renderStatusBadge = (status) => {
-    const statusInfo = OrderStatus[status] || { color: 'secondary', icon: null, label: status };
+    // Handle different possible status formats and values
+    let normalizedStatus = '';
+    
+    if (!status) {
+      normalizedStatus = 'Pending'; // Default to Pending instead of Unknown
+    } else if (typeof status === 'string') {
+      // Normalize the status - handle different cases and variations
+      const cleanStatus = status.trim();
+      
+      // Map common variations to standard statuses
+      const statusMap = {
+        'pending': 'Pending',
+        'PENDING': 'Pending',
+        'processing': 'Processing', 
+        'PROCESSING': 'Processing',
+        'in_progress': 'Processing',
+        'IN_PROGRESS': 'Processing',
+        'completed': 'Completed',
+        'COMPLETED': 'Completed',
+        'complete': 'Completed',
+        'COMPLETE': 'Completed',
+        'cancelled': 'Cancelled',
+        'CANCELLED': 'Cancelled',
+        'canceled': 'Cancelled',
+        'CANCELED': 'Cancelled',
+        'rejected': 'Cancelled',
+        'REJECTED': 'Cancelled'
+      };
+      
+      normalizedStatus = statusMap[cleanStatus.toLowerCase()] || cleanStatus;
+    } else {
+      normalizedStatus = String(status);
+    }
+    
+    // Get status info with fallback
+    const statusInfo = OrderStatus[normalizedStatus] || { 
+      color: 'secondary', 
+      icon: FaClock, 
+      label: normalizedStatus || 'Pending' 
+    };
+    
     const IconComponent = statusInfo.icon;
     
     return (
@@ -388,7 +738,51 @@ const OrderManagement = () => {
   };
     // Render order type badge
   const renderOrderTypeBadge = (type) => {
-    const typeInfo = OrderType[type] || { color: 'secondary', icon: null, label: type };
+    // Handle different possible type formats and values
+    let normalizedType = '';
+    
+    if (!type) {
+      normalizedType = 'Dine-In'; // Default to Dine-In instead of N/A
+    } else if (typeof type === 'string') {
+      // Normalize the type - handle different cases and variations
+      const cleanType = type.trim();
+      
+      // Map common variations to standard types
+      const typeMap = {
+        'dine-in': 'Dine-In',
+        'dine_in': 'Dine-In',
+        'dinein': 'Dine-In',
+        'DINE-IN': 'Dine-In',
+        'DINE_IN': 'Dine-In',
+        'DINEIN': 'Dine-In',
+        'eat-in': 'Dine-In',
+        'EAT-IN': 'Dine-In',
+        'takeout': 'Takeout',
+        'take-out': 'Takeout',
+        'take_out': 'Takeout',
+        'TAKEOUT': 'Takeout',
+        'TAKE-OUT': 'Takeout',
+        'TAKE_OUT': 'Takeout',
+        'pickup': 'Takeout',
+        'PICKUP': 'Takeout',
+        'delivery': 'Delivery',
+        'DELIVERY': 'Delivery',
+        'deliver': 'Delivery',
+        'DELIVER': 'Delivery'
+      };
+      
+      normalizedType = typeMap[cleanType.toLowerCase()] || cleanType;
+    } else {
+      normalizedType = String(type);
+    }
+    
+    // Get type info with fallback
+    const typeInfo = OrderType[normalizedType] || { 
+      color: 'info', 
+      icon: FaUtensils, 
+      label: normalizedType || 'Dine-In' 
+    };
+    
     const IconComponent = typeInfo.icon;
     
     return (
@@ -402,6 +796,144 @@ const OrderManagement = () => {
   return (
     <>
       <Header />
+      
+      {/* Notification Component */}
+      {notification.show && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: '80px',
+            right: '20px',
+            zIndex: 9999,
+            minWidth: '380px',
+            maxWidth: '480px'
+          }}
+        >
+          <Alert 
+            color={notification.type} 
+            isOpen={notification.show}
+            toggle={closeNotification}
+            className="shadow-lg border-0 mb-0 notification-slide-in"
+            style={{
+              borderRadius: '12px',
+              boxShadow: '0 15px 35px rgba(0,0,0,0.1), 0 5px 15px rgba(0,0,0,0.07)',
+              border: `2px solid ${
+                notification.type === 'success' ? '#2dce89' :
+                notification.type === 'danger' ? '#f5365c' :
+                notification.type === 'warning' ? '#fb6340' :
+                '#11cdef'
+              }`
+            }}
+          >
+            <div className="d-flex align-items-start">
+              <div 
+                className={`mr-3 mt-1 p-2 rounded-circle bg-white`}
+                style={{
+                  color: notification.type === 'success' ? '#2dce89' :
+                         notification.type === 'danger' ? '#f5365c' :
+                         notification.type === 'warning' ? '#fb6340' :
+                         '#11cdef'
+                }}
+              >
+                {notification.type === 'success' && <FaCheck size={16} />}
+                {notification.type === 'danger' && <FaTimes size={16} />}
+                {notification.type === 'warning' && <FaClock size={16} />}
+                {notification.type === 'info' && <FaClock size={16} />}
+              </div>
+              <div className="flex-1">
+                <h6 className="mb-1 font-weight-bold text-white">
+                  {notification.title}
+                </h6>
+                <p className="mb-0 text-white" style={{ opacity: 0.9, fontSize: '0.875rem' }}>
+                  {notification.message}
+                </p>
+              </div>
+              <Button 
+                close 
+                onClick={closeNotification}
+                className="ml-2 text-white"
+                style={{ 
+                  fontSize: '1.2rem', 
+                  opacity: 0.8,
+                  background: 'none',
+                  border: 'none'
+                }}
+              />
+            </div>
+            
+            {/* Auto-close progress bar */}
+            {notification.autoClose && (
+              <div 
+                className="progress mt-2"
+                style={{ height: '2px', background: 'rgba(255,255,255,0.2)' }}
+              >
+                <div 
+                  className="progress-bar bg-white"
+                  style={{
+                    animation: 'shrinkWidth 4s linear',
+                    width: '100%'
+                  }}
+                ></div>
+              </div>
+            )}
+          </Alert>
+        </div>
+      )}
+
+      {/* CSS for notification animations */}
+      <style>
+        {`
+          @keyframes shrinkWidth {
+            from { width: 100%; }
+            to { width: 0%; }
+          }
+          
+          .notification-slide-in {
+            animation: slideInRight 0.3s ease-out;
+          }
+          
+          @keyframes slideInRight {
+            from {
+              transform: translateX(100%);
+              opacity: 0;
+            }
+            to {
+              transform: translateX(0);
+              opacity: 1;
+            }
+          }
+          
+          .table-row-highlight {
+            animation: highlightRow 3s ease-out;
+          }
+          
+          @keyframes highlightRow {
+            0% { background-color: rgba(45, 206, 137, 0.3); }
+            50% { background-color: rgba(45, 206, 137, 0.15); }
+            100% { background-color: transparent; }
+          }
+          
+          @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+          }
+          
+          .btn:hover {
+            transform: translateY(-1px);
+            transition: all 0.2s ease;
+          }
+          
+          .badge {
+            transition: all 0.2s ease;
+          }
+          
+          .badge:hover {
+            transform: scale(1.05);
+          }
+        `}
+      </style>
+      
       <Container className="mt--7" fluid>
         <Row>
           <Col>
@@ -417,6 +949,25 @@ const OrderManagement = () => {
                     )}
                   </Col>
                   <Col className="text-right" xs="4">
+                    {/* Real-time Connection Status */}
+                    <span className="mr-3">
+                      <Badge 
+                        color={isConnected ? 'success' : 'warning'} 
+                        className="d-inline-flex align-items-center"
+                      >
+                        <span 
+                          className={`mr-1 ${isConnected ? 'text-success' : 'text-warning'}`}
+                          style={{ 
+                            width: '8px', 
+                            height: '8px', 
+                            borderRadius: '50%', 
+                            backgroundColor: isConnected ? '#2dce89' : '#fb6340',
+                            animation: isConnected ? 'none' : 'pulse 2s infinite'
+                          }}
+                        ></span>
+                        {isConnected ? 'Live' : 'Offline'}
+                      </Badge>
+                    </span>
                     <Button
                       color="secondary"
                       size="sm"
@@ -453,7 +1004,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('pending')}
                     >
                       <Badge color="warning" pill className="mr-1">
-                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Pending').length : 0}
+                        {getOrdersByStatus('Pending')}
                       </Badge>
                       Pending
                     </NavLink>
@@ -464,7 +1015,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('processing')}
                     >
                       <Badge color="primary" pill className="mr-1">
-                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Processing').length : 0}
+                        {getOrdersByStatus('Processing')}
                       </Badge>
                       Processing
                     </NavLink>
@@ -475,7 +1026,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('completed')}
                     >
                       <Badge color="success" pill className="mr-1">
-                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Completed').length : 0}
+                        {getOrdersByStatus('Completed')}
                       </Badge>
                       Completed
                     </NavLink>
@@ -486,7 +1037,7 @@ const OrderManagement = () => {
                       onClick={() => setActiveTab('cancelled')}
                     >
                       <Badge color="danger" pill className="mr-1">
-                        {Array.isArray(orders) ? orders.filter(o => o.orderStatus === 'Cancelled').length : 0}
+                        {getOrdersByStatus('Cancelled')}
                       </Badge>
                       Cancelled
                     </NavLink>
@@ -726,6 +1277,8 @@ const OrderManagement = () => {
                   </Col>
                 </Row>
 
+              
+
                 {/* Loading and Error States */}
                 {loading && (
                   <div className="text-center py-4">
@@ -798,16 +1351,22 @@ const OrderManagement = () => {
                           )}
                           <th scope="col">Actions</th>
                         </tr>                      </thead>                      <tbody>                        {filteredOrders.map(order => {
-                          const orderType = order.OrderType || order.orderType || '';
+                          const orderType = getOrderType(order);
+                          const isRecentlyUpdated = recentlyUpdatedOrders.has(order._id);
                           
                           return (
                             <tr 
                               key={order._id}
-                              className={activeOrderType !== 'all' ? 'table-active' : ''}
+                              className={`
+                                ${activeOrderType !== 'all' ? 'table-active' : ''}
+                                ${isRecentlyUpdated ? 'table-success' : ''}
+                              `.trim()}
                               style={{
                                 borderLeft: orderType === 'Dine-In' ? '2px solid #5e72e4' : 
                                           orderType === 'Takeout' ? '2px solid #fb6340' : 
-                                          orderType === 'Delivery' ? '2px solid #11cdef' : ''
+                                          orderType === 'Delivery' ? '2px solid #11cdef' : '',
+                                transition: 'all 0.3s ease',
+                                backgroundColor: isRecentlyUpdated ? 'rgba(45, 206, 137, 0.1)' : ''
                               }}
                             >
                               <td>
@@ -815,16 +1374,25 @@ const OrderManagement = () => {
                               </td>
                               <td>
                                 {order.customerId ? (
-                                  typeof order.customerId === 'object' ? (
+                                  typeof order.customerId === 'object' && order.customerId !== null ? (
                                     <div>
-                                      <div className="font-weight-bold">{order.customerId.name}</div>
-                                      <small>{order.customerId.phone}</small>
+                                      <div className="font-weight-bold">
+                                        {order.customerId.name || order.customerId.firstName || 'Unknown Customer'}
+                                      </div>
+                                      <small>
+                                        {order.customerId.phone || order.customerId.email || order.customerId.contactNumber || 'No contact info'}
+                                      </small>
                                     </div>
                                   ) : (
-                                    <span className="text-muted">ID: {order.customerId}</span>
+                                    <span className="text-muted">Customer ID: {order.customerId}</span>
                                   )
+                                ) : order.customerName ? (
+                                  <div>
+                                    <div className="font-weight-bold">{order.customerName}</div>
+                                    <small>{order.customerPhone || order.customerEmail || 'No contact info'}</small>
+                                  </div>
                                 ) : (
-                                  <span className="text-muted">Unknown</span>
+                                  <span className="text-muted">Walk-in Customer</span>
                                 )}
                               </td>
                               <td>
@@ -834,19 +1402,19 @@ const OrderManagement = () => {
                               </td>
                               <td>
                                 <Badge color="info" pill>
-                                  {order.items.length}
+                                  {order.items ? order.items.length : 0}
                                 </Badge>
                               </td>
                               <td>
                                 <span className="font-weight-bold">
-                                  {formatCurrency(order.totalAmount)}
+                                  {formatCurrency(order.totalAmount || 0)}
                                 </span>
                               </td>
                               <td>
-                                {renderOrderTypeBadge(order.OrderType)}
+                                {renderOrderTypeBadge(getOrderType(order))}
                               </td>
                               <td>
-                                {renderStatusBadge(order.orderStatus)}
+                                {renderStatusBadge(getOrderStatus(order))}
                               </td>
                               {user.role === 'Super_Admin' && (
                                 <td>
@@ -879,13 +1447,25 @@ const OrderManagement = () => {
                                     <DropdownItem onClick={() => handleViewDetails(order)}>
                                       <FaEye className="text-primary mr-2" /> View Details
                                     </DropdownItem>
-                                    {order.orderStatus !== 'Completed' && order.orderStatus !== 'Cancelled' && (
+                                    {getOrderStatus(order) !== 'Completed' && getOrderStatus(order) !== 'Cancelled' && (
                                       <DropdownItem onClick={() => handleOpenStatusModal(order)}>
                                         <FaEdit className="text-info mr-2" /> Update Status
                                       </DropdownItem>
                                     )}
-                                    <DropdownItem onClick={() => handleGenerateInvoice(order)}>
-                                      <FaFilePdf className="text-danger mr-2" /> Generate Invoice
+                                    <DropdownItem 
+                                      onClick={() => handleGenerateInvoice(order)}
+                                      disabled={generatingInvoice === order._id}
+                                    >
+                                      {generatingInvoice === order._id ? (
+                                        <>
+                                          <Spinner size="sm" className="text-danger mr-2" />
+                                          Generating...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <FaFilePdf className="text-danger mr-2" /> Generate Invoice
+                                        </>
+                                      )}
                                     </DropdownItem>
                                     <DropdownItem onClick={() => handleOpenDeleteModal(order)}>
                                       <FaTrashAlt className="text-danger mr-2" /> Delete
@@ -920,13 +1500,13 @@ const OrderManagement = () => {
                 <Col xs="12">
                   <Alert 
                     color={
-                      selectedOrder.OrderType === 'Dine-In' ? 'info' : 
-                      selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                      getOrderType(selectedOrder) === 'Dine-In' ? 'info' : 
+                      getOrderType(selectedOrder) === 'Takeout' ? 'warning' : 
                       'primary'
                     }
                     className="mb-0"
                   >
-                    {selectedOrder.OrderType === 'Dine-In' && (
+                    {getOrderType(selectedOrder) === 'Dine-In' && (
                       <div className="d-flex align-items-center">
                         <FaUtensils className="mr-2" />
                         <div>
@@ -935,7 +1515,7 @@ const OrderManagement = () => {
                         </div>
                       </div>
                     )}
-                    {selectedOrder.OrderType === 'Takeout' && (
+                    {getOrderType(selectedOrder) === 'Takeout' && (
                       <div className="d-flex align-items-center">
                         <FaShoppingBag className="mr-2" />
                         <div>
@@ -944,7 +1524,7 @@ const OrderManagement = () => {
                         </div>
                       </div>
                     )}
-                    {selectedOrder.OrderType === 'Delivery' && (
+                    {getOrderType(selectedOrder) === 'Delivery' && (
                       <div className="d-flex align-items-center">
                         <FaTruck className="mr-2" />
                         <div>
@@ -972,14 +1552,14 @@ const OrderManagement = () => {
                       </tr>
                       <tr>
                         <th scope="row">Status:</th>
-                        <td>{renderStatusBadge(selectedOrder.orderStatus)}</td>
+                        <td>{renderStatusBadge(getOrderStatus(selectedOrder))}</td>
                       </tr>
                       <tr>
                         <th scope="row">Type:</th>
-                        <td>{renderOrderTypeBadge(selectedOrder.OrderType)}</td>
+                        <td>{renderOrderTypeBadge(getOrderType(selectedOrder))}</td>
                       </tr>
                       <tr>
-                        <th scope="row">{selectedOrder.OrderType === 'Dine-In' ? 'Table:' : 'Pickup/Delivery #:'}</th>
+                        <th scope="row">{getOrderType(selectedOrder) === 'Dine-In' ? 'Table:' : 'Pickup/Delivery #:'}</th>
                         <td>{selectedOrder.tableId || 'N/A'}</td>
                       </tr>
                     </tbody>
@@ -992,25 +1572,25 @@ const OrderManagement = () => {
                       <tr>
                         <th scope="row" width="40%">Name:</th>
                         <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' 
-                            ? selectedOrder.customerId.name 
-                            : 'Unknown'}
+                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null 
+                            ? (selectedOrder.customerId.name || selectedOrder.customerId.firstName || 'Unknown Customer')
+                            : selectedOrder.customerName || 'Walk-in Customer'}
                         </td>
                       </tr>
                       <tr>
                         <th scope="row">Phone:</th>
                         <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId.phone 
-                            ? selectedOrder.customerId.phone 
-                            : 'N/A'}
+                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
+                            ? (selectedOrder.customerId.phone || selectedOrder.customerId.contactNumber || 'N/A')
+                            : selectedOrder.customerPhone || 'N/A'}
                         </td>
                       </tr>
                       <tr>
                         <th scope="row">Email:</th>
                         <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId.email 
-                            ? selectedOrder.customerId.email 
-                            : 'N/A'}
+                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
+                            ? (selectedOrder.customerId.email || 'N/A')
+                            : selectedOrder.customerEmail || 'N/A'}
                         </td>
                       </tr>
                       <tr>
@@ -1047,7 +1627,7 @@ const OrderManagement = () => {
                             <span className="font-weight-bold">{item.itemId.name}</span>
                           </div>
                         ) : (
-                          <span>Item ID: {item.itemId}</span>
+                          <span>{item.name}</span>
                         )}
                       </td>
                       <td>
@@ -1099,8 +1679,21 @@ const OrderManagement = () => {
           <Button color="secondary" onClick={() => setShowOrderDetails(false)}>
             Close
           </Button>
-          <Button color="danger" onClick={() => handleGenerateInvoice(selectedOrder)}>
-            <FaFilePdf className="mr-2" /> Generate Invoice
+          <Button 
+            color="danger" 
+            onClick={() => handleGenerateInvoice(selectedOrder)}
+            disabled={generatingInvoice === selectedOrder?._id}
+          >
+            {generatingInvoice === selectedOrder?._id ? (
+              <>
+                <Spinner size="sm" className="mr-2" />
+                Generating Invoice...
+              </>
+            ) : (
+              <>
+                <FaFilePdf className="mr-2" /> Generate Invoice
+              </>
+            )}
           </Button>
         </ModalFooter>
       </Modal>      {/* Status Update Modal */}
@@ -1114,18 +1707,18 @@ const OrderManagement = () => {
             <Form>
               <Alert 
                 color={
-                  selectedOrder.OrderType === 'Dine-In' ? 'info' : 
-                  selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                  getOrderType(selectedOrder) === 'Dine-In' ? 'info' : 
+                  getOrderType(selectedOrder) === 'Takeout' ? 'warning' : 
                   'primary'
                 }
                 className="mb-3"
               >
                 <div className="d-flex align-items-center">
-                  {selectedOrder.OrderType === 'Dine-In' && <FaUtensils className="mr-2" />}
-                  {selectedOrder.OrderType === 'Takeout' && <FaShoppingBag className="mr-2" />}
-                  {selectedOrder.OrderType === 'Delivery' && <FaTruck className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Dine-In' && <FaUtensils className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Takeout' && <FaShoppingBag className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Delivery' && <FaTruck className="mr-2" />}
                   <div>
-                    <strong>{selectedOrder.OrderType} Order #{selectedOrder.orderId}</strong>
+                    <strong>{getOrderType(selectedOrder)} Order #{selectedOrder.orderId}</strong>
                     <div><small>{formatDate(selectedOrder.orderDate)}</small></div>
                   </div>
                 </div>
@@ -1141,6 +1734,7 @@ const OrderManagement = () => {
                   id="orderStatus"
                   value={newStatus}
                   onChange={(e) => setNewStatus(e.target.value)}
+                  disabled={updatingStatus}
                   className={
                     newStatus === 'Pending' ? 'border-warning' : 
                     newStatus === 'Processing' ? 'border-primary' :
@@ -1157,7 +1751,7 @@ const OrderManagement = () => {
               
               <div className="d-flex align-items-center mb-3">
                 <span className="mr-2">Current Status:</span> 
-                {renderStatusBadge(selectedOrder.orderStatus)}
+                {renderStatusBadge(getOrderStatus(selectedOrder))}
               </div>
               
               <Alert 
@@ -1166,9 +1760,9 @@ const OrderManagement = () => {
               >
                 <div className="d-flex align-items-center">
                   <i className="fas fa-info-circle mr-2"></i>
-                  {selectedOrder.OrderType === 'Dine-In' 
+                  {getOrderType(selectedOrder) === 'Dine-In' 
                     ? 'Updating status for Dine-In order will notify wait staff.' 
-                    : selectedOrder.OrderType === 'Takeout' 
+                    : getOrderType(selectedOrder) === 'Takeout' 
                     ? 'Updating status for Takeout order will notify pickup counter.' 
                     : 'Updating status will notify delivery personnel.'}
                 </div>
@@ -1177,11 +1771,30 @@ const OrderManagement = () => {
           )}
         </ModalBody>
         <ModalFooter>
-          <Button color="secondary" onClick={() => setShowStatusModal(false)}>
+          <Button 
+            color="secondary" 
+            onClick={() => setShowStatusModal(false)}
+            disabled={updatingStatus}
+          >
             Cancel
           </Button>
-          <Button color="primary" onClick={handleUpdateStatus} disabled={loading}>
-            {loading ? <Spinner size="sm" /> : 'Update Status'}
+          <Button 
+            color="primary" 
+            onClick={handleUpdateStatus} 
+            disabled={updatingStatus || loading}
+            className="px-4"
+          >
+            {updatingStatus ? (
+              <>
+                <Spinner size="sm" className="mr-2" />
+                Updating Status...
+              </>
+            ) : (
+              <>
+                <FaCheck className="mr-2" />
+                Update Status
+              </>
+            )}
           </Button>
         </ModalFooter>
       </Modal>      {/* Delete Confirmation Modal */}
@@ -1195,25 +1808,25 @@ const OrderManagement = () => {
             <>
               <Alert 
                 color={
-                  selectedOrder.OrderType === 'Dine-In' ? 'info' : 
-                  selectedOrder.OrderType === 'Takeout' ? 'warning' : 
+                  getOrderType(selectedOrder) === 'Dine-In' ? 'info' : 
+                  getOrderType(selectedOrder) === 'Takeout' ? 'warning' : 
                   'primary'
                 }
                 className="mb-3"
               >
                 <div className="d-flex align-items-center">
-                  {selectedOrder.OrderType === 'Dine-In' && <FaUtensils className="mr-2" />}
-                  {selectedOrder.OrderType === 'Takeout' && <FaShoppingBag className="mr-2" />}
-                  {selectedOrder.OrderType === 'Delivery' && <FaTruck className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Dine-In' && <FaUtensils className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Takeout' && <FaShoppingBag className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Delivery' && <FaTruck className="mr-2" />}
                   <div>
-                    <strong>{selectedOrder.OrderType} Order #{selectedOrder.orderId}</strong>
+                    <strong>{getOrderType(selectedOrder)} Order #{selectedOrder.orderId}</strong>
                     <div><small>{formatDate(selectedOrder.orderDate)}</small></div>
                   </div>
                 </div>
               </Alert>
               
               <Alert color="danger" className="mt-3">
-                <p className="mb-0"><strong>Warning:</strong> Are you sure you want to delete this {selectedOrder.OrderType.toLowerCase()} order? This action cannot be undone.</p>
+                <p className="mb-0"><strong>Warning:</strong> Are you sure you want to delete this {getOrderType(selectedOrder).toLowerCase()} order? This action cannot be undone.</p>
               </Alert>
               
               <p className="text-muted">

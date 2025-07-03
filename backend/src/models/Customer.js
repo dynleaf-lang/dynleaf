@@ -24,14 +24,14 @@ const customerSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        required: false, // Changed from true to false to make it optional
-        unique: false, // Changed from true to false since it's optional
+        required: false,
+        unique: false,
         lowercase: true,
         sparse: true, // Added sparse index to allow multiple null/undefined values
     },
     phone: {
         type: String,
-        required: true,
+        required: false, // Changed to false since either email OR phone is required, not both
     },
     address: {
         type: String,

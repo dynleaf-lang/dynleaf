@@ -1,6 +1,7 @@
 import React, { useState, memo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { useOrderType } from '../ui/EnhancedCart';
 import { useTax } from '../../context/TaxContext';
 import { theme } from '../../data/theme';
@@ -10,10 +11,11 @@ import TaxInfo from './TaxInfo';
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
   const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
+  const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
   const { taxRate, taxName, formattedTaxRate, calculateTax } = useTax();
   
-  // Form state
+  // Form state - only needed for non-authenticated users
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
@@ -28,6 +30,14 @@ const CheckoutForm = memo(() => {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   
+  // For authenticated users, use their account info
+  const effectiveCustomerInfo = isAuthenticated && user ? {
+    name: user.name,
+    phone: user.phone || '',
+    email: user.email || '',
+    address: orderType === 'takeaway' ? customerInfo.address || '' : undefined
+  } : customerInfo;
+  
   // Update address field when order type changes
   useEffect(() => {
     if (orderType === 'takeaway') {
@@ -37,6 +47,34 @@ const CheckoutForm = memo(() => {
       }));
     }
   }, [orderType]);
+
+  // Listen for order placement results from parent component
+  useEffect(() => {
+    const handleOrderError = (event) => {
+      console.log('[CHECKOUT FORM] Order error received:', event.detail);
+      setErrorMessage(event.detail.message || 'There was an error processing your order. You can try again or continue with a temporary order.');
+      setIsSubmitting(false);
+    };
+
+    const handleOrderSuccess = (event) => {
+      console.log('[CHECKOUT FORM] Order success received:', event.detail);
+      setShowSuccessMessage(true);
+      setIsSubmitting(false);
+      
+      // Reset form after successful submission
+      setTimeout(() => {
+        setShowSuccessMessage(false);
+      }, 1500);
+    };
+
+    document.addEventListener('orderError', handleOrderError);
+    document.addEventListener('orderSuccess', handleOrderSuccess);
+
+    return () => {
+      document.removeEventListener('orderError', handleOrderError);
+      document.removeEventListener('orderSuccess', handleOrderSuccess);
+    };
+  }, []);
   
   // Handle input changes and validation on blur
   const handleInputChange = (e) => {
@@ -108,6 +146,19 @@ const CheckoutForm = memo(() => {
   
   // Validate all form fields
   const validateForm = () => {
+    // For authenticated users, only validate address if it's takeaway
+    if (isAuthenticated && user) {
+      if (orderType === 'takeaway') {
+        if (!customerInfo.address || !customerInfo.address.trim()) {
+          setFormErrors({ address: "Address is required for takeaway orders" });
+          setFormTouched({ address: true });
+          return false;
+        }
+      }
+      return true;
+    }
+    
+    // For non-authenticated users, validate all fields as before
     let isValid = true;
     let newFormTouched = {};
     let newErrors = {};
@@ -150,15 +201,26 @@ const CheckoutForm = memo(() => {
     setFormTouched(newFormTouched);
     return isValid;
   };
-    // Handle form submission
+  // Handle form submission
   const handleSubmit = (e) => {
     e.preventDefault();
     
     // Reset error messages
     setErrorMessage('');
     
+    console.log('[CHECKOUT FORM] Starting form submission...');
+    console.log('[CHECKOUT FORM] Cart items:', cartItems);
+    console.log('[CHECKOUT FORM] Cart total:', cartTotal);
+    console.log('[CHECKOUT FORM] Order note:', orderNote);
+    console.log('[CHECKOUT FORM] Order type:', orderType);
+    console.log('[CHECKOUT FORM] Authenticated:', isAuthenticated);
+    console.log('[CHECKOUT FORM] User:', user);
+    console.log('[CHECKOUT FORM] Customer info:', customerInfo);
+    console.log('[CHECKOUT FORM] Effective customer info:', effectiveCustomerInfo);
+    
     // Validate form
     if (!validateForm()) {
+      console.log('[CHECKOUT FORM] Form validation failed');
       // Scroll to first error
       const firstErrorField = document.querySelector('.form-error');
       if (firstErrorField) {
@@ -167,42 +229,31 @@ const CheckoutForm = memo(() => {
       return;
     }
     
+    console.log('[CHECKOUT FORM] Form validation passed');
+    
     // Set loading state
     setIsSubmitting(true);
     
     // Prepare order data
     const orderData = {
-      customerInfo,
+      customerInfo: effectiveCustomerInfo,
       orderType,
       note: orderNote
     };
     
-    try {
-      // Dispatch custom event to be handled by parent component
-      document.dispatchEvent(
-        new CustomEvent('placeOrder', { detail: orderData })
-      );
-      
-      // Show success message (usually this would be after API response)
-      setShowSuccessMessage(true);
-      
-      // Reset form after successful submission
-      setTimeout(() => {
-        setIsSubmitting(false);
-        setShowSuccessMessage(false);
-      }, 1500);
-    } catch (error) {
-      console.error('Error in order processing:', error);
-      setErrorMessage('There was an error placing your order. We can still proceed to the confirmation page.');
-      setIsSubmitting(false);
-      
-      // Even if there's an error, we'll allow proceeding after a delay
-      setTimeout(() => {
-        document.dispatchEvent(
-          new CustomEvent('forceConfirmation')
-        );
-      }, 2000);
-    }
+    console.log('[CHECKOUT FORM] Submitting order with data:', orderData);
+    
+    // Dispatch custom event to be handled by parent component
+    document.dispatchEvent(
+      new CustomEvent('placeOrder', { 
+        detail: { 
+          orderData: orderData 
+        } 
+      })
+    );
+    
+    // Note: Success/error handling is done by the parent component (EnhancedCart)
+    // We don't set success message here because we don't know if the API call succeeded yet
   };
 
   return (
@@ -309,206 +360,261 @@ const CheckoutForm = memo(() => {
       )}
       
       <form onSubmit={handleSubmit} noValidate>
-        {/* Customer information fields */}
-        <div style={{ marginBottom: theme.spacing.lg, marginTop: theme.spacing.md }}>
-          <label 
-            htmlFor="name" 
-            style={{ 
-              display: 'block', 
-              marginBottom: theme.spacing.xs,
-              fontSize: theme.typography.sizes.sm,
-              fontWeight: theme.typography.fontWeights.medium,
-              color: theme.colors.text.secondary,
-              display: 'flex',
-              alignItems: 'center',
-              gap: theme.spacing.xs
+        {/* Show customer info for authenticated users */}
+        {isAuthenticated && user && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              backgroundColor: theme.colors.background,
+              padding: theme.spacing.lg,
+              borderRadius: theme.borderRadius.md,
+              marginBottom: theme.spacing.lg,
+              border: `1px solid ${theme.colors.border}`
             }}
           >
-            Name <span style={{ color: theme.colors.danger }}>*</span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              id="name"
-              name="name"
-              value={customerInfo.name}
-              onChange={handleInputChange}
-              onBlur={handleBlur}
-              placeholder="Your Name"
-              required
-              className={formErrors.name ? 'form-error' : ''}
-              style={{
-                width: '100%',
-                padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
-                borderRadius: theme.borderRadius.md,
-                border: `1px solid ${formErrors.name && formTouched.name ? theme.colors.danger : theme.colors.border}`,
-                backgroundColor: formErrors.name && formTouched.name ? 'rgba(255,71,87,0.05)' : 'white',
-                outline: 'none',
-                transition: theme.transitions.fast,
-                fontSize: theme.typography.sizes.md,
-                color: theme.colors.secondary
-              }}
-            />
-            <span 
-              className="material-icons"
-              style={{ 
-                position: 'absolute', 
-                left: theme.spacing.sm, 
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: formErrors.name && formTouched.name ? theme.colors.danger : theme.colors.text.secondary,
-                fontSize: '18px'
-              }}
-            >
-              person
-            </span>
-          </div>
-          {formErrors.name && formTouched.name && (
-            <p style={{ 
-              color: theme.colors.danger, 
-              fontSize: theme.typography.sizes.sm,
-              marginTop: theme.spacing.xs,
+            <h4 style={{ 
+              margin: `0 0 ${theme.spacing.md} 0`,
+              fontSize: theme.typography.sizes.md,
+              fontWeight: theme.typography.fontWeights.semibold,
+              color: theme.colors.text.primary,
               display: 'flex',
               alignItems: 'center',
-              gap: theme.spacing.xs
+              gap: theme.spacing.sm
             }}>
-              <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
-              {formErrors.name}
-            </p>
-          )}
-        </div>
-        
-        <div style={{ marginBottom: theme.spacing.lg }}>
-          <label 
-            htmlFor="phone" 
-            style={{ 
-              display: 'block', 
-              marginBottom: theme.spacing.xs,
+              <span className="material-icons" style={{ fontSize: '20px', color: theme.colors.success }}>
+                account_circle
+              </span>
+              Ordering as: {user.name}
+            </h4>
+            
+            <div style={{ 
               fontSize: theme.typography.sizes.sm,
-              fontWeight: theme.typography.fontWeights.medium,
               color: theme.colors.text.secondary,
               display: 'flex',
-              alignItems: 'center',
-              gap: theme.spacing.xs
-            }}
-          >
-            Phone Number
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              id="phone"
-              name="phone"
-              value={customerInfo.phone}
-              onChange={handleInputChange}
-              onBlur={handleBlur}
-              placeholder="Your Phone Number"
-              style={{
-                width: '100%',
-                padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
-                borderRadius: theme.borderRadius.md,
-                border: `1px solid ${formErrors.phone && formTouched.phone ? theme.colors.danger : theme.colors.border}`,
-                backgroundColor: formErrors.phone && formTouched.phone ? 'rgba(255,71,87,0.05)' : 'white',
-                outline: 'none',
-                transition: theme.transitions.fast,
-                fontSize: theme.typography.sizes.md,
-                color: theme.colors.secondary
-              }}
-            />
-            <span 
-              className="material-icons"
-              style={{ 
-                position: 'absolute', 
-                left: theme.spacing.sm, 
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: formErrors.phone && formTouched.phone ? theme.colors.danger : theme.colors.text.secondary,
-                fontSize: '18px'
-              }}
-            >
-              smartphone
-            </span>
-          </div>
-          {formErrors.phone && formTouched.phone && (
-            <p style={{ 
-              color: theme.colors.danger, 
-              fontSize: theme.typography.sizes.sm,
-              marginTop: theme.spacing.xs,
-              display: 'flex',
-              alignItems: 'center',
+              flexDirection: 'column',
               gap: theme.spacing.xs
             }}>
-              <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
-              {formErrors.phone}
-            </p>
-          )}
-        </div>
+              {user.email && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>email</span>
+                  {user.email}
+                </div>
+              )}
+              {user.phone && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>phone</span>
+                  {user.phone}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Customer information fields - only for non-authenticated users */}
+        {!isAuthenticated && (
+          <>
+            <div style={{ marginBottom: theme.spacing.lg, marginTop: theme.spacing.md }}>
+              <label 
+                htmlFor="name" 
+                style={{ 
+                  display: 'block', 
+                  marginBottom: theme.spacing.xs,
+                  fontSize: theme.typography.sizes.sm,
+                  fontWeight: theme.typography.fontWeights.medium,
+                  color: theme.colors.text.secondary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}
+              >
+                Name <span style={{ color: theme.colors.danger }}>*</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="name"
+                  name="name"
+                  value={customerInfo.name}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  placeholder="Your Name"
+                  required
+                  className={formErrors.name ? 'form-error' : ''}
+                  style={{
+                    width: '100%',
+                    padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
+                    borderRadius: theme.borderRadius.md,
+                    border: `1px solid ${formErrors.name && formTouched.name ? theme.colors.danger : theme.colors.border}`,
+                    backgroundColor: formErrors.name && formTouched.name ? 'rgba(255,71,87,0.05)' : 'white',
+                    outline: 'none',
+                    transition: theme.transitions.fast,
+                    fontSize: theme.typography.sizes.md,
+                    color: theme.colors.secondary
+                  }}
+                />
+                <span 
+                  className="material-icons"
+                  style={{ 
+                    position: 'absolute', 
+                    left: theme.spacing.sm, 
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: formErrors.name && formTouched.name ? theme.colors.danger : theme.colors.text.secondary,
+                    fontSize: '18px'
+                  }}
+                >
+                  person
+                </span>
+              </div>
+              {formErrors.name && formTouched.name && (
+                <p style={{ 
+                  color: theme.colors.danger, 
+                  fontSize: theme.typography.sizes.sm,
+                  marginTop: theme.spacing.xs,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                  {formErrors.name}
+                </p>
+              )}
+            </div>
+            
+            <div style={{ marginBottom: theme.spacing.lg }}>
+              <label 
+                htmlFor="phone" 
+                style={{ 
+                  display: 'block', 
+                  marginBottom: theme.spacing.xs,
+                  fontSize: theme.typography.sizes.sm,
+                  fontWeight: theme.typography.fontWeights.medium,
+                  color: theme.colors.text.secondary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}
+              >
+                Phone Number
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="phone"
+                  name="phone"
+                  value={customerInfo.phone}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  placeholder="Your Phone Number"
+                  style={{
+                    width: '100%',
+                    padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
+                    borderRadius: theme.borderRadius.md,
+                    border: `1px solid ${formErrors.phone && formTouched.phone ? theme.colors.danger : theme.colors.border}`,
+                    backgroundColor: formErrors.phone && formTouched.phone ? 'rgba(255,71,87,0.05)' : 'white',
+                    outline: 'none',
+                    transition: theme.transitions.fast,
+                    fontSize: theme.typography.sizes.md,
+                    color: theme.colors.secondary
+                  }}
+                />
+                <span 
+                  className="material-icons"
+                  style={{ 
+                    position: 'absolute', 
+                    left: theme.spacing.sm, 
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: formErrors.phone && formTouched.phone ? theme.colors.danger : theme.colors.text.secondary,
+                    fontSize: '18px'
+                  }}
+                >
+                  smartphone
+                </span>
+              </div>
+              {formErrors.phone && formTouched.phone && (
+                <p style={{ 
+                  color: theme.colors.danger, 
+                  fontSize: theme.typography.sizes.sm,
+                  marginTop: theme.spacing.xs,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                  {formErrors.phone}
+                </p>
+              )}
+            </div>
+            
+            <div style={{ marginBottom: theme.spacing.lg }}>
+              <label 
+                htmlFor="email" 
+                style={{ 
+                  display: 'block', 
+                  marginBottom: theme.spacing.xs,
+                  fontSize: theme.typography.sizes.sm,
+                  fontWeight: theme.typography.fontWeights.medium,
+                  color: theme.colors.text.secondary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}
+              >
+                Email
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={customerInfo.email}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  placeholder="Your Email Address"
+                  style={{
+                    width: '100%',
+                    padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
+                    borderRadius: theme.borderRadius.md,
+                    border: `1px solid ${formErrors.email && formTouched.email ? theme.colors.danger : theme.colors.border}`,
+                    backgroundColor: formErrors.email && formTouched.email ? 'rgba(255,71,87,0.05)' : 'white',
+                    outline: 'none',
+                    transition: theme.transitions.fast,
+                    fontSize: theme.typography.sizes.md,
+                    color: theme.colors.secondary
+                  }}
+                />
+                <span 
+                  className="material-icons"
+                  style={{ 
+                    position: 'absolute', 
+                    left: theme.spacing.sm, 
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: formErrors.email && formTouched.email ? theme.colors.danger : theme.colors.text.secondary,
+                    fontSize: '18px'
+                  }}
+                >
+                  email
+                </span>
+              </div>
+              {formErrors.email && formTouched.email && (
+                <p style={{ 
+                  color: theme.colors.danger, 
+                  fontSize: theme.typography.sizes.sm,
+                  marginTop: theme.spacing.xs,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                  {formErrors.email}
+                </p>
+              )}
+            </div>
+          </>
+        )}
         
-        <div style={{ marginBottom: theme.spacing.lg }}>
-          <label 
-            htmlFor="email" 
-            style={{ 
-              display: 'block', 
-              marginBottom: theme.spacing.xs,
-              fontSize: theme.typography.sizes.sm,
-              fontWeight: theme.typography.fontWeights.medium,
-              color: theme.colors.text.secondary,
-              display: 'flex',
-              alignItems: 'center',
-              gap: theme.spacing.xs
-            }}
-          >
-            Email
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              value={customerInfo.email}
-              onChange={handleInputChange}
-              onBlur={handleBlur}
-              placeholder="Your Email Address"
-              style={{
-                width: '100%',
-                padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
-                borderRadius: theme.borderRadius.md,
-                border: `1px solid ${formErrors.email && formTouched.email ? theme.colors.danger : theme.colors.border}`,
-                backgroundColor: formErrors.email && formTouched.email ? 'rgba(255,71,87,0.05)' : 'white',
-                outline: 'none',
-                transition: theme.transitions.fast,
-                fontSize: theme.typography.sizes.md,
-                color: theme.colors.secondary
-              }}
-            />
-            <span 
-              className="material-icons"
-              style={{ 
-                position: 'absolute', 
-                left: theme.spacing.sm, 
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: formErrors.email && formTouched.email ? theme.colors.danger : theme.colors.text.secondary,
-                fontSize: '18px'
-              }}
-            >
-              email
-            </span>
-          </div>
-          {formErrors.email && formTouched.email && (
-            <p style={{ 
-              color: theme.colors.danger, 
-              fontSize: theme.typography.sizes.sm,
-              marginTop: theme.spacing.xs,
-              display: 'flex',
-              alignItems: 'center',
-              gap: theme.spacing.xs
-            }}>
-              <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
-              {formErrors.email}
-            </p>
-          )}
-        </div>
-        
-        {/* Address field for takeaway orders */}
+        {/* Address field for takeaway orders - shown for all users */}
         {orderType === 'takeaway' && (
           <div style={{ marginBottom: theme.spacing.lg }}>
             <label 
@@ -731,11 +837,8 @@ const CheckoutForm = memo(() => {
         </motion.div>
         
         {/* Buttons container with back and submit buttons */}
-        <div style={{
-          display: 'flex',
-          gap: theme.spacing.md,
-          marginBottom: theme.spacing.xl
-        }}>
+       
+          
           {/* Back button */}
           {/* <motion.button
             type="button"
@@ -805,7 +908,7 @@ const CheckoutForm = memo(() => {
               </div>
             )}
           </motion.button>
-        </div>
+         
       </form>
     </motion.div>
   );

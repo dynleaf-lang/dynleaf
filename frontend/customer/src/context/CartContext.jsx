@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRestaurant } from './RestaurantContext';
 import { useTax } from './TaxContext';
-import { api } from '../utils/apiClient';
+import { api as authApi } from '../utils/authApiClient';
+import { api } from '../utils/api';
+import { useAuth } from './AuthContext';
+import { mapOrderTypeToBackend } from '../utils/orderTypeMapping';
 
 // Create context
 const CartContext = createContext(null);
@@ -10,6 +13,7 @@ const CartContext = createContext(null);
 export const CartProvider = ({ children }) => {
   const { restaurant, branch, table } = useRestaurant();
   const { taxRate, taxName, taxDetails, calculateTax } = useTax();
+  const { isAuthenticated, user } = useAuth();
   const [cartItems, setCartItems] = useState([]);
   const [cartTotal, setCartTotal] = useState(0);
   const [orderNote, setOrderNote] = useState('');
@@ -17,6 +21,8 @@ export const CartProvider = ({ children }) => {
   const [currentOrder, setCurrentOrder] = useState(null);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderError, setOrderError] = useState(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [cartLoaded, setCartLoaded] = useState(false);
   const [cartAnimation, setCartAnimation] = useState({
     isAnimating: false,
     item: null,
@@ -25,41 +31,72 @@ export const CartProvider = ({ children }) => {
 
   // Load cart from localStorage
   useEffect(() => {
-    try {
-      const savedCart = localStorage.getItem('cart');
-      if (savedCart) {
-        const parsedCart = JSON.parse(savedCart);
-        setCartItems(parsedCart);
+    const loadCartFromStorage = () => {
+      try {
+        const savedCart = localStorage.getItem('cart');
+        console.log('Loading cart from localStorage...');
+        console.log('Raw localStorage data:', savedCart);
+        
+        if (savedCart) {
+          const parsedCart = JSON.parse(savedCart);
+          console.log('Parsed cart data:', parsedCart);
+          
+          if (Array.isArray(parsedCart) && parsedCart.length > 0) {
+            setCartItems(parsedCart);
+            console.log('Cart loaded successfully with', parsedCart.length, 'items');
+          } else {
+            console.log('Cart is empty or invalid format');
+            setCartItems([]);
+          }
+        } else {
+          console.log('No saved cart found in localStorage');
+          setCartItems([]);
+        }
+      } catch (error) {
+        console.error('Error loading cart from localStorage:', error);
+        setCartItems([]);
+      } finally {
+        setCartLoaded(true);
+        console.log('Cart loading completed');
       }
-    } catch (error) {
-      console.error('Error loading cart from localStorage:', error);
-    }
+    };
+
+    // Small delay to ensure DOM is ready and avoid conflicts
+    const timeoutId = setTimeout(() => {
+      loadCartFromStorage();
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
   }, []);
-  // Save cart to localStorage whenever it changes
+  // Save cart to localStorage whenever it changes (but only after initial load)
   useEffect(() => {
-    try {
-      localStorage.setItem('cart', JSON.stringify(cartItems));
-      
-      // Calculate total, accounting for size variants
-      const total = cartItems.reduce((sum, item) => {
-        // Use the item's price (which already includes any size variant adjustments)
-        const basePrice = item.price * item.quantity;
+    // Only save to localStorage if cart has been loaded from storage first
+    if (cartLoaded) {
+      try {
+        localStorage.setItem('cart', JSON.stringify(cartItems));
+        console.log('Cart saved to localStorage:', cartItems);
         
-        // Add any additional option prices if present
-        const optionsTotal = item.selectedOptions?.reduce((optSum, opt) => {
-          // Skip size options as their price is already reflected in the base price
-          if (opt.category === 'size' && opt.name === 'Size') return optSum;
-          return optSum + (opt.price || 0);
-        }, 0) || 0;
+        // Calculate total, accounting for size variants
+        const total = cartItems.reduce((sum, item) => {
+          // Use the item's price (which already includes any size variant adjustments)
+          const basePrice = item.price * item.quantity;
+          
+          // Add any additional option prices if present
+          const optionsTotal = item.selectedOptions?.reduce((optSum, opt) => {
+            // Skip size options as their price is already reflected in the base price
+            if (opt.category === 'size' && opt.name === 'Size') return optSum;
+            return optSum + (opt.price || 0);
+          }, 0) || 0;
+          
+          return sum + basePrice + (optionsTotal * item.quantity);
+        }, 0);
         
-        return sum + basePrice + (optionsTotal * item.quantity);
-      }, 0);
-      
-      setCartTotal(total);
-    } catch (error) {
-      console.error('Error saving cart to localStorage:', error);
+        setCartTotal(total);
+      } catch (error) {
+        console.error('Error saving cart to localStorage:', error);
+      }
     }
-  }, [cartItems]);  // Helper function to get the price for an item based on its size variant
+  }, [cartItems, cartLoaded]);  // Helper function to get the price for an item based on its size variant
   const getItemPriceWithSizeVariant = (item, selectedOptions) => {
     // Start with a copy of the item
     let result = { ...item };
@@ -115,6 +152,27 @@ export const CartProvider = ({ children }) => {
   
   // Add item to cart
   const addToCart = (item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
+    console.log('Adding item to cart:', { item, quantity, selectedOptions });
+    console.log('Item ID check:', { id: item.id, _id: item._id });
+    
+    // Reset order state when starting a new cart session (adding new items after order completion)
+    if (orderPlaced || currentOrder) {
+      console.log('[CART CONTEXT] Resetting order state due to new item being added');
+      resetOrderState();
+    }
+    
+    // Ensure the item has an ID (use _id if id is not present)
+    if (!item.id && item._id) {
+      item.id = item._id;
+    }
+    
+    if (!item.id && !item._id) {
+      console.error('Item has no ID field:', item);
+      // Show user-friendly error
+      alert('Error: Cannot add item to cart - missing item ID');
+      return;
+    }
+    
     // Check for size variant selection and adjust price if needed
     let itemToAdd = getItemPriceWithSizeVariant(item, selectedOptions);
     
@@ -158,19 +216,24 @@ export const CartProvider = ({ children }) => {
         });
         
         return optionsMatch;
-      });      if (existingItemIndex !== -1) {
+      });
+
+      let updatedItems;
+      if (existingItemIndex !== -1) {
         // Update quantity if item already exists
-        const updatedItems = [...prevItems];
+        updatedItems = [...prevItems];
         updatedItems[existingItemIndex].quantity += quantity;
-        return updatedItems;
       } else {
         // Add new item to cart with potentially updated price from sizeVariant
-        return [...prevItems, { 
+        updatedItems = [...prevItems, { 
           ...itemToAdd, 
           quantity, 
           selectedOptions
         }];
       }
+      
+      console.log('Updated cart items:', updatedItems);
+      return updatedItems;
     });
   };
 
@@ -231,13 +294,48 @@ export const CartProvider = ({ children }) => {
     });
   };
 
+  // Debug function to check localStorage state
+  const debugCartState = () => {
+    try {
+      const localStorageCart = localStorage.getItem('cart');
+      console.log('=== CART DEBUG STATE ===');
+      console.log('Cart loaded state:', cartLoaded);
+      console.log('Current localStorage cart:', localStorageCart);
+      console.log('Current cartItems state:', cartItems);
+      console.log('Current cartTotal:', cartTotal);
+      
+      if (localStorageCart) {
+        const parsedCart = JSON.parse(localStorageCart);
+        console.log('Parsed localStorage cart:', parsedCart);
+        console.log('Items in localStorage:', parsedCart.length);
+      }
+      
+      console.log('Items in React state:', cartItems.length);
+      console.log('========================');
+    } catch (error) {
+      console.error('Error debugging cart state:', error);
+    }
+  };
+
+  // Manually sync cart with localStorage
+  const syncCartWithLocalStorage = () => {
+    try {
+      localStorage.setItem('cart', JSON.stringify(cartItems));
+      console.log('Cart manually synced with localStorage:', cartItems);
+    } catch (error) {
+      console.error('Error manually syncing cart with localStorage:', error);
+    }
+  };
+
   // Clear cart
   const clearCart = () => {
     setCartItems([]);
     localStorage.removeItem('cart');
+    console.log('Cart cleared from state and localStorage');
+    // Note: We don't reset cartLoaded here because the cart is still "loaded", just empty
   };
   // Submit order using the real API
-  const placeOrder = async (customerInfo = {}) => {
+  const placeOrder = async ({ customerInfo = {}, orderType: providedOrderType, note } = {}) => {
     if (cartItems.length === 0) {
       setOrderError('Your cart is empty');
       return null;
@@ -251,6 +349,8 @@ export const CartProvider = ({ children }) => {
     try {      setOrderLoading(true);
       setOrderError(null);
 
+      console.log('[CART CONTEXT] Placing order with:', { customerInfo, orderType: providedOrderType, note });
+
       // Calculate subtotal and tax for the order
       const subtotal = cartItems.reduce((sum, item) => {
         return sum + (item.price * item.quantity);
@@ -259,27 +359,117 @@ export const CartProvider = ({ children }) => {
       // Calculate tax using the tax context
       const taxAmount = calculateTax(subtotal);
       
+      // Determine order type and map it to backend format
+      const frontendOrderType = providedOrderType || (table ? 'dineIn' : 'takeaway');
+      const finalOrderType = mapOrderTypeToBackend(frontendOrderType);
+      
+      console.log('[CART CONTEXT] Order type mapping:', {
+        provided: providedOrderType,
+        frontend: frontendOrderType,
+        backend: finalOrderType
+      });
+      
+      // Validate required IDs
+      if (!restaurant?._id) {
+        const error = 'Restaurant ID is missing - please reload the page and try again';
+        console.error('[CART CONTEXT]', error);
+        setOrderError(error);
+        throw new Error(error);
+      }
+      if (!branch?._id) {
+        const error = 'Branch ID is missing - please reload the page and try again';
+        console.error('[CART CONTEXT]', error);
+        setOrderError(error);
+        throw new Error(error);
+      }
+      
+      console.log('[CART CONTEXT] Using IDs:', {
+        restaurantId: restaurant._id,
+        branchId: branch._id,
+        tableId: table?._id || null
+      });
+
+      // Validate cart items have valid IDs
+      const invalidItems = cartItems.filter(item => !item.id && !item._id);
+      if (invalidItems.length > 0) {
+        const error = `Cart contains ${invalidItems.length} items without valid IDs`;
+        console.error('[CART CONTEXT]', error, invalidItems);
+        setOrderError(error);
+        throw new Error(error);
+      }
+      
       // Prepare order data according to the API schema
       const orderData = {
         restaurantId: restaurant._id,
         branchId: branch._id,
         tableId: table ? table._id : null,
-        items: cartItems.map(item => ({
-          menuItemId: item.id || item._id,
-          name: item.title || item.name,
-          quantity: item.quantity,
-          price: item.price,
-          notes: item.selectedOptions ? JSON.stringify(item.selectedOptions) : '',
-          subtotal: item.price * item.quantity
-        })),
+        items: cartItems.map(item => {
+          // Validate that we have a valid menuItemId
+          const menuItemId = item.id || item._id;
+          if (!menuItemId) {
+            console.error('[CART CONTEXT] Item missing ID:', item);
+            throw new Error(`Cart item "${item.title || item.name}" is missing an ID`);
+          }
+          
+          // Basic ObjectId format validation (24 character hex string)
+          if (typeof menuItemId === 'string' && !/^[0-9a-fA-F]{24}$/.test(menuItemId)) {
+            console.error('[CART CONTEXT] Item has invalid ObjectId format:', { menuItemId, item });
+            throw new Error(`Cart item "${item.title || item.name}" has invalid ID format`);
+          }
+          
+          // Ensure all required fields are valid numbers and strings
+          const quantity = Number(item.quantity);
+          const price = Number(item.price);
+          const subtotal = Number(price * quantity);
+          const name = String(item.title || item.name || 'Unknown Item');
+          
+          // Validate required fields
+          if (isNaN(quantity) || quantity <= 0) {
+            throw new Error(`Cart item "${name}" has invalid quantity: ${item.quantity}`);
+          }
+          if (isNaN(price) || price < 0) {
+            throw new Error(`Cart item "${name}" has invalid price: ${item.price}`);
+          }
+          if (isNaN(subtotal) || subtotal < 0) {
+            throw new Error(`Cart item "${name}" has invalid subtotal calculation`);
+          }
+          
+          // Format notes - convert selectedOptions to a readable string or keep as empty string
+          let notes = '';
+          if (item.selectedOptions && Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0) {
+            try {
+              // Create a more readable notes format instead of raw JSON
+              notes = item.selectedOptions
+                .filter(opt => opt && opt.value) // Only include options with values
+                .map(opt => `${opt.category || 'Option'}: ${opt.value}`)
+                .join(', ');
+            } catch (error) {
+              console.warn('[CART CONTEXT] Error formatting notes for item:', name, error);
+              notes = 'Custom options selected';
+            }
+          }
+          
+          const mappedItem = {
+            menuItemId: String(menuItemId), // Ensure it's a string
+            name: name,
+            quantity: quantity,
+            price: price,
+            notes: notes,
+            subtotal: subtotal
+          };
+          
+          console.log('[CART CONTEXT] Mapping cart item:', item, '-> mapped:', mappedItem);
+          return mappedItem;
+        }),
         customerInfo: {
           name: customerInfo.name || 'Guest',
           email: customerInfo.email || '',
           phone: customerInfo.phone || ''
         },
-        orderType: table ? 'dine-in' : 'takeaway',        paymentMethod: 'cash', // Default to cash payment
+        orderType: finalOrderType,
+        paymentMethod: 'cash', // Default to cash payment
         status: 'pending',
-        notes: orderNote,
+        notes: note || orderNote || '',
         taxAmount: taxAmount,
         taxDetails: {
           taxName: taxName,
@@ -290,10 +480,16 @@ export const CartProvider = ({ children }) => {
         subtotal: subtotal,
         total: subtotal + taxAmount
       };
-        // Call the public API to create the order
+
+      console.log('[CART CONTEXT] Order data to send:', JSON.stringify(orderData, null, 2));
+      
+      console.log('[CART CONTEXT] About to call API...');
+      // Call the public API to create the order
       const createdOrder = await api.public.orders.create(orderData);
+      console.log('[CART CONTEXT] API call completed successfully');
       
       if (createdOrder) {
+        console.log('[CART CONTEXT] Order created successfully:', createdOrder);
         setCurrentOrder(createdOrder);
         setOrderPlaced(true);
         clearCart();
@@ -302,8 +498,44 @@ export const CartProvider = ({ children }) => {
         throw new Error('Failed to create order');
       }
     } catch (error) {
-      console.error('Order placement error:', error);
-      setOrderError(error.message || 'Failed to place order');
+      console.error('[CART CONTEXT] Order placement error:', error);
+      console.error('[CART CONTEXT] Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      
+      let errorMessage = 'Failed to place order';
+      
+      // Handle different types of errors
+      if (error.response) {
+        // Server responded with an error status
+        const statusCode = error.response.status;
+        const serverMessage = error.response.data?.message || error.response.data;
+        
+        console.error('[CART CONTEXT] Server error response:', {
+          status: statusCode,
+          data: error.response.data
+        });
+        
+        if (statusCode >= 500) {
+          errorMessage = `Server error (${statusCode}): ${serverMessage || 'Internal server error'}`;
+        } else if (statusCode >= 400) {
+          errorMessage = `Request error (${statusCode}): ${serverMessage || 'Bad request'}`;
+        } else {
+          errorMessage = serverMessage || `HTTP ${statusCode} error`;
+        }
+      } else if (error.request) {
+        // Request was made but no response received
+        console.error('[CART CONTEXT] No response received:', error.request);
+        errorMessage = 'No response from server. Please check your connection.';
+      } else {
+        // Something else happened
+        errorMessage = error.message || 'Unknown error occurred';
+      }
+      
+      setOrderError(errorMessage);
       return null;
     } finally {
       setOrderLoading(false);
@@ -334,25 +566,130 @@ export const CartProvider = ({ children }) => {
     } finally {
       setOrderLoading(false);
     }
-  };  // Provide context value
+  };  // Sync cart with user when they log in
+  const syncCartWithUser = async () => {
+    if (isAuthenticated && user) {
+      try {
+        // Wait a bit for localStorage to be updated with token
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Verify token is available
+        const userData = localStorage.getItem('user');
+        if (!userData) {
+          throw new Error('User data not found in localStorage');
+        }
+        
+        const parsedUser = JSON.parse(userData);
+        if (!parsedUser.token) {
+          throw new Error('Authentication token not found');
+        }
+        
+        // Send current cart to server to associate with user
+        await authApi.post('/api/customers/auth/sync-cart', {
+          customerId: user._id,
+          cartItems
+        });
+        
+        // Optionally, fetch any stored cart items from the server
+        // This could merge with the current cart or replace it
+        const response = await authApi.get(`/api/customers/auth/${user._id}/cart`);
+        if (response.data && response.data.length > 0) {
+          setCartItems(response.data);
+        }
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error syncing cart with user:', error);
+        // Don't throw error if cart sync fails - it's not critical
+        return { 
+          success: false, 
+          error: error.response?.data || error.message 
+        };
+      }
+    }
+    return { success: false, error: 'User not authenticated' };
+  };
+
+  // Function to check if auth is required for checkout and set the flag
+  const checkoutAuth = () => {
+    if (!isAuthenticated) {
+      setAuthRequired(true);
+      return false;
+    }
+    return true;
+  };
+
+  // Reset auth required state
+  const resetAuthRequired = () => {
+    setAuthRequired(false);
+  };
+  
+  // Function to start a cart animation when an item is added
+  const startCartAnimation = (item, position) => {
+    setCartAnimation({
+      isAnimating: true,
+      item,
+      position
+    });
+    
+    // Reset animation after it completes
+    setTimeout(() => {
+      setCartAnimation({
+        isAnimating: false,
+        item: null,
+        position: { x: 0, y: 0 }
+      });
+    }, 1000); // Animation duration
+  };
+
+  // Reset order state (for starting new orders)
+  const resetOrderState = () => {
+    setOrderPlaced(false);
+    setCurrentOrder(null);
+    setOrderLoading(false);
+    setOrderError(null);
+    console.log('[CART CONTEXT] Order state reset - ready for new order');
+  };
+
+  // Clear cart and reset order state (complete reset)
+  const resetCartAndOrder = () => {
+    clearCart();
+    resetOrderState();
+    console.log('[CART CONTEXT] Cart and order state completely reset');
+  };
+
+  // Provide context value
   const contextValue = {
     cartItems,
     cartTotal,
+    cartLoaded,
     orderNote,
     setOrderNote,
-    addToCart,
-    removeFromCart,
-    updateQuantity,
+    addItem: addToCart,
+    removeItem: removeFromCart,
+    updateItemQuantity: updateQuantity,
     clearCart,
+    resetOrderState,
+    resetCartAndOrder,
     placeOrder,
     orderPlaced,
     setOrderPlaced,
     getItemPriceWithSizeVariant,
     currentOrder,
+    setCurrentOrder,
     orderLoading,
     orderError,
     checkOrderStatus,
-    cartAnimation
+    cartAnimation,
+    syncCartWithUser,
+    syncCartWithLocalStorage,
+    debugCartState,
+    checkoutAuth,
+    authRequired,
+    resetAuthRequired,
+    startCartAnimation,
+    resetOrderState,
+    resetCartAndOrder
   };
 
   return (
