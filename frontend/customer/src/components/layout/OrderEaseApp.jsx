@@ -68,6 +68,11 @@ const OrderEaseApp = () => {
     setActiveTab(tabId);
     console.log(`Navigation to: ${tabId}`);
   };
+
+  // Handler for profile navigation from header
+  const handleNavigateToProfile = () => {
+    handleTabChange("profile");
+  };
   
   // Handler for opening the cart modal
   const handleOpenCart = () => {
@@ -173,6 +178,7 @@ const OrderEaseApp = () => {
               branchName={branch?.name}
               tableNumber={branch?.tableNumber || "12"}
               openLoginModal={handleOpenLoginModal}
+              onNavigateToProfile={handleNavigateToProfile}
             />
             
             {/* Main Content Area - This would change based on active tab */}
@@ -605,6 +611,8 @@ const OrderEaseApp = () => {
             onOpenCart={handleOpenCart}
             activeTab={activeTab}
             onTabChange={handleTabChange}
+            openLoginModal={handleOpenLoginModal}
+            onNavigateToProfile={handleNavigateToProfile}
           >
             <motion.main
               initial={{ opacity: 0 }}

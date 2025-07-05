@@ -880,7 +880,7 @@ const OrderManagement = () => {
         </div>
       )}
 
-      {/* CSS for notification animations */}
+      {/* CSS for notification animations and modal styling */}
       <style>
         {`
           @keyframes shrinkWidth {
@@ -930,6 +930,137 @@ const OrderManagement = () => {
           
           .badge:hover {
             transform: scale(1.05);
+          }
+
+          /* Enhanced Modal Styling */
+          .modal-xl {
+            max-width: 1200px;
+          }
+
+          .modal-header.bg-gradient-primary {
+            background: linear-gradient(87deg, #5e72e4 0, #825ee4 100%) !important;
+          }
+
+          .modal-header .btn-close {
+            filter: brightness(0) invert(1);
+          }
+
+          .card-stats {
+            transition: all 0.3s ease;
+          }
+
+          .card-stats:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 16px rgba(0, 0, 0, 0.1);
+          }
+
+          .avatar {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+          }
+
+          .avatar.avatar-sm {
+            width: 28px;
+            height: 28px;
+            font-size: 0.75rem;
+          }
+
+          .icon-shape {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.375rem;
+            font-size: 1.25rem;
+          }
+
+          .bg-gradient-info {
+            background: linear-gradient(87deg, #11cdef 0, #1171ef 100%) !important;
+          }
+
+          .bg-gradient-warning {
+            background: linear-gradient(87deg, #fb6340 0, #fbb140 100%) !important;
+          }
+
+          .bg-gradient-success {
+            background: linear-gradient(87deg, #2dce89 0, #2dcecc 100%) !important;
+          }
+
+          .bg-gradient-secondary {
+            background: linear-gradient(87deg, #6c757d 0, #8c9197 100%) !important;
+          }
+
+          .text-white-50 {
+            color: rgba(255, 255, 255, 0.5) !important;
+          }
+
+          .text-white-75 {
+            color: rgba(255, 255, 255, 0.75) !important;
+          }
+
+          .font-weight-600 {
+            font-weight: 600 !important;
+          }
+
+          .font-size-sm {
+            font-size: 0.875rem !important;
+          }
+
+          /* Table styling improvements */
+          .table td, .table th {
+            vertical-align: middle;
+          }
+
+          .table thead th {
+            border-top: none;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+          }
+
+          .table-responsive {
+            border-radius: 0.375rem;
+          }
+
+          /* Card enhancements */
+          .card {
+            transition: all 0.15s ease;
+          }
+
+          .card:hover {
+            box-shadow: 0 4px 6px rgba(50, 50, 93, 0.11), 0 1px 3px rgba(0, 0, 0, 0.08);
+          }
+
+          /* Badge improvements */
+          .badge {
+            font-weight: 600;
+            padding: 0.375rem 0.75rem;
+          }
+
+          .badge.badge-pill {
+            border-radius: 10rem;
+          }
+
+          /* Animation for modal content */
+          .modal.show .modal-dialog {
+            animation: modalSlideIn 0.3s ease-out;
+          }
+
+          @keyframes modalSlideIn {
+            from {
+              transform: translateY(-50px);
+              opacity: 0;
+            }
+            to {
+              transform: translateY(0);
+              opacity: 1;
+            }
           }
         `}
       </style>
@@ -1485,204 +1616,377 @@ const OrderManagement = () => {
           </Col>
         </Row>
       </Container>      {/* Order Details Modal */}
-      <Modal isOpen={showOrderDetails} toggle={() => setShowOrderDetails(false)} size="lg">
+      <Modal isOpen={showOrderDetails} toggle={() => setShowOrderDetails(false)} size="xl">
         <ModalHeader 
           toggle={() => setShowOrderDetails(false)} 
-          className="bg-info text-white"
+          className="bg-gradient-primary text-white border-0"
+          style={{ borderRadius: '0.5rem 0.5rem 0 0' }}
         >
-          <i className="fas fa-file-alt mr-2"></i>
-          Order Details
+          <div className="d-flex align-items-center">
+            <div className="icon icon-shape bg-white text-primary rounded-circle shadow mr-3">
+              <i className="fas fa-receipt"></i>
+            </div>
+            <div>
+              <h4 className="mb-0 text-white">Order Details</h4>
+              <small className="text-white-50">Order #{selectedOrder?.orderId}</small>
+            </div>
+          </div>
         </ModalHeader>
-        <ModalBody>
+        <ModalBody className="p-0">
           {selectedOrder && (
             <div>
-              <Row className="mb-4">
-                <Col xs="12">
-                  <Alert 
-                    color={
-                      getOrderType(selectedOrder) === 'Dine-In' ? 'info' : 
-                      getOrderType(selectedOrder) === 'Takeout' ? 'warning' : 
-                      'primary'
-                    }
-                    className="mb-0"
-                  >
-                    {getOrderType(selectedOrder) === 'Dine-In' && (
-                      <div className="d-flex align-items-center">
-                        <FaUtensils className="mr-2" />
-                        <div>
-                          <strong>Dine-In Order</strong>
-                          <div><small>Customer is dining in the restaurant</small></div>
-                        </div>
-                      </div>
-                    )}
-                    {getOrderType(selectedOrder) === 'Takeout' && (
-                      <div className="d-flex align-items-center">
-                        <FaShoppingBag className="mr-2" />
-                        <div>
-                          <strong>Takeout Order</strong>
-                          <div><small>Customer will pick up their order</small></div>
-                        </div>
-                      </div>
-                    )}
-                    {getOrderType(selectedOrder) === 'Delivery' && (
-                      <div className="d-flex align-items-center">
-                        <FaTruck className="mr-2" />
-                        <div>
-                          <strong>Delivery Order</strong>
-                          <div><small>Order will be delivered to customer</small></div>
-                        </div>
-                      </div>
-                    )}
-                  </Alert>
-                </Col>
-              </Row>
+              {/* Order Type Banner */}
+              <div className={`px-4 py-3 ${
+                getOrderType(selectedOrder) === 'Dine-In' ? 'bg-gradient-info' : 
+                getOrderType(selectedOrder) === 'Takeout' ? 'bg-gradient-warning' : 
+                'bg-gradient-success'
+              }`}>
+                <div className="d-flex align-items-center text-white">
+                  <div className="icon icon-shape bg-white shadow rounded-circle mr-3" style={{ 
+                    color: getOrderType(selectedOrder) === 'Dine-In' ? '#11cdef' : 
+                           getOrderType(selectedOrder) === 'Takeout' ? '#fb6340' : 
+                           '#2dce89'
+                  }}>
+                    {getOrderType(selectedOrder) === 'Dine-In' && <FaUtensils />}
+                    {getOrderType(selectedOrder) === 'Takeout' && <FaShoppingBag />}
+                    {getOrderType(selectedOrder) === 'Delivery' && <FaTruck />}
+                  </div>
+                  <div>
+                    <h5 className="mb-1 text-white font-weight-bold">
+                      {getOrderType(selectedOrder)} Order
+                    </h5>
+                    <p className="mb-0 text-white-75 small">
+                      {getOrderType(selectedOrder) === 'Dine-In' && 'Customer is dining in the restaurant'}
+                      {getOrderType(selectedOrder) === 'Takeout' && 'Customer will pick up their order'}
+                      {getOrderType(selectedOrder) === 'Delivery' && 'Order will be delivered to customer'}
+                    </p>
+                  </div>
+                  <div className="ml-auto">
+                    {renderStatusBadge(getOrderStatus(selectedOrder))}
+                  </div>
+                </div>
+              </div>
 
-              <Row className="mb-4">
-                <Col md="6">
-                  <h4 className="mb-3">Order Information</h4>
-                  <Table borderless size="sm">
-                    <tbody>
-                      <tr>
-                        <th scope="row" width="40%">Order ID:</th>
-                        <td>{selectedOrder.orderId}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Date:</th>
-                        <td>{formatDate(selectedOrder.orderDate)}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Status:</th>
-                        <td>{renderStatusBadge(getOrderStatus(selectedOrder))}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Type:</th>
-                        <td>{renderOrderTypeBadge(getOrderType(selectedOrder))}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">{getOrderType(selectedOrder) === 'Dine-In' ? 'Table:' : 'Pickup/Delivery #:'}</th>
-                        <td>{selectedOrder.tableId || 'N/A'}</td>
-                      </tr>
-                    </tbody>
-                  </Table>
-                </Col>
-                <Col md="6">
-                  <h4 className="mb-3">Customer Information</h4>
-                  <Table borderless size="sm">
-                    <tbody>
-                      <tr>
-                        <th scope="row" width="40%">Name:</th>
-                        <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null 
-                            ? (selectedOrder.customerId.name || selectedOrder.customerId.firstName || 'Unknown Customer')
-                            : selectedOrder.customerName || 'Walk-in Customer'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Phone:</th>
-                        <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
-                            ? (selectedOrder.customerId.phone || selectedOrder.customerId.contactNumber || 'N/A')
-                            : selectedOrder.customerPhone || 'N/A'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Email:</th>
-                        <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
-                            ? (selectedOrder.customerId.email || 'N/A')
-                            : selectedOrder.customerEmail || 'N/A'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Address:</th>
-                        <td>
-                          {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId.address 
-                            ? selectedOrder.customerId.address 
-                            : 'N/A'}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </Table>
-                </Col>
-              </Row>
-
-              <h4 className="mb-3">Order Items</h4>
-              <Table className="mt-3" responsive>
-                <thead className="thead-light">
-                  <tr>
-                    <th>Item</th>
-                    <th>Category</th>
-                    <th>Quantity</th>
-                    <th>Unit Price</th>
-                    <th>Total</th>
-                    <th>Special Instructions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedOrder.items.map((item, index) => (
-                    <tr key={index}>
-                      <td>
-                        {typeof item.itemId === 'object' ? (
-                          <div>
-                            <span className="font-weight-bold">{item.itemId.name}</span>
+              <div className="px-4 py-4">
+                {/* Order and Customer Information */}
+                <Row className="mb-4">
+                  <Col lg="6">
+                    <Card className="shadow-sm border-0 h-100">
+                      <CardHeader className="bg-transparent border-0">
+                        <div className="d-flex align-items-center">
+                          <div className="icon icon-shape bg-gradient-primary text-white rounded-circle shadow mr-3">
+                            <i className="fas fa-info-circle"></i>
                           </div>
-                        ) : (
-                          <span>{item.name}</span>
-                        )}
-                      </td>
-                      <td>
-                        {typeof item.categoryId === 'object' ? (
-                          item.categoryId.name
-                        ) : (
-                          <span className="text-muted">Category ID: {item.categoryId}</span>
-                        )}
-                      </td>
-                      <td>{item.quantity}</td>
-                      <td>{formatCurrency(item.price)}</td>
-                      <td>{formatCurrency(item.price * item.quantity)}</td>
-                      <td>{item.specialInstructions || 'None'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+                          <h5 className="mb-0">Order Information</h5>
+                        </div>
+                      </CardHeader>
+                      <CardBody className="pt-0">
+                        <Table borderless size="sm" className="mb-0">
+                          <tbody>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted" width="40%">Order ID:</td>
+                              <td className="pr-0">
+                                <Badge color="primary" className="font-size-sm">
+                                  {selectedOrder.orderId}
+                                </Badge>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Date & Time:</td>
+                              <td className="pr-0">
+                                <div>
+                                  <div className="font-weight-600">{formatDate(selectedOrder.orderDate)}</div>
+                                  <small className="text-muted">
+                                    {new Date(selectedOrder.orderDate).toLocaleTimeString()}
+                                  </small>
+                                </div>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Status:</td>
+                              <td className="pr-0">{renderStatusBadge(getOrderStatus(selectedOrder))}</td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Order Type:</td>
+                              <td className="pr-0">{renderOrderTypeBadge(getOrderType(selectedOrder))}</td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">
+                                {getOrderType(selectedOrder) === 'Dine-In' ? 'Table:' : 'Reference:'}
+                              </td>
+                              <td className="pr-0">
+                                <span className="font-weight-600">
+                                  {selectedOrder.tableId || selectedOrder.orderId?.split('-').pop() || 'N/A'}
+                                </span>
+                              </td>
+                            </tr>
+                            {selectedOrder.paymentMethod && (
+                              <tr>
+                                <td className="pl-0 font-weight-600 text-muted">Payment:</td>
+                                <td className="pr-0">
+                                  <Badge color="secondary" className="text-capitalize">
+                                    {selectedOrder.paymentMethod}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </Table>
+                      </CardBody>
+                    </Card>
+                  </Col>
+                  <Col lg="6">
+                    <Card className="shadow-sm border-0 h-100">
+                      <CardHeader className="bg-transparent border-0">
+                        <div className="d-flex align-items-center">
+                          <div className="icon icon-shape bg-gradient-success text-white rounded-circle shadow mr-3">
+                            <i className="fas fa-user"></i>
+                          </div>
+                          <h5 className="mb-0">Customer Information</h5>
+                        </div>
+                      </CardHeader>
+                      <CardBody className="pt-0">
+                        <Table borderless size="sm" className="mb-0">
+                          <tbody>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted" width="40%">Name:</td>
+                              <td className="pr-0">
+                                <div className="d-flex align-items-center">
+                                  <div className="avatar avatar-sm rounded-circle bg-gradient-primary text-white mr-2">
+                                    <i className="fas fa-user"></i>
+                                  </div>
+                                  <span className="font-weight-600">
+                                    {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null 
+                                      ? (selectedOrder.customerId.name || selectedOrder.customerId.firstName || 'Unknown Customer')
+                                      : selectedOrder.customerName || 'Walk-in Customer'}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Phone:</td>
+                              <td className="pr-0">
+                                <div className="d-flex align-items-center">
+                                  <i className="fas fa-phone text-primary mr-2"></i>
+                                  <span>
+                                    {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
+                                      ? (selectedOrder.customerId.phone || selectedOrder.customerId.contactNumber || 'N/A')
+                                      : selectedOrder.customerPhone || 'N/A'}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Email:</td>
+                              <td className="pr-0">
+                                <div className="d-flex align-items-center">
+                                  <i className="fas fa-envelope text-primary mr-2"></i>
+                                  <span>
+                                    {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId !== null
+                                      ? (selectedOrder.customerId.email || 'N/A')
+                                      : selectedOrder.customerEmail || 'N/A'}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                            {getOrderType(selectedOrder) === 'Delivery' && (
+                              <tr>
+                                <td className="pl-0 font-weight-600 text-muted">Address:</td>
+                                <td className="pr-0">
+                                  <div className="d-flex align-items-start">
+                                    <i className="fas fa-map-marker-alt text-primary mr-2 mt-1"></i>
+                                    <span>
+                                      {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId.address 
+                                        ? selectedOrder.customerId.address 
+                                        : selectedOrder.deliveryAddress || 'N/A'}
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            {selectedOrder.notes && (
+                              <tr>
+                                <td className="pl-0 font-weight-600 text-muted">Notes:</td>
+                                <td className="pr-0">
+                                  <div className="d-flex align-items-start">
+                                    <i className="fas fa-sticky-note text-warning mr-2 mt-1"></i>
+                                    <span className="text-muted">{selectedOrder.notes}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </Table>
+                      </CardBody>
+                    </Card>
+                  </Col>
+                </Row>
 
-              <Row className="mt-4">
-                <Col md={{ size: 5, offset: 7 }}>
-                  <Table borderless>
-                    <tbody>
-                      <tr>
-                        <th>Subtotal:</th>
-                        <td className="text-right">{formatCurrency(selectedOrder.subtotal)}</td>
-                      </tr>
-                      <tr>
-                        <th>
-                          Tax ({selectedOrder.taxDetails ? selectedOrder.taxDetails.percentage + '%' : '0%'})
-                          <br />
-                          <small className="text-muted">
-                            {selectedOrder.taxDetails ? selectedOrder.taxDetails.taxName : 'Tax'}
-                          </small>
-                        </th>
-                        <td className="text-right">{formatCurrency(selectedOrder.tax)}</td>
-                      </tr>
-                      <tr className="border-top">
-                        <th>Total:</th>
-                        <td className="text-right font-weight-bold">{formatCurrency(selectedOrder.totalAmount)}</td>
-                      </tr>
-                    </tbody>
-                  </Table>
-                </Col>
-              </Row>
+                {/* Order Items */}
+                <Card className="shadow-sm border-0 mb-4">
+                  <CardHeader className="bg-transparent border-0">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div className="d-flex align-items-center">
+                        <div className="icon icon-shape bg-gradient-warning text-white rounded-circle shadow mr-3">
+                          <i className="fas fa-list"></i>
+                        </div>
+                        <h5 className="mb-0">Order Items ({selectedOrder.items?.length || 0})</h5>
+                      </div>
+                      <Badge color="info" pill>
+                        Total Qty: {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardBody className="pt-0">
+                    <div className="table-responsive">
+                      <Table className="align-items-center" hover>
+                        <thead className="thead-light">
+                          <tr>
+                            <th className="border-0">Item</th>
+                            <th className="border-0 text-center">Qty</th>
+                            <th className="border-0 text-center">Unit Price</th>
+                            <th className="border-0 text-center">Total</th>
+                            <th className="border-0">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedOrder.items?.map((item, index) => (
+                            <tr key={index}>
+                              <td>
+                                <div className="d-flex align-items-center">
+                                  <div className="avatar avatar-sm rounded-circle bg-gradient-primary text-white mr-3">
+                                    <i className="fas fa-utensils"></i>
+                                  </div>
+                                  <div>
+                                    <span className="font-weight-600">
+                                      {typeof item.itemId === 'object' && item.itemId?.name
+                                        ? item.itemId.name
+                                        : item.name || 'Unknown Item'}
+                                    </span>
+                                    {typeof item.categoryId === 'object' && item.categoryId?.name && (
+                                      <div>
+                                        <Badge color="light" className="text-muted mt-1">
+                                          {item.categoryId.name}
+                                        </Badge>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="text-center">
+                                <Badge color="primary" pill>
+                                  {item.quantity || 1}
+                                </Badge>
+                              </td>
+                              <td className="text-center font-weight-600">
+                                {formatCurrency(item.price || 0)}
+                              </td>
+                              <td className="text-center font-weight-bold">
+                                {formatCurrency((item.price || 0) * (item.quantity || 1))}
+                              </td>
+                              <td>
+                                <small className="text-muted">
+                                  {item.specialInstructions || item.notes || '—'}
+                                </small>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  </CardBody>
+                </Card>
+
+                {/* Order Summary */}
+                <Row>
+                  <Col lg={{ size: 6, offset: 6 }}>
+                    <Card className="shadow-sm border-0">
+                      <CardHeader className="bg-gradient-secondary border-0">
+                        <div className="d-flex align-items-center">
+                          <div className="icon icon-shape bg-white text-primary rounded-circle shadow mr-3">
+                            <i className="fas fa-calculator"></i>
+                          </div>
+                          <h5 className="mb-0 text-white">Order Summary</h5>
+                        </div>
+                      </CardHeader>
+                      <CardBody>
+                        <Table borderless className="mb-0">
+                          <tbody>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">Subtotal:</td>
+                              <td className="pr-0 text-right font-weight-600">
+                                {formatCurrency(selectedOrder.subtotal || 0)}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="pl-0 font-weight-600 text-muted">
+                                <div>
+                                  Tax 
+                                  {(() => {
+                                    // Get tax percentage - check both new and legacy formats
+                                    const taxPercentage = selectedOrder.taxDetails?.percentage || 
+                                                        (selectedOrder.tax && selectedOrder.subtotal ? 
+                                                         ((selectedOrder.tax / selectedOrder.subtotal) * 100).toFixed(1) : 
+                                                         0);
+                                    return taxPercentage > 0 ? ` (${taxPercentage}%)` : '';
+                                  })()}
+                                </div>
+                                {selectedOrder.taxDetails?.taxName && (
+                                  <small className="text-muted">
+                                    {selectedOrder.taxDetails.taxName}
+                                  </small>
+                                )}
+                              </td>
+                              <td className="pr-0 text-right font-weight-600">
+                                {formatCurrency(
+                                  selectedOrder.taxAmount || 
+                                  selectedOrder.tax || 
+                                  0
+                                )}
+                              </td>
+                            </tr>
+                            {selectedOrder.taxDetails?.countryCode && (
+                              <tr>
+                                <td className="pl-0">
+                                  <small className="text-muted">Tax Region:</small>
+                                </td>
+                                <td className="pr-0 text-right">
+                                  <Badge color="light" className="text-muted">
+                                    {selectedOrder.taxDetails.countryCode}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            )}
+                            <tr className="border-top">
+                              <td className="pl-0">
+                                <h5 className="mb-0 font-weight-bold text-primary">Total Amount:</h5>
+                              </td>
+                              <td className="pr-0 text-right">
+                                <h4 className="mb-0 font-weight-bold text-primary">
+                                  {formatCurrency(selectedOrder.totalAmount || 0)}
+                                </h4>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </Table>
+                      </CardBody>
+                    </Card>
+                  </Col>
+                </Row>
+              </div>
             </div>
           )}
         </ModalBody>
-        <ModalFooter>
-          <Button color="secondary" onClick={() => setShowOrderDetails(false)}>
+        <ModalFooter className="border-0 bg-light">
+          <Button color="light" onClick={() => setShowOrderDetails(false)}>
+            <i className="fas fa-times mr-2"></i>
             Close
           </Button>
           <Button 
             color="danger" 
             onClick={() => handleGenerateInvoice(selectedOrder)}
             disabled={generatingInvoice === selectedOrder?._id}
+            className="shadow-sm"
           >
             {generatingInvoice === selectedOrder?._id ? (
               <>

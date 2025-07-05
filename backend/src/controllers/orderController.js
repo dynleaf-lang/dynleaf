@@ -572,8 +572,17 @@ exports.generateInvoice = async (req, res) => {
       });
     }
 
-    // Create a new PDF document
-    const doc = new PDFDocument({ margin: 50 });
+    // Create a new PDF document optimized for thermal printer (80mm width)
+    const doc = new PDFDocument({ 
+      margin: 10, // Very small margins for thermal printer
+      size: [226, 600], // 80mm width (~226 points), flexible height
+      info: {
+        Title: `Invoice - ${order.orderId || order._id}`,
+        Author: order.restaurantId?.name || 'Restaurant',
+        Subject: 'Thermal Printer Invoice',
+        Keywords: 'invoice, order, restaurant, thermal'
+      }
+    });
     
     // Set response headers for PDF download
     res.setHeader('Content-Type', 'application/pdf');
@@ -581,73 +590,118 @@ exports.generateInvoice = async (req, res) => {
     
     // Pipe the PDF directly to the response
     doc.pipe(res);
+
+    // Helper functions for thermal printer styling
+    const drawLine = (x1, y1, x2, y2, color = '#000000', width = 1) => {
+      doc.strokeColor(color).lineWidth(width).moveTo(x1, y1).lineTo(x2, y2).stroke();
+    };
+
+    const formatCurrency = (amount) => {
+      const countryCode = order.restaurantId?.country || 'US';
+      const currencySymbol = countryCode === 'US' ? '$' : 
+                           countryCode === 'IN' ? '₹' : 
+                           countryCode === 'GB' ? '£' : 
+                           countryCode === 'EU' ? '€' : '$';
+      return `${currencySymbol}${Number(amount).toFixed(2)}`;
+    };
+
+    const addHeaderLogo = () => {
+      // Thermal printer header - simple and compact
+      let currentY = 15;
+      
+      // Restaurant name (centered, bold)
+      doc.fillColor('#000000').fontSize(14).font('Helvetica-Bold');
+      doc.text(order.restaurantId?.name || 'Restaurant Name', 0, currentY, { 
+        align: 'center', 
+        width: 226 
+      });
+      
+      currentY += 20;
+      
+      // Restaurant contact info (centered, smaller)
+      doc.fontSize(8).font('Helvetica');
+      if (order.restaurantId?.address) {
+        doc.text(order.restaurantId.address, 0, currentY, { 
+          align: 'center', 
+          width: 226 
+        });
+        currentY += 12;
+      }
+      
+      if (order.restaurantId?.phone) {
+        doc.text(`Tel: ${order.restaurantId.phone}`, 0, currentY, { 
+          align: 'center', 
+          width: 226 
+        });
+        currentY += 12;
+      }
+      
+      // Separator line
+      doc.moveTo(20, currentY + 5).lineTo(206, currentY + 5).stroke('#000000');
+      currentY += 15;
+      
+      // Invoice header
+      doc.fontSize(12).font('Helvetica-Bold');
+      doc.text('INVOICE', 0, currentY, { 
+        align: 'center', 
+        width: 226 
+      });
+      
+      currentY += 15;
+      
+      // Invoice details
+      doc.fontSize(8).font('Helvetica');
+      doc.text(`Invoice #: ${order.orderId || order._id.slice(-8)}`, 20, currentY);
+      currentY += 10;
+      doc.text(`Date: ${new Date(order.orderDate || order.createdAt).toLocaleString()}`, 20, currentY);
+      currentY += 10;
+      doc.text(`Status: ${order.orderStatus || order.status || 'Completed'}`, 20, currentY);
+      
+      return currentY + 15;
+    };
+
+    // Start building the thermal invoice
+    let invoiceCurrentY = addHeaderLogo();
+    doc.fillColor('#000000');
+
+    // Customer Information (thermal style)
+    doc.moveTo(20, invoiceCurrentY).lineTo(206, invoiceCurrentY).stroke('#000000');
+    invoiceCurrentY += 10;
     
-    // Add content to the PDF document
-    // Header with logo and title
-    doc.fontSize(20).text('INVOICE', { align: 'center' });
-    doc.moveDown();
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.text('CUSTOMER:', 20, invoiceCurrentY);
+    invoiceCurrentY += 12;
     
-    // Restaurant and Order Information
-    doc.fontSize(14).text('Restaurant Information:');
-    doc.fontSize(10).text(`Name: ${order.restaurantId?.name || 'N/A'}`);
-    doc.text(`Address: ${order.restaurantId?.address || 'N/A'}`);
-    doc.text(`Phone: ${order.restaurantId?.phone || 'N/A'}`);
-    doc.text(`Email: ${order.restaurantId?.email || 'N/A'}`);
-    doc.moveDown();
-    
-    // Customer Information
+    doc.fontSize(8).font('Helvetica');
     const customerName = order.customerId?.name || order.customerName || 'Walk-in Customer';
-    const customerPhone = order.customerId?.phone || order.customerPhone || 'N/A';
-    const customerEmail = order.customerId?.email || order.customerEmail || 'N/A';
+    doc.text(customerName, 20, invoiceCurrentY);
+    invoiceCurrentY += 10;
     
-    doc.fontSize(14).text('Customer Information:');
-    doc.fontSize(10).text(`Name: ${customerName}`);
-    doc.text(`Phone: ${customerPhone}`);
-    if (customerEmail !== 'N/A') doc.text(`Email: ${customerEmail}`);
-    if (order.customerId?.address) doc.text(`Address: ${order.customerId.address}`);
-    doc.moveDown();
+    const customerPhone = order.customerId?.phone || order.customerPhone || '';
+    if (customerPhone) {
+      doc.text(`Phone: ${customerPhone}`, 20, invoiceCurrentY);
+      invoiceCurrentY += 10;
+    }
     
-    // Order Details
-    doc.fontSize(14).text('Order Details:');
-    doc.fontSize(10).text(`Order ID: ${order.orderId || order._id}`);
-    doc.text(`Date: ${new Date(order.orderDate || order.createdAt).toLocaleString()}`);
-    doc.text(`Status: ${order.orderStatus || 'N/A'}`);
-    doc.text(`Type: ${order.OrderType || order.orderType || 'N/A'}`);
-    if (order.tableId) doc.text(`Table: ${order.tableId}`);
-    doc.moveDown();
+    // Order details
+    const orderType = order.OrderType || order.orderType || 'Dine-In';
+    doc.text(`Type: ${orderType}`, 20, invoiceCurrentY);
+    if (order.tableId && orderType === 'Dine-In') {
+      doc.text(` | Table: ${order.tableId}`, 80, invoiceCurrentY);
+    }
+    invoiceCurrentY += 15;
+
+    // Items section for thermal printer
+    doc.moveTo(20, invoiceCurrentY).lineTo(206, invoiceCurrentY).stroke('#000000');
+    invoiceCurrentY += 10;
     
-    // Items Table
-    doc.fontSize(14).text('Order Items:');
-    doc.moveDown(0.5);
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.text('ITEMS:', 20, invoiceCurrentY);
+    invoiceCurrentY += 15;
     
-    // Table header
-    let yPos = doc.y;
-    const itemTableTop = yPos;
-    doc.fontSize(10);
-    
-    // Define column positions
-    const itemCol = 50;
-    const qtyCol = 350;
-    const priceCol = 400;
-    const totalCol = 500;
-    
-    // Draw header
-    doc.font('Helvetica-Bold')
-       .text('Item', itemCol, yPos)
-       .text('Qty', qtyCol, yPos)
-       .text('Price', priceCol, yPos)
-       .text('Total', totalCol, yPos);
-    
-    // Draw divider line
-    doc.moveDown(0.5);
-    yPos = doc.y;
-    doc.moveTo(50, yPos).lineTo(550, yPos).stroke();
-    doc.moveDown(0.5);
-    
-    // Draw items
-    doc.font('Helvetica');
+    // Items list (thermal format - no table, just list)
     let calculatedSubtotal = 0;
-    
+
     order.items.forEach((item, index) => {
       try {
         // Handle both old and new item field structures
@@ -659,53 +713,107 @@ exports.generateInvoice = async (req, res) => {
         
         calculatedSubtotal += total;
         
-        yPos = doc.y;
-        doc.text(itemName, itemCol, yPos)
-           .text(qty.toString(), qtyCol, yPos)
-           .text(`$${price.toFixed(2)}`, priceCol, yPos)
-           .text(`$${total.toFixed(2)}`, totalCol, yPos);
+        // Item name (bold)
+        doc.fontSize(8).font('Helvetica-Bold');
+        const itemText = itemName.length > 25 ? itemName.substring(0, 25) + '...' : itemName;
+        doc.text(itemText, 20, invoiceCurrentY);
+        invoiceCurrentY += 10;
         
-        doc.moveDown();
+        // Quantity, price, and total on next line
+        doc.fontSize(8).font('Helvetica');
+        doc.text(`${qty} x ${formatCurrency(price)}`, 25, invoiceCurrentY);
+        doc.text(`${formatCurrency(total)}`, 160, invoiceCurrentY, { align: 'right' });
+        invoiceCurrentY += 12;
+        
+        // Add a small gap between items
+        invoiceCurrentY += 3;
+        
       } catch (itemError) {
         console.error('Error processing item:', itemError);
-        // Still render a line for this item even if there's an error
-        yPos = doc.y;
-        doc.text(`Item ${index + 1} (Error processing)`, itemCol, yPos)
-           .text('1', qtyCol, yPos)
-           .text('$0.00', priceCol, yPos)
-           .text('$0.00', totalCol, yPos);
-        doc.moveDown();
+        doc.fontSize(8).font('Helvetica');
+        doc.text(`Item ${index + 1} (Error)`, 20, invoiceCurrentY);
+        doc.text(`${formatCurrency(0)}`, 160, invoiceCurrentY, { align: 'right' });
+        invoiceCurrentY += 15;
       }
     });
+
+    // Summary section for thermal printer
+    invoiceCurrentY += 10;
+    doc.moveTo(20, invoiceCurrentY).lineTo(206, invoiceCurrentY).stroke('#000000');
+    invoiceCurrentY += 10;
     
-    // Draw divider line
-    yPos = doc.y;
-    doc.moveTo(50, yPos).lineTo(550, yPos).stroke();
-    doc.moveDown();
-    
-    // Totals section
+    // Calculate totals
     const subtotal = order.subtotal || calculatedSubtotal || 0;
-    const tax = order.tax || 0;
-    const taxPercentage = order.taxDetails?.percentage || 0;
-    const totalAmount = order.totalAmount || subtotal + tax;
+    const taxAmount = order.taxAmount || order.tax || 0;
+    const taxPercentage = order.taxDetails?.percentage || 
+                         (taxAmount && subtotal ? ((taxAmount / subtotal) * 100).toFixed(1) : 0);
+    const totalAmount = order.totalAmount || subtotal + taxAmount;
     
-    console.log(`Invoice totals - Subtotal: ${subtotal}, Tax: ${tax}, Total: ${totalAmount}`);
+    console.log(`Thermal invoice totals - Subtotal: ${subtotal}, Tax: ${taxAmount}, Total: ${totalAmount}`);
     
-    const subtotalText = `Subtotal: $${subtotal.toFixed(2)}`;
-    const taxText = `Tax (${taxPercentage}%): $${tax.toFixed(2)}`;
-    const totalText = `Total: $${totalAmount.toFixed(2)}`;
+    // Subtotal
+    doc.fontSize(8).font('Helvetica');
+    doc.text('Subtotal:', 20, invoiceCurrentY);
+    doc.text(formatCurrency(subtotal), 160, invoiceCurrentY, { align: 'right' });
+    invoiceCurrentY += 12;
     
-    doc.text(subtotalText, 400, doc.y);
-    doc.text(taxText, 400, doc.y + 15);
-    doc.font('Helvetica-Bold').text(totalText, 400, doc.y + 15);
+    // Tax (if applicable)
+    if (taxAmount > 0) {
+      const taxLabel = taxPercentage > 0 ? `Tax (${taxPercentage}%):` : 'Tax:';
+      doc.text(taxLabel, 20, invoiceCurrentY);
+      doc.text(formatCurrency(taxAmount), 160, invoiceCurrentY, { align: 'right' });
+      invoiceCurrentY += 12;
+    }
     
-    // Footer
-    doc.moveDown(4);
-    doc.font('Helvetica').fontSize(10).text('Thank you for your business!', { align: 'center' });
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, { align: 'center' });
+    // Separator line for total
+    doc.moveTo(20, invoiceCurrentY + 3).lineTo(206, invoiceCurrentY + 3).stroke('#000000');
+    invoiceCurrentY += 10;
     
-    // Finalize the PDF
-    console.log('Finalizing PDF document');
+    // Total (bold and larger)
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('TOTAL:', 20, invoiceCurrentY);
+    doc.text(formatCurrency(totalAmount), 160, invoiceCurrentY, { align: 'right' });
+    invoiceCurrentY += 20;
+
+    // Payment and footer for thermal printer
+    if (order.paymentMethod) {
+      doc.fontSize(8).font('Helvetica');
+      doc.text(`Payment: ${order.paymentMethod.toUpperCase()}`, 20, invoiceCurrentY);
+      invoiceCurrentY += 15;
+    }
+
+    // Separator line
+    doc.moveTo(20, invoiceCurrentY).lineTo(206, invoiceCurrentY).stroke('#000000');
+    invoiceCurrentY += 10;
+    
+    // Thank you message
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.text('Thank You!', 0, invoiceCurrentY, { 
+      align: 'center', 
+      width: 226 
+    });
+    invoiceCurrentY += 15;
+    
+    // Footer details (compact)
+    doc.fontSize(7).font('Helvetica');
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 0, invoiceCurrentY, { 
+      align: 'center', 
+      width: 226 
+    });
+    invoiceCurrentY += 10;
+    
+    if (order.restaurantId?.email) {
+      doc.text(order.restaurantId.email, 0, invoiceCurrentY, { 
+        align: 'center', 
+        width: 226 
+      });
+    }
+    
+    // Set final document height
+    doc.page.height = invoiceCurrentY + 30;
+    
+    // Finalize the thermal printer PDF
+    console.log('Finalizing thermal printer invoice PDF');
     doc.end();
     
   } catch (error) {

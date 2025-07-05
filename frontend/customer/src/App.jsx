@@ -7,11 +7,9 @@ import { CurrencyProvider } from "./context/CurrencyContext";
 import { TaxProvider } from "./context/TaxContext";
 import AuthProvider from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
-import NetworkInfoBar from "./components/debug/NetworkInfoBar";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
-import ServerStatusCheck from "./components/Utils/ServerStatusCheck";
-import NetworkStatusMonitor from "./components/Utils/NetworkStatusMonitor";
+import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 
 const App = () => {
@@ -27,9 +25,7 @@ const App = () => {
 								<ConnectionStatusModal />
 								<NetworkErrorHandler />
 								<OrderEaseApp />
-								<CartAnimationEffect />
-								<NetworkStatusMonitor />
-								<NetworkInfoBar />
+								<CartAnimationEffect /> 
 							</CartProvider>
 							</SocketProvider>
 						</AuthProvider>

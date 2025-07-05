@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { Row, Col } from 'reactstrap';
 import RestaurantStatsWidget from './RestaurantStatsWidget';
 import TableManagementWidget from './TableManagementWidget';
-import useRenderTracker from '../../utils/useRenderTracker';
 
 // Component that displays restaurant and table widgets
 const DashboardWidgets = ({ 
@@ -14,7 +13,6 @@ const DashboardWidgets = ({
   userRole = 'Branch_Manager',
   loading = false 
 }) => {
-  useRenderTracker('DashboardWidgets');
   
   // Debug logging to track data flow
   useEffect(() => {

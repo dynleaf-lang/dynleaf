@@ -1,15 +1,108 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { theme } from "../../data/theme";
 import { useResponsive } from "../../context/ResponsiveContext";
 import { useAuth } from "../../context/AuthContext";
+import { theme } from "../../data/theme";
 import ProfileButton from "../auth/ProfileButton";
 
-const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber, openLoginModal }) => {
+// Add these keyframe animations for enhanced visual effects
+const shimmerKeyframes = `
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+`;
+
+// Inject keyframes into document head
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement("style");
+  styleSheet.type = "text/css";
+  styleSheet.innerText = shimmerKeyframes;
+  document.head.appendChild(styleSheet);
+}
+
+const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber, openLoginModal, onNavigateToProfile }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(2);
   const { isMobile, isTablet } = useResponsive();
   const { isAuthenticated, user } = useAuth();
+  const notificationRef = useRef(null);
+  
+  // Sample notification data - in real app, this would come from context/API
+  const [notifications, setNotifications] = useState([
+    {
+      id: 1,
+      type: 'order',
+      title: 'Order Confirmed',
+      message: 'Your order #1234 has been confirmed and is being prepared.',
+      time: '2 min ago',
+      read: false,
+      icon: 'check_circle'
+    },
+    {
+      id: 2,
+      type: 'promotion',
+      title: 'Special Offer',
+      message: '20% off on your next order! Use code SAVE20',
+      time: '1 hour ago',
+      read: false,
+      icon: 'local_offer'
+    },
+    {
+      id: 3,
+      type: 'delivery',
+      title: 'Order Delivered',
+      message: 'Your order #1230 has been delivered successfully.',
+      time: '2 hours ago',
+      read: true,
+      icon: 'delivery_dining'
+    }
+  ]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+  
+  // Restaurant data - use props or fallback values
+  const restaurant = {
+    name: restaurantName || "OrderEase",
+    logo: null, // Add logo prop if available
+    address: branchName || null
+  };
   
   // Only show restaurant info in header on mobile views
   // (on desktop/tablet it's shown in the sidebar)
@@ -20,10 +113,34 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
       navigator.vibrate(10);
     }
     setNotificationsOpen(!notificationsOpen);
-    if (notificationsOpen) {
-      setNotificationCount(0);
+  };
+
+  const markAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(notif => 
+        notif.id === notificationId ? { ...notif, read: true } : notif
+      )
+    );
+    // Update notification count
+    const unreadCount = notifications.filter(n => !n.read && n.id !== notificationId).length;
+    setNotificationCount(unreadCount);
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
+    setNotificationCount(0);
+  };
+
+  const handleProfileClick = () => {
+    if (isAuthenticated && onNavigateToProfile) {
+      onNavigateToProfile();
+    } else if (!isAuthenticated) {
+      openLoginModal();
     }
   };
+
+  // Calculate unread notifications
+  const unreadCount = notifications.filter(n => !n.read).length;
   
   return (
     <header
@@ -31,26 +148,22 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
         position: "sticky",
         top: 0,
         zIndex: 100,
-        backgroundColor: isMobile ? "#FFFFFF" : `${theme.colors.background}99`,
-        boxShadow: isMobile ? theme.shadows.sm : theme.shadows.md,
-        borderRadius: isMobile ? 
-          0 : 
-          `${theme.borderRadius.md}`,
+        backgroundColor: isMobile ? "#FFFFFF" : "rgba(255, 255, 255, 0.95)",
+        borderBottom: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+        boxShadow: isMobile ? 
+          "0 2px 8px rgba(0, 0, 0, 0.08)" : 
+          "0 4px 20px rgba(0, 0, 0, 0.08)",
         padding: isMobile ? 
-          `${theme.spacing.sm} ${theme.spacing.sm} ${theme.spacing.xs}` : 
-          `${theme.spacing.md} ${theme.spacing.lg}`,
-        marginBottom: theme.spacing.md,
-        width: isMobile ? "100%" : "calc(100% - 40px)",
-        marginLeft: isMobile ? 0 : "20px",
-        marginRight: isMobile ? 0 : "20px",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        transition: "all 0.3s ease",
+          `${theme.spacing.md} ${theme.spacing.md}` : 
+          `${theme.spacing.lg} ${theme.spacing.xl}`,
+        marginBottom: isMobile ? 0 : theme.spacing.sm,
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
         display: "flex",
         flexDirection: "column",
-        gap: isMobile ? 0 : theme.spacing.sm,
-        maxWidth: isMobile ? "none" : "1400px",
-        margin: isMobile ? 0 : `${theme.spacing.md} auto`
+        gap: theme.spacing.md,
+        borderRadius: isMobile ? 0 : `0 0 ${theme.borderRadius.lg} ${theme.borderRadius.lg}`,
       }}
     >
       {/* Main Header Content */}
@@ -61,50 +174,104 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           alignItems: "center",
         }}
       >
-        <div>
-          {isMobile && (
+        {/* Restaurant Logo & Branding */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: theme.spacing.md,
+        }}>
+          {restaurant?.logo && (
+            <div
+              style={{
+                width: isMobile ? "45px" : "60px",
+                height: isMobile ? "45px" : "60px",
+                borderRadius: theme.borderRadius.lg,
+                overflow: "hidden",
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+                border: `2px solid ${theme.colors.border?.light || 'rgba(255, 255, 255, 0.2)'}`,
+                background: "linear-gradient(135deg, #ffffff, #f8fafc)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <img
+                src={restaurant.logo}
+                alt={restaurant.name}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                }}
+                onError={(e) => {
+                  e.target.style.display = "none";
+                }}
+              />
+            </div>
+          )}
+
+          <div>
             <h1
               style={{
                 fontFamily: theme.typography.fontFamily.display,
-                fontSize: "24px",
+                fontSize: isMobile ? "1.4rem" : "1.75rem",
                 margin: 0,
-                color: theme.colors.secondary,
+                background: `linear-gradient(135deg, ${theme.colors.primary}, ${theme.colors.secondary})`,
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
                 userSelect: "none",
-                letterSpacing: "-0.5px",
+                letterSpacing: "-0.025em",
+                fontWeight: 700,
                 display: "flex",
                 alignItems: "center",
                 gap: theme.spacing.xs,
               }}
             >
-              <span className="material-icons" style={{ fontSize: "24px", color: theme.colors.primary }}>
-                restaurant
-              </span>
-              Order<span style={{ color: theme.colors.primary }}>Ease</span>
+              {!restaurant?.logo && (
+                <span className="material-icons" style={{ 
+                  fontSize: isMobile ? "28px" : "32px", 
+                  color: theme.colors.primary,
+                  marginRight: theme.spacing.xs
+                }}>
+                  restaurant
+                </span>
+              )}
+              {restaurant?.name || "OrderEase"}
             </h1>
-          )}
-          
-          {/* For Medium/Large screens, show page title or greeting */}
-          {!isMobile && (
-            <div>
-              <h2 style={{
-                fontSize: theme.typography.sizes.xl,
-                fontWeight: theme.typography.fontWeights.semibold,
-                margin: 0,
-                color: theme.colors.text.primary,
-                fontFamily: theme.typography.fontFamily.display
-              }}>
-                Welcome to OrderEase
-              </h2>
+            
+            {!isMobile && restaurant?.address && (
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: theme.spacing.xs,
+                  fontSize: "0.875rem",
+                  color: theme.colors.text.secondary,
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: theme.spacing.xs,
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: "16px", color: theme.colors.primary }}>
+                  location_on
+                </span>
+                {restaurant.address}
+              </p>
+            )}
+
+            {!isMobile && !restaurant?.name && (
               <p style={{
                 fontSize: theme.typography.sizes.sm,
                 color: theme.colors.text.secondary,
                 margin: 0,
-                marginTop: theme.spacing.xs
+                marginTop: theme.spacing.xs,
+                fontWeight: 500,
               }}>
                 Order your favorite dishes with ease
               </p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Right-side Actions */}
@@ -113,137 +280,415 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           alignItems: "center",
           gap: theme.spacing.md
         }}>
-          {/* Show notification icon */}
-          <motion.div
-            whileTap={{ scale: 0.95 }}
-            style={{ 
-              position: "relative",
-              cursor: "pointer"
-            }}
-            onClick={toggleNotifications}
-          >
-            {/* Notification Bell */}
-            <span className="material-icons" style={{
-              color: theme.colors.text.secondary,
-              fontSize: "24px"
-            }}>
-              {notificationCount > 0 ? "notifications_active" : "notifications"}
-            </span>
-            
-            {/* Notification Count Badge */}
-            {notificationCount > 0 && (
-              <span style={{
-                position: "absolute",
-                top: "-5px",
-                right: "-5px",
-                backgroundColor: theme.colors.primary,
-                color: "#fff",
-                borderRadius: "50%",
-                width: "16px",
-                height: "16px",
-                fontSize: "10px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: theme.typography.fontWeights.bold
+          {/* Enhanced Notification Bell with Dropdown */}
+          <div ref={notificationRef} style={{ position: "relative" }}>
+            <motion.div
+              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: 1.05 }}
+              style={{ 
+                position: "relative",
+                cursor: "pointer",
+                padding: theme.spacing.sm,
+                borderRadius: theme.borderRadius.lg,
+                background: unreadCount > 0 ? 
+                  `linear-gradient(135deg, ${theme.colors.primary}15, ${theme.colors.secondary}15)` : 
+                  "transparent",
+                border: unreadCount > 0 ? 
+                  `1px solid ${theme.colors.primary}30` : 
+                  `1px solid transparent`,
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+              onClick={toggleNotifications}
+            >
+              <span className="material-icons" style={{
+                color: unreadCount > 0 ? theme.colors.primary : theme.colors.text.secondary,
+                fontSize: "24px",
+                transition: "color 0.3s ease"
               }}>
-                {notificationCount}
+                {unreadCount > 0 ? "notifications_active" : "notifications"}
               </span>
-            )}
-          </motion.div>
+              
+              {/* Enhanced notification badge */}
+              {unreadCount > 0 && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  style={{
+                    position: "absolute",
+                    top: "4px",
+                    right: "4px",
+                    background: `linear-gradient(135deg, ${theme.colors.primary}, ${theme.colors.secondary})`,
+                    color: "#fff",
+                    borderRadius: "50%",
+                    minWidth: "18px",
+                    height: "18px",
+                    fontSize: "10px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: theme.typography.fontWeights.bold,
+                    border: "2px solid #fff",
+                    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                  }}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </motion.span>
+              )}
+            </motion.div>
 
-          {/* Profile Button (Login or Profile Avatar) */}
-          <ProfileButton openLoginModal={openLoginModal} />
+            {/* Professional Notification Dropdown */}
+            <AnimatePresence>
+              {notificationsOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: theme.spacing.sm,
+                    width: isMobile ? "320px" : "380px",
+                    maxWidth: "90vw",
+                    background: "#fff",
+                    borderRadius: theme.borderRadius.lg,
+                    boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15)",
+                    border: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                    zIndex: 1000,
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Notification Header */}
+                  <div style={{
+                    padding: theme.spacing.md,
+                    borderBottom: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                    background: `linear-gradient(135deg, ${theme.colors.primary}05, ${theme.colors.secondary}05)`,
+                  }}>
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}>
+                      <h3 style={{
+                        margin: 0,
+                        fontSize: theme.typography.sizes.lg,
+                        fontWeight: theme.typography.fontWeights.semibold,
+                        color: theme.colors.text.primary,
+                      }}>
+                        Notifications
+                      </h3>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAllAsRead}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: theme.colors.primary,
+                            fontSize: theme.typography.sizes.sm,
+                            fontWeight: theme.typography.fontWeights.medium,
+                            cursor: "pointer",
+                            padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
+                            borderRadius: theme.borderRadius.md,
+                            transition: "background-color 0.2s ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = `${theme.colors.primary}10`;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = "transparent";
+                          }}
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Notification List */}
+                  <div style={{
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}>
+                    {notifications.length > 0 ? (
+                      notifications.map((notification) => (
+                        <motion.div
+                          key={notification.id}
+                          whileHover={{ backgroundColor: `${theme.colors.primary}05` }}
+                          style={{
+                            padding: theme.spacing.md,
+                            borderBottom: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                            cursor: "pointer",
+                            transition: "background-color 0.2s ease",
+                            position: "relative",
+                          }}
+                          onClick={() => markAsRead(notification.id)}
+                        >
+                          <div style={{
+                            display: "flex",
+                            gap: theme.spacing.sm,
+                            alignItems: "flex-start",
+                          }}>
+                            {/* Notification Icon */}
+                            <div style={{
+                              width: "40px",
+                              height: "40px",
+                              borderRadius: "50%",
+                              background: `linear-gradient(135deg, ${theme.colors.primary}15, ${theme.colors.secondary}15)`,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}>
+                              <span className="material-icons" style={{
+                                fontSize: "20px",
+                                color: theme.colors.primary,
+                              }}>
+                                {notification.icon}
+                              </span>
+                            </div>
+
+                            {/* Notification Content */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "flex-start",
+                                marginBottom: theme.spacing.xs,
+                              }}>
+                                <h4 style={{
+                                  margin: 0,
+                                  fontSize: theme.typography.sizes.sm,
+                                  fontWeight: notification.read ? 
+                                    theme.typography.fontWeights.medium : 
+                                    theme.typography.fontWeights.semibold,
+                                  color: theme.colors.text.primary,
+                                }}>
+                                  {notification.title}
+                                </h4>
+                                <span style={{
+                                  fontSize: theme.typography.sizes.xs,
+                                  color: theme.colors.text.secondary,
+                                  flexShrink: 0,
+                                  marginLeft: theme.spacing.sm,
+                                }}>
+                                  {notification.time}
+                                </span>
+                              </div>
+                              <p style={{
+                                margin: 0,
+                                fontSize: theme.typography.sizes.sm,
+                                color: theme.colors.text.secondary,
+                                lineHeight: 1.4,
+                              }}>
+                                {notification.message}
+                              </p>
+                            </div>
+
+                            {/* Unread Indicator */}
+                            {!notification.read && (
+                              <div style={{
+                                width: "8px",
+                                height: "8px",
+                                borderRadius: "50%",
+                                background: theme.colors.primary,
+                                position: "absolute",
+                                top: theme.spacing.md,
+                                right: theme.spacing.md,
+                              }} />
+                            )}
+                          </div>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div style={{
+                        padding: `${theme.spacing.xl} ${theme.spacing.md}`,
+                        textAlign: "center",
+                        color: theme.colors.text.secondary,
+                      }}>
+                        <span className="material-icons" style={{
+                          fontSize: "48px",
+                          marginBottom: theme.spacing.md,
+                          opacity: 0.5,
+                        }}>
+                          notifications_none
+                        </span>
+                        <p style={{
+                          margin: 0,
+                          fontSize: theme.typography.sizes.sm,
+                        }}>
+                          No notifications yet
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notification Footer */}
+                  {notifications.length > 0 && (
+                    <div style={{
+                      padding: theme.spacing.md,
+                      borderTop: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                      background: `${theme.colors.primary}05`,
+                      textAlign: "center",
+                    }}>
+                      <button
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: theme.colors.primary,
+                          fontSize: theme.typography.sizes.sm,
+                          fontWeight: theme.typography.fontWeights.medium,
+                          cursor: "pointer",
+                          padding: theme.spacing.sm,
+                          borderRadius: theme.borderRadius.md,
+                          transition: "background-color 0.2s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = `${theme.colors.primary}10`;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = "transparent";
+                        }}
+                      >
+                        View all notifications
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Enhanced Profile Button with Navigation */}
+          <ProfileButton 
+            openLoginModal={openLoginModal} 
+            onProfileClick={handleProfileClick}
+            user={user}
+            isAuthenticated={isAuthenticated}
+          />
         </div>
       </div>
+     
       
-      {/* Restaurant Info (Mobile Only) */}
-       
-      
-      {/* For medium/large screens - secondary navigation row */}
+      {/* Enhanced Navigation for larger screens */}
       {!isMobile && (
         <div style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "flex-start",
           gap: theme.spacing.lg,
-          borderTop: `1px solid ${theme.colors.divider}`,
+          borderTop: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
           paddingTop: theme.spacing.md,
-          marginTop: theme.spacing.xs
+          marginTop: theme.spacing.sm,
+          position: "relative",
         }}>
-          <button style={{
-            background: "transparent",
-            border: "none",
-            color: theme.colors.primary,
-            fontWeight: theme.typography.fontWeights.semibold,
-            fontSize: theme.typography.sizes.sm,
-            cursor: "pointer",
-            padding: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: theme.spacing.xs,
-            position: "relative"
-          }}>
+          {/* Active Menu Button */}
+          <motion.button 
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            style={{
+              background: `linear-gradient(135deg, ${theme.colors.primary}10, ${theme.colors.secondary}10)`,
+              border: `1px solid ${theme.colors.primary}30`,
+              color: theme.colors.primary,
+              fontWeight: theme.typography.fontWeights.semibold,
+              fontSize: theme.typography.sizes.sm,
+              cursor: "pointer",
+              padding: `${theme.spacing.sm} ${theme.spacing.md}`,
+              borderRadius: theme.borderRadius.lg,
+              display: "flex",
+              alignItems: "center",
+              gap: theme.spacing.xs,
+              position: "relative",
+              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)",
+            }}
+          >
             <span className="material-icons" style={{ fontSize: "20px" }}>restaurant_menu</span>
             Menu
+          </motion.button>
+          
+          {/* Other Navigation Items */}
+          {[
+            { icon: "star", label: "Featured", onClick: () => {} },
+            { icon: "receipt_long", label: "Orders", onClick: () => {} },
+            { icon: "favorite", label: "Favorites", onClick: () => {} }
+          ].map((item, index) => (
+            <motion.button 
+              key={item.label}
+              whileHover={{ y: -2, color: theme.colors.primary }}
+              whileTap={{ scale: 0.98 }}
+              style={{
+                background: "transparent",
+                border: "1px solid transparent",
+                color: theme.colors.text.secondary,
+                fontWeight: theme.typography.fontWeights.medium,
+                fontSize: theme.typography.sizes.sm,
+                cursor: "pointer",
+                padding: `${theme.spacing.sm} ${theme.spacing.md}`,
+                borderRadius: theme.borderRadius.lg,
+                display: "flex",
+                alignItems: "center",
+                gap: theme.spacing.xs,
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+              onClick={item.onClick}
+            >
+              <span className="material-icons" style={{ fontSize: "20px" }}>{item.icon}</span>
+              {item.label}
+            </motion.button>
+          ))}
+          
+          {/* Search Bar for larger screens */}
+          <div style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: theme.spacing.md,
+          }}>
             <div style={{
-              position: "absolute",
-              bottom: "-8px",
-              left: "0",
-              right: "0",
-              height: "2px",
-              backgroundColor: theme.colors.primary,
-              borderRadius: "2px"
-            }} />
-          </button>
-          
-          <button style={{
-            background: "transparent",
-            border: "none",
-            color: theme.colors.text.secondary,
-            fontWeight: theme.typography.fontWeights.medium,
-            fontSize: theme.typography.sizes.sm,
-            cursor: "pointer",
-            padding: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: theme.spacing.xs
-          }}>
-            <span className="material-icons" style={{ fontSize: "20px" }}>star</span>
-            Featured
-          </button>
-          
-          <button style={{
-            background: "transparent",
-            border: "none",
-            color: theme.colors.text.secondary,
-            fontWeight: theme.typography.fontWeights.medium,
-            fontSize: theme.typography.sizes.sm,
-            cursor: "pointer",
-            padding: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: theme.spacing.xs
-          }}>
-            <span className="material-icons" style={{ fontSize: "20px" }}>receipt_long</span>
-            Orders
-          </button>
-          
-          <button style={{
-            background: "transparent",
-            border: "none",
-            color: theme.colors.text.secondary,
-            fontWeight: theme.typography.fontWeights.medium,
-            fontSize: theme.typography.sizes.sm,
-            cursor: "pointer",
-            padding: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: theme.spacing.xs
-          }}>
-            <span className="material-icons" style={{ fontSize: "20px" }}>favorite</span>
-            Favorites
-          </button>
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+            }}>
+              <input
+                type="text"
+                placeholder="Search dishes..."
+                style={{
+                  padding: `${theme.spacing.sm} ${theme.spacing.md}`,
+                  paddingLeft: "2.5rem",
+                  border: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                  borderRadius: theme.borderRadius.lg,
+                  background: "rgba(255, 255, 255, 0.8)",
+                  fontSize: theme.typography.sizes.sm,
+                  color: theme.colors.text.primary,
+                  outline: "none",
+                  transition: "all 0.3s ease",
+                  width: "250px",
+                  backdropFilter: "blur(10px)",
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = theme.colors.primary;
+                  e.target.style.boxShadow = `0 0 0 3px ${theme.colors.primary}20`;
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = theme.colors.border?.light || theme.colors.divider;
+                  e.target.style.boxShadow = "none";
+                }}
+              />
+              <span 
+                className="material-icons" 
+                style={{
+                  position: "absolute",
+                  left: "0.75rem",
+                  color: theme.colors.text.secondary,
+                  fontSize: "20px",
+                  pointerEvents: "none",
+                }}
+              >
+                search
+              </span>
+            </div>
+          </div>
         </div>
       )}
     </header>

@@ -1,15 +1,13 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useState, useRef } from 'react';
 import { Row, Col, Spinner, Card, CardHeader, CardBody } from 'reactstrap';
 import MenuItemsWidget from './MenuItemsWidget';
 import CustomerInsightsWidget from './CustomerInsightsWidget';
 import DashboardWidgets from './DashboardWidgets';
-import useRenderTracker from '../../utils/useRenderTracker';
 import { WidgetDataContext } from './StableDataProvider';
 import { AuthContext } from '../../context/AuthContext';
 
 // This component is completely isolated from global contexts
 const WidgetsContainer = () => {
-  useRenderTracker('WidgetsContainer');
   
   // Get authentication context for user role
   const { user } = useContext(AuthContext);
@@ -25,12 +23,48 @@ const WidgetsContainer = () => {
     categoryData
   } = useContext(WidgetDataContext);
   
-  // Determine if data is still loading
-  const loading = restaurantData.loading || tableData.loading || orderData.loading || 
-                 customerData.loading || menuData.loading || categoryData.loading;
+  // Add timeout state to prevent infinite loading
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const timeoutRef = useRef(null);
+  
+  // Set a loading timeout of 15 seconds
+  useEffect(() => {
+    timeoutRef.current = setTimeout(() => {
+      console.warn('WidgetsContainer: Loading timeout reached, forcing display');
+      setLoadingTimeout(true);
+    }, 15000);
+    
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // Determine if data is still loading - with more specific logging
+  const loadingStates = {
+    restaurant: restaurantData.loading,
+    table: tableData.loading,
+    order: orderData.loading,
+    customer: customerData.loading,
+    menu: menuData.loading,
+    category: categoryData.loading
+  };
+  
+  // Simple loading logic - only check if we have at least some data or timeout occurred
+  const hasEssentialData = (restaurantData.restaurants?.length > 0) || 
+                          (tableData.tables?.length > 0) || 
+                          (orderData.orders?.length > 0);
+  
+  // Show loading only if no essential data AND no timeout AND still actually loading
+  const loading = !loadingTimeout && !hasEssentialData && 
+                 (restaurantData.loading || tableData.loading || orderData.loading);
   
   // Debug output for development
   useEffect(() => {
+    console.log('WidgetsContainer loading states:', loadingStates);
+    console.log('WidgetsContainer hasEssentialData:', hasEssentialData);
+    console.log('WidgetsContainer loadingTimeout:', loadingTimeout);
     console.log('WidgetsContainer received data:', {
       restaurantsCount: restaurantData.restaurants?.length || 0,
       branchesCount: restaurantData.branches?.length || 0,
@@ -41,9 +75,9 @@ const WidgetsContainer = () => {
       menuItemsCount: menuData.menuItems?.length || 0,
       categoriesCount: categoryData.categories?.length || 0,
       role: userData.role,
-      loading
+      finalLoading: loading
     });
-  }, [restaurantData, tableData, orderData, customerData, menuData, categoryData, userData, loading]);
+  }, [restaurantData, tableData, orderData, customerData, menuData, categoryData, userData, loading, loadingStates, hasEssentialData, loadingTimeout, user?.role]);
   
   // Combine data for other widgets
   const data = {
@@ -58,14 +92,20 @@ const WidgetsContainer = () => {
     userRole: userData.role || user?.role || ''
   };
 
-  // If loading, show a loading spinner
-  if (loading) {
+  // If loading, show a loading spinner (with timeout)
+  if (loading && !loadingTimeout) {
     return (
       <div className="text-center py-5 my-5">
         <Spinner color="primary" size="lg" />
         <p className="mt-3">Loading dashboard widgets...</p>
+        <small className="text-muted">This should only take a few seconds</small>
       </div>
     );
+  }
+  
+  // If timeout occurred but still loading, show warning but continue
+  if (loadingTimeout && loading) {
+    console.warn('WidgetsContainer: Loading timeout reached, displaying widgets anyway');
   }
 
   // If no data available for non-Super_Admin users, show a message

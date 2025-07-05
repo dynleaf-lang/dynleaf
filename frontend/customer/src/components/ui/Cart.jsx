@@ -1665,10 +1665,10 @@ const CartComponent = ({ isOpen, onClose }) => {
               
               {/* Content with transitions */}
               <AnimatePresence mode="wait">
-                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty" />}
-                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart" checkoutStep={checkoutStep} />}
-                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout" />}
-                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation" />}
+                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty-cart" />}
+                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart-content" checkoutStep={checkoutStep} />}
+                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout-form" />}
+                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="order-confirmation" />}
               </AnimatePresence>
             </div>
             

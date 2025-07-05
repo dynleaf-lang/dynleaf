@@ -1446,7 +1446,7 @@ const OrdersView = ({ isDesktop = false }) => {
           <ErrorState key="error" error={error} onRetry={handleRetry} />
         ) : filteredOrders.length === 0 ? (
           <EmptyOrdersState 
-            key="empty" 
+            key="empty-orders-state" 
             message={
               activeFilter === 'all' 
                 ? "You don't have any orders yet. Browse our menu and place your first order!"

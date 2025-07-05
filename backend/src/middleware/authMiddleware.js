@@ -18,7 +18,7 @@ const formatId = (id) => {
         
         // Convert to ObjectId if valid
         if (mongoose.Types.ObjectId.isValid(id)) {
-            return mongoose.Types.ObjectId(id);
+            return new mongoose.Types.ObjectId(id);
         }
         
         // Return original for logging

@@ -4,7 +4,7 @@ import Header from "../ui/Header";
 import SideNav from "../ui/SideNav";
 import { theme } from "../../data/theme";
 
-const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, tableNumber }) => {
+const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, tableNumber, openLoginModal, onNavigateToProfile }) => {
   const { isMobile, isTablet, isDesktop } = useResponsive();
   const [activeTab, setActiveTab] = useState("menu");
   const [isSideNavExpanded, setIsSideNavExpanded] = useState(true);
@@ -56,6 +56,8 @@ const DesktopLayout = ({ children, profileSrc, restaurantName, branchName, table
           restaurantName={restaurantName}
           branchName={branchName}
           tableNumber={tableNumber}
+          openLoginModal={openLoginModal}
+          onNavigateToProfile={onNavigateToProfile}
         />
 
         {/* Content */}

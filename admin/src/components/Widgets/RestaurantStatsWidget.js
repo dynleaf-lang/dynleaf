@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useContext } from 'react';
 import {
   Card,
   CardHeader,
@@ -13,36 +13,90 @@ import { Link } from 'react-router-dom';
 import { FaBuilding, FaStore, FaMapMarkerAlt, FaUtensils } from 'react-icons/fa';
 import { Bar } from 'react-chartjs-2';
 import useRenderTracker from '../../utils/useRenderTracker';
+import { useOrder } from '../../context/OrderContext';
+import { AuthContext } from '../../context/AuthContext';
 
-// Change to receive data as props instead of using context
-const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userRole, loading }) => {
+// Change to receive data as props and fetch fresh orders directly
+const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders: propOrders, userRole, loading }) => {
   useRenderTracker('RestaurantStatsWidget');
+  
+  // Get fresh order data using the same pattern as OrderReports
+  const { user } = useContext(AuthContext);
+  const { 
+    orders: rawOrders,
+    getAllOrders,
+    loading: ordersLoading 
+  } = useOrder();
+  
+  // Ensure orders is always an array to prevent errors
+  const freshOrders = Array.isArray(rawOrders) ? rawOrders : [];
+  
+  // State for tracking fresh data fetch
+  const [freshDataFetched, setFreshDataFetched] = useState(false);
+  
+  // Fetch fresh orders data on component mount
+  useEffect(() => {
+    const fetchFreshOrders = async () => {
+      if (user && !freshDataFetched) {
+        try {
+          const filters = {};
+          
+          // Apply filters based on user role (same logic as OrderReports)
+          if (user.role !== 'Super_Admin') {
+            if (user.restaurantId) filters.restaurantId = user.restaurantId;
+            if (user.branchId) filters.branchId = user.branchId;
+          }
+          
+          console.log('RestaurantStatsWidget: Fetching fresh orders with filters:', filters);
+          
+          const result = await getAllOrders(filters, true); // Force refresh
+          
+          if (result.success) {
+            console.log('RestaurantStatsWidget: Fresh orders fetched successfully:', result.orders?.length || freshOrders.length, 'orders');
+            setFreshDataFetched(true);
+          } else {
+            console.error('RestaurantStatsWidget: Error fetching fresh orders:', result.message);
+          }
+        } catch (error) {
+          console.error('RestaurantStatsWidget: Error fetching fresh orders:', error);
+        }
+      }
+    };
+    
+    fetchFreshOrders();
+  }, [user, freshDataFetched, getAllOrders]);
+  
+  // Use fresh orders for calculations, fallback to prop orders if fresh data not available yet
+  const ordersToUse = freshDataFetched ? freshOrders : (propOrders || []);
   
   // Debug logging to track data flow
   useEffect(() => {
     console.log('RestaurantStatsWidget received:', {
       restaurantsCount: restaurants?.length || 0,
       branchesCount: branches?.length || 0,
-      ordersCount: orders?.length || 0,
+      propOrdersCount: propOrders?.length || 0,
+      freshOrdersCount: freshOrders?.length || 0,
+      ordersToUseCount: ordersToUse?.length || 0,
+      freshDataFetched,
       userRole,
-      loading
+      loading: loading || ordersLoading
     });
-  }, [restaurants, branches, orders, userRole, loading]);
+  }, [restaurants, branches, propOrders, freshOrders, ordersToUse, freshDataFetched, userRole, loading, ordersLoading]);
   
-  // Use useMemo to calculate derived data
+  // Use useMemo to calculate derived data with fresh orders
   const processedData = useMemo(() => {
     if (!restaurants || restaurants.length === 0) {
       return { restaurantStats: [], topRestaurants: [], averageBranchesPerRestaurant: 0 };
     }
     
-    // Process restaurant data to identify "top" restaurants
+    // Process restaurant data to identify "top" restaurants using fresh orders
     const restaurantBranchCount = restaurants.map(restaurant => {
       const relatedBranches = branches?.filter(branch => 
         branch.restaurantId === restaurant._id || 
         (typeof branch.restaurantId === 'object' && branch.restaurantId?._id === restaurant._id)
       ) || [];
       
-      const relatedOrders = orders?.filter(order => 
+      const relatedOrders = ordersToUse?.filter(order => 
         order.restaurantId === restaurant._id ||
         (typeof order.restaurantId === 'object' && order.restaurantId?._id === restaurant._id)
       ) || [];
@@ -71,9 +125,9 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
       topRestaurants: top5,
       averageBranchesPerRestaurant
     };
-  }, [restaurants, branches, orders]);
+  }, [restaurants, branches, ordersToUse]);
   
-  // Generate chart data based on actual order data
+  // Generate chart data based on actual order data using fresh orders
   const chartData = useMemo(() => {
     // If no data, return empty structure
     if (!branches || branches.length === 0) {
@@ -94,9 +148,9 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
       };
     }
     
-    // Get top 5 branches by order count
+    // Get top 5 branches by order count using fresh orders
     const branchData = branches.map(branch => {
-      const branchOrders = orders?.filter(order => 
+      const branchOrders = ordersToUse?.filter(order => 
         order.branchId === branch._id ||
         (typeof order.branchId === 'object' && order.branchId?._id === branch._id)
       ) || [];
@@ -131,7 +185,7 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
         }
       ]
     };
-  }, [branches, orders]);
+  }, [branches, ordersToUse]);
 
   // Chart options
   const chartOptions = {
@@ -153,10 +207,13 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
     }
   };
 
-  // Calculate summary stats
+  // Calculate summary stats using fresh orders
   const totalRestaurants = restaurants?.length || 0;
   const totalBranches = branches?.length || 0;
-  const totalOrders = orders?.length || 0;
+  const totalOrders = ordersToUse?.length || 0;
+  
+  // Show loading state if either prop loading or orders loading
+  const isLoading = loading || ordersLoading || !freshDataFetched;
 
   return (
     <Card className="shadow">
@@ -174,7 +231,7 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
                 <Row>
                   <div className="col">
                     <span className="h2 font-weight-bold mb-0">
-                      {loading ? <Spinner size="sm" /> : totalRestaurants}
+                      {isLoading ? <Spinner size="sm" /> : totalRestaurants}
                     </span>
                     <h5 className="text-uppercase text-muted mb-0">
                       Total Restaurants
@@ -195,7 +252,7 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
                 <Row>
                   <div className="col">
                     <span className="h2 font-weight-bold mb-0">
-                      {loading ? <Spinner size="sm" /> : totalBranches}
+                      {isLoading ? <Spinner size="sm" /> : totalBranches}
                     </span>
                     <h5 className="text-uppercase text-muted mb-0">
                       Total Branches
@@ -216,10 +273,10 @@ const RestaurantStatsWidget = React.memo(({ restaurants, branches, orders, userR
                 <Row>
                   <div className="col">
                     <span className="h2 font-weight-bold mb-0">
-                      {loading ? <Spinner size="sm" /> : totalOrders}
+                      {isLoading ? <Spinner size="sm" /> : totalOrders}
                     </span>
                     <h5 className="text-uppercase text-muted mb-0">
-                      Total Orders
+                      Total Orders {freshDataFetched && <small className="text-success">(Live)</small>}
                     </h5>
                   </div>
                   <Col className="col-auto">

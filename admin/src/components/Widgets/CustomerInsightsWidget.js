@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo, useContext } from 'react';
 import {
   Card,
   CardHeader,
@@ -11,15 +11,14 @@ import {
 } from 'reactstrap';
 import { Link } from 'react-router-dom';
 import { useCurrency } from '../../context/CurrencyContext';
+import { AuthContext } from '../../context/AuthContext';
 import CurrencyDisplay from '../Utils/CurrencyDisplay';
 import { FaUserFriends, FaHistory, FaCrown } from 'react-icons/fa';
-import useRenderTracker from '../../utils/useRenderTracker';
 
-const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, countryCode = 'DEFAULT' }) => {
-  useRenderTracker('CustomerInsightsWidget');
+const CustomerInsightsWidget = ({ customers = [], orders: propOrders = [], loading = false, countryCode = 'DEFAULT' }) => {
   
-  // Ensure orders is always an array to prevent "orders.filter is not a function" error
-  const safeOrders = Array.isArray(orders) ? orders : [];
+  // Use the prop orders directly - don't fetch additional orders to avoid conflicts
+  const safeOrders = Array.isArray(propOrders) ? propOrders : [];
   
   const [topCustomers, setTopCustomers] = useState([]);
   const [recentCustomers, setRecentCustomers] = useState([]);
@@ -30,16 +29,48 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
     averagePurchase: 0
   });
 
-  // Process customer data whenever props change
+  // Process customer data whenever customers or orders change
   useEffect(() => {
     if (customers?.length > 0) {
       processCustomerData();
+    } else {
+      // Clear data if no customers
+      setTopCustomers([]);
+      setRecentCustomers([]);
+      setCustomerStats({
+        total: 0,
+        newThisMonth: 0,
+        returning: 0,
+        averagePurchase: 0
+      });
     }
   }, [customers, safeOrders]);
   
   // Calculate customer insights
   const processCustomerData = useCallback(() => {
     if (!customers?.length) return;
+    
+    console.log('CustomerInsightsWidget - Processing data:', {
+      customersCount: customers.length,
+      ordersCount: safeOrders.length,
+      sampleCustomer: customers[0] ? {
+        _id: customers[0]._id,
+        name: customers[0].name,
+        firstName: customers[0].firstName,
+        email: customers[0].email,
+        phone: customers[0].phone
+      } : null,
+      sampleOrder: safeOrders[0] ? {
+        id: safeOrders[0]._id,
+        customerId: safeOrders[0].customerId,
+        customer: safeOrders[0].customer,
+        customerInfo: safeOrders[0].customerInfo,
+        customerName: safeOrders[0].customerName,
+        customerPhone: safeOrders[0].customerPhone,
+        customerEmail: safeOrders[0].customerEmail,
+        totalAmount: safeOrders[0].totalAmount
+      } : null
+    });
     
      
     // Calculate stats
@@ -58,22 +89,114 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
     // Calculate customer order data
     const customersWithOrders = customers.map(customer => {
       const customerOrders = safeOrders.filter(order => {
-        if (typeof order.customerId === 'object') {
-          return order.customerId?._id === customer._id;
+        // Handle different customer ID formats - exactly like Order Management
+        let matches = false;
+        
+        // Method 1: Check if order has customerId field (object format)
+        if (order.customerId && typeof order.customerId === 'object' && order.customerId !== null) {
+          matches = order.customerId._id === customer._id;
         }
-        return order.customerId === customer._id;
+        
+        // Method 2: Check if order has customerId field (string format)
+        if (!matches && order.customerId && typeof order.customerId === 'string') {
+          matches = order.customerId === customer._id;
+        }
+        
+        // Method 3: Check if order has customer field (object format)
+        if (!matches && order.customer && typeof order.customer === 'object' && order.customer !== null) {
+          matches = order.customer._id === customer._id;
+        }
+        
+        // Method 4: Check if order has customer field (string format)
+        if (!matches && order.customer && typeof order.customer === 'string') {
+          matches = order.customer === customer._id;
+        }
+        
+        // Method 5: Check if order has customerInfo field (object format)
+        if (!matches && order.customerInfo && typeof order.customerInfo === 'object' && order.customerInfo !== null) {
+          matches = order.customerInfo._id === customer._id;
+        }
+        
+        // Method 6: Check if order has customerInfo field (string format)
+        if (!matches && order.customerInfo && typeof order.customerInfo === 'string') {
+          matches = order.customerInfo === customer._id;
+        }
+        
+        // Method 7: Match by customer name and contact info (fallback)
+        if (!matches && order.customerName) {
+          const orderCustomerName = order.customerName.toLowerCase();
+          const customerName = (customer.name || customer.firstName || '').toLowerCase();
+          if (orderCustomerName === customerName && customerName !== '') {
+            // Additional verification with phone or email if available
+            if (order.customerPhone && customer.phone) {
+              matches = order.customerPhone === customer.phone;
+            } else if (order.customerEmail && customer.email) {
+              matches = order.customerEmail === customer.email;
+            } else if (customerName !== '') {
+              matches = true; // Name match is sufficient if no contact info
+            }
+          }
+        }
+        
+        // Method 8: Match by name from customerId object
+        if (!matches && order.customerId && typeof order.customerId === 'object' && order.customerId !== null) {
+          const orderCustomerName = (order.customerId.name || order.customerId.firstName || '').toLowerCase();
+          const customerName = (customer.name || customer.firstName || '').toLowerCase();
+          if (orderCustomerName === customerName && customerName !== '') {
+            matches = true;
+          }
+        }
+        
+        return matches;
       });
       
       const totalSpent = customerOrders.reduce((sum, order) => {
         return sum + (parseFloat(order.totalAmount) || 0);
       }, 0);
       
+      // Debug individual customer's orders
+      if (customerOrders.length > 0) {
+        console.log(`CustomerInsightsWidget - Customer ${customer.name || customer.firstName} (${customer._id}) has ${customerOrders.length} orders:`, {
+          customer: {
+            _id: customer._id,
+            name: customer.name || customer.firstName,
+            email: customer.email,
+            phone: customer.phone
+          },
+          orders: customerOrders.map(o => ({
+            _id: o._id,
+            customerId: o.customerId,
+            totalAmount: o.totalAmount,
+            orderDate: o.orderDate
+          })),
+          totalSpent
+        });
+      }
+      
       return {
         ...customer,
         orderCount: customerOrders.length,
         totalSpent,
-        averageOrderValue: customerOrders.length > 0 ? totalSpent / customerOrders.length : 0
+        averageOrderValue: customerOrders.length > 0 ? totalSpent / customerOrders.length : 0,
+        lastOrderDate: customerOrders.length > 0 ? 
+          customerOrders.reduce((latest, order) => {
+            const orderDate = new Date(order.orderDate || order.createdAt || 0);
+            const latestDate = new Date(latest || 0);
+            return orderDate > latestDate ? order.orderDate || order.createdAt : latest;
+          }, null) : null
       };
+    });
+    
+    console.log('CustomerInsightsWidget - Customers with orders:', {
+      totalCustomers: customersWithOrders.length,
+      customersWithOrders: customersWithOrders.filter(c => c.orderCount > 0).length,
+      totalOrdersProcessed: safeOrders.length,
+      sampleCustomerWithOrders: customersWithOrders.find(c => c.orderCount > 0) || customersWithOrders[0],
+      allCustomersPreview: customersWithOrders.slice(0, 3).map(c => ({
+        name: c.name || c.firstName,
+        orderCount: c.orderCount,
+        totalSpent: c.totalSpent
+      }))
     });
     
     // Sort to find top customers by total spent
@@ -133,6 +256,9 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
     return Math.round((customerStats.returning / customerStats.total) * 100);
   }, [customerStats.returning, customerStats.total]);
   
+  // Use the prop loading state directly
+  const isLoading = loading;
+  
   return (
     <Card className="shadow">
       <CardHeader className="border-0 d-flex justify-content-between align-items-center">
@@ -150,7 +276,7 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
                 Customer Retention Rate
               </h6>
               <span className="h2 font-weight-bold mb-0">
-                {loading ? <Spinner size="sm" /> : `${retentionRate}%`}
+                {isLoading ? <Spinner size="sm" /> : `${retentionRate}%`}
               </span>
             </div>
             <div className="d-flex align-items-center">
@@ -171,27 +297,29 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
         <div className="d-flex justify-content-around mb-4">
           <div className="text-center">
             <div className="h4 font-weight-bold">
-              {loading ? <Spinner size="sm" /> : customerStats.total}
+              {isLoading ? <Spinner size="sm" /> : customerStats.total}
             </div>
             <div className="text-muted">Total Customers</div>
           </div>
           <div className="text-center">
             <div className="h4 font-weight-bold text-success">
-              {loading ? <Spinner size="sm" /> : customerStats.newThisMonth}
+              {isLoading ? <Spinner size="sm" /> : customerStats.newThisMonth}
             </div>
             <div className="text-muted">New This Month</div>
           </div>
           <div className="text-center">
             <div className="h4 font-weight-bold text-primary">
-              {loading ? <Spinner size="sm" /> : <CurrencyDisplay amount={customerStats.averagePurchase} />}
+              {isLoading ? <Spinner size="sm" /> : <CurrencyDisplay amount={customerStats.averagePurchase} />}
             </div>
             <div className="text-muted">Avg. Purchase</div>
           </div>
         </div>
       
         {/* Top customers section */}
-        <h6 className="text-uppercase text-muted mb-3">Top Customers</h6>
-        {loading ? (
+        <h6 className="text-uppercase text-muted mb-3">
+          Top Customers {safeOrders.length > 0 && <Badge color="success" className="ml-2">Live</Badge>}
+        </h6>
+        {isLoading ? (
           <div className="text-center py-3">
             <Spinner color="primary" />
           </div>
@@ -222,7 +350,7 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
                     </Badge>
                   </td>
                   <td><CurrencyDisplay amount={customer.totalSpent} /></td>
-                  <td>{formatDate(customer.updatedAt)}</td>
+                  <td>{customer.lastOrderDate ? formatDate(customer.lastOrderDate) : 'No orders'}</td>
                 </tr>
               ))}
             </tbody>
@@ -236,7 +364,7 @@ const CustomerInsightsWidget = ({ customers = [], orders = [], loading = false, 
         
         {/* Recent customers section */}
         <h6 className="text-uppercase text-muted mb-3 mt-4">Recent Customers</h6>
-        {loading ? (
+        {isLoading ? (
           <div className="text-center py-3">
             <Spinner color="primary" />
           </div>

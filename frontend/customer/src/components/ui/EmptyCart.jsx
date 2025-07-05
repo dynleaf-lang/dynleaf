@@ -5,6 +5,7 @@ import { theme } from '../../data/theme';
 // Enhanced EmptyCart component with improved visuals and animation
 const EmptyCart = memo(() => (
   <motion.div
+    key="empty-cart-container" // Add explicit key to prevent conflicts
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ type: "spring", stiffness: 300, damping: 25 }}
@@ -20,6 +21,7 @@ const EmptyCart = memo(() => (
     }}
   >
     <motion.div 
+      key="empty-cart-icon"
       initial={{ scale: 0.8 }}
       animate={{ scale: 1 }}
       transition={{ 
@@ -60,6 +62,7 @@ const EmptyCart = memo(() => (
     </motion.div>
     
     <motion.div
+      key="empty-cart-text"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
@@ -86,6 +89,7 @@ const EmptyCart = memo(() => (
     </motion.div>
     
     <motion.button
+      key="empty-cart-button"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.5 }}

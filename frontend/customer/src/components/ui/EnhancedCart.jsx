@@ -1194,11 +1194,10 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
               
               {/* Content with transitions */}
               <AnimatePresence mode="wait">
-                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty" />}
-                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty" />}
-                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
-                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
-                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty-cart-enhanced" />}
+                {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart-content-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout-form-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
               </AnimatePresence>
             </div>
             

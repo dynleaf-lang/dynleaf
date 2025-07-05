@@ -92,7 +92,13 @@ const Index = (props) => {
         filters.timestamp = new Date().getTime();
         const result = await getAllOrders(filters);
         if (result?.success && Array.isArray(result.orders)) {
+          console.log('Dashboard: Fetched orders successfully:', result.orders.length, 'orders');
+          if (result.orders.length > 0) {
+            console.log('Dashboard: Sample order data:', result.orders[0]);
+          }
           setBranchOrders(result.orders);
+        } else {
+          console.log('Dashboard: No orders received or invalid response:', result);
         }
       } catch (error) {
         console.error("Error fetching orders:", error);
@@ -113,17 +119,11 @@ const Index = (props) => {
   
   // Process orders data to generate chart data
   useEffect(() => {
-    if (!branchOrders || branchOrders.length === 0) {
-      // If no orders data, use default chart data
-      const defaultChartData = chartExample1[chartExample1Data](null);
-      setSalesChartData(defaultChartData);
-      setOrdersChartData(chartExample2.data);
-      return;
-    }
+    // Always process data, even if no orders (will show empty charts)
 
     // Process data for sales chart (Line chart)
     const processDataForSalesChart = () => {
-      // Group orders by date for month/week view
+      // Group orders by date for month/week view - always initialize
       const now = new Date();
       const monthData = {};
       const weekData = {};
@@ -147,31 +147,47 @@ const Index = (props) => {
         weekData[dateKey] = 0;
       }
       
-      // Aggregate sales by day
-      branchOrders.forEach(order => {
-        if (!order.orderDate) return;
-        
-        const orderDate = new Date(order.orderDate);
-        const dateKey = `${orderDate.getMonth() + 1}/${orderDate.getDate()}`;
-        
-        // Only include orders from current month
-        if (orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear) {
-          if (dateKey in monthData) {
-            monthData[dateKey] += parseFloat(order.totalAmount) || 0;
+      // Only process if we have valid orders data
+      if (branchOrders && Array.isArray(branchOrders) && branchOrders.length > 0) {
+        // Aggregate sales by day
+        branchOrders.forEach(order => {
+          if (!order.orderDate) return;
+          
+          const orderDate = new Date(order.orderDate);
+          const dateKey = `${orderDate.getMonth() + 1}/${orderDate.getDate()}`;
+          
+          // Only include orders from current month
+          if (orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear) {
+            if (dateKey in monthData) {
+              monthData[dateKey] += parseFloat(order.totalAmount) || 0;
+            }
           }
-        }
-        
-        // Check if the order is within the last 7 days
-        const daysDiff = Math.floor((now - orderDate) / (1000 * 60 * 60 * 24));
-        if (daysDiff <= 6 && daysDiff >= 0) {
-          if (dateKey in weekData) {
-            weekData[dateKey] += parseFloat(order.totalAmount) || 0;
+          
+          // Check if the order is within the last 7 days
+          const daysDiff = Math.floor((now - orderDate) / (1000 * 60 * 60 * 24));
+          if (daysDiff <= 6 && daysDiff >= 0) {
+            if (dateKey in weekData) {
+              weekData[dateKey] += parseFloat(order.totalAmount) || 0;
+            }
           }
-        }
-      });
+        });
+      }
       
-      // Create chart datasets
-      const defaultDataset = chartExample1.data1(null).datasets[0];
+      // Create chart datasets - get default styling safely
+      let defaultDataset = {};
+      try {
+        const sample = chartExample1.data1(null);
+        defaultDataset = sample.datasets[0] || {};
+      } catch (e) {
+        console.log("Error getting default dataset styling:", e);
+        defaultDataset = {
+          backgroundColor: "rgba(94, 114, 228, 0.2)",
+          borderColor: "#5e72e4",
+          pointBackgroundColor: "#5e72e4",
+          tension: 0.4,
+          borderWidth: 4
+        };
+      }
       
       const monthChartData = {
         labels: Object.keys(monthData),
@@ -204,26 +220,165 @@ const Index = (props) => {
     
     // Process data for orders chart (Bar chart)
     const processDataForOrdersChart = () => {
-      // Count orders by type
+      console.log('processDataForOrdersChart called with branchOrders:', branchOrders?.length || 0, 'orders');
+      
+      // Add detailed debugging for the first few orders
+      if (branchOrders && branchOrders.length > 0) {
+        console.log('=== DETAILED ORDER DEBUGGING ===');
+        console.log('Total orders:', branchOrders.length);
+        
+        // Show the complete structure of the first order
+        console.log('COMPLETE FIRST ORDER STRUCTURE:', JSON.stringify(branchOrders[0], null, 2));
+        
+        console.log('Sample orders for debugging:');
+        branchOrders.slice(0, 5).forEach((order, index) => {
+          console.log(`Order ${index + 1}:`, {
+            _id: order._id,
+            orderId: order.orderId,
+            OrderType: order.OrderType,
+            orderType: order.orderType,
+            type: order.type,
+            totalAmount: order.totalAmount,
+            orderDate: order.orderDate,
+            // Check all possible field names that might contain order type
+            allFields: Object.keys(order),
+            typeRelatedFields: Object.keys(order).filter(key => 
+              key.toLowerCase().includes('type') || 
+              key.toLowerCase().includes('order') ||
+              key.toLowerCase().includes('category') ||
+              key.toLowerCase().includes('service') ||
+              key.toLowerCase().includes('delivery')
+            ).reduce((obj, key) => {
+              obj[key] = order[key];
+              return obj;
+            }, {})
+          });
+        });
+      }
+      
+      // Helper function to safely get order type (expanded to check more fields)
+      const getOrderType = (order) => {
+        // Check both new and legacy order type fields
+        const orderType = order?.orderType || order?.OrderType;
+        
+        if (orderType) {
+          console.log(`Found order type: ${orderType}`);
+          return orderType;
+        }
+        
+        // Check other possible field names
+        const possibleFields = [
+          'type', 'Type', 'order_type', 'ORDER_TYPE', 
+          'orderCategory', 'category', 'serviceType', 'deliveryType'
+        ];
+        
+        for (const field of possibleFields) {
+          if (order[field]) {
+            console.log(`Found order type in field "${field}": ${order[field]}`);
+            return order[field];
+          }
+        }
+        
+        console.log('No order type field found. Using default: Dine-In');
+        return 'Dine-In'; // Default
+      };
+      
+      // Use the exact same normalization logic as OrderManagement
+      const normalizeOrderType = (type) => {
+        // Handle different possible type formats and values
+        let normalizedType = '';
+        
+        if (!type) {
+          normalizedType = 'Dine-In'; // Default to Dine-In instead of N/A
+        } else if (typeof type === 'string') {
+          // Normalize the type - handle different cases and variations
+          const cleanType = type.trim();
+          
+          // Map common variations to standard types (exact copy from OrderManagement + new schema support)
+          const typeMap = {
+            // Legacy schema support
+            'dine-in': 'Dine-In',
+            'dine_in': 'Dine-In',
+            'dinein': 'Dine-In',
+            'DINE-IN': 'Dine-In',
+            'DINE_IN': 'Dine-In',
+            'DINEIN': 'Dine-In',
+            'eat-in': 'Dine-In',
+            'EAT-IN': 'Dine-In',
+            'takeout': 'Takeout',
+            'take-out': 'Takeout',
+            'take_out': 'Takeout',
+            'TAKEOUT': 'Takeout',
+            'TAKE-OUT': 'Takeout',
+            'TAKE_OUT': 'Takeout',
+            'pickup': 'Takeout',
+            'PICKUP': 'Takeout',
+            'delivery': 'Delivery',
+            'DELIVERY': 'Delivery',
+            'deliver': 'Delivery',
+            'DELIVER': 'Delivery',
+            // NEW SCHEMA SUPPORT - this is the key addition!
+            'takeaway': 'Takeout',  // New schema uses 'takeaway' instead of 'takeout'
+            'TAKEAWAY': 'Takeout'
+          };
+          
+          normalizedType = typeMap[cleanType.toLowerCase()] || cleanType;
+        } else {
+          normalizedType = String(type);
+        }
+        
+        return normalizedType;
+      };
+      
+      // Count orders by type - use exact OrderManagement normalization
       const orderTypeCount = {
         'Dine-In': 0,
         'Takeout': 0,
         'Delivery': 0
       };
       
-      branchOrders.forEach(order => {
-        if (order.OrderType && orderTypeCount.hasOwnProperty(order.OrderType)) {
-          orderTypeCount[order.OrderType]++;
-        }
-      });
+      // Only process if we have valid orders data
+      if (branchOrders && Array.isArray(branchOrders) && branchOrders.length > 0) {
+        console.log('Processing orders for chart, detailed analysis:');
+        
+        branchOrders.forEach((order, index) => {
+          const rawOrderType = getOrderType(order);
+          const normalizedOrderType = normalizeOrderType(rawOrderType);
+          console.log(`Order ${index + 1}: Raw="${rawOrderType}" -> Normalized="${normalizedOrderType}"`);
+          
+          if (orderTypeCount.hasOwnProperty(normalizedOrderType)) {
+            orderTypeCount[normalizedOrderType]++;
+          } else {
+            console.warn(`Unknown order type: ${normalizedOrderType} (original: ${rawOrderType})`);
+            // Add it to Dine-In as fallback
+            orderTypeCount['Dine-In']++;
+          }
+        });
+        
+        console.log('Final order type counts:', orderTypeCount);
+      } else {
+        console.log('No valid branchOrders data for chart processing');
+      }
       
-      // Create chart data
+      // Get styling properties from chartExample2 if available
+      let barThickness = 10;
+      try {
+        if (chartExample2.data && chartExample2.data.datasets && 
+            chartExample2.data.datasets[0] && chartExample2.data.datasets[0].maxBarThickness) {
+          barThickness = chartExample2.data.datasets[0].maxBarThickness;
+        }
+      } catch (e) {
+        console.log("Error getting bar thickness:", e);
+      }
+      
+      // Create chart data - always return valid structure
       return {
         labels: Object.keys(orderTypeCount),
         datasets: [
           {
             label: "Orders",
             data: Object.values(orderTypeCount),
+            maxBarThickness: barThickness,
             backgroundColor: ["#FB6340", "#11CDEF", "#2DCE89"]
           }
         ],
@@ -371,34 +526,92 @@ const Index = (props) => {
   
   // Memoize the orders chart data
   const ordersChartMemoized = useMemo(() => {
-    // Initialize with empty datasets
-    const emptyDataset = {
-      labels: ["Dine-In", "Takeout", "Delivery"],
-      datasets: [
-        {
-          label: "Orders",
-          data: [0, 0, 0],
-          maxBarThickness: 10,
-          backgroundColor: ["#FB6340", "#11CDEF", "#2DCE89"]
-        }
-      ]
+    // Helper function to safely get order type (expanded to check more fields)
+    const getOrderType = (order) => {
+      // Check both new and legacy order type fields
+      return order?.orderType || order?.OrderType || 'Dine-In';
     };
     
-    // If no orders data, return empty structure instead of dummy data
-    if (!branchOrders || branchOrders.length === 0) {
-      return emptyDataset;
-    }
+    // Use the exact same normalization logic as OrderManagement
+    const normalizeOrderType = (type) => {
+      // Handle different possible type formats and values
+      let normalizedType = '';
+      
+      if (!type) {
+        normalizedType = 'Dine-In'; // Default to Dine-In instead of N/A
+      } else if (typeof type === 'string') {
+        // Normalize the type - handle different cases and variations
+        const cleanType = type.trim();
+        
+        // Map common variations to standard types (exact copy from OrderManagement + new schema support)
+        const typeMap = {
+          // Legacy schema support
+          'dine-in': 'Dine-In',
+          'dine_in': 'Dine-In',
+          'dinein': 'Dine-In',
+          'DINE-IN': 'Dine-In',
+          'DINE_IN': 'Dine-In',
+          'DINEIN': 'Dine-In',
+          'eat-in': 'Dine-In',
+          'EAT-IN': 'Dine-In',
+          'takeout': 'Takeout',
+          'take-out': 'Takeout',
+          'take_out': 'Takeout',
+          'TAKEOUT': 'Takeout',
+          'TAKE-OUT': 'Takeout',
+          'TAKE_OUT': 'Takeout',
+          'pickup': 'Takeout',
+          'PICKUP': 'Takeout',
+          'delivery': 'Delivery',
+          'DELIVERY': 'Delivery',
+          'deliver': 'Delivery',
+          'DELIVER': 'Delivery',
+          // NEW SCHEMA SUPPORT - this is the key addition!
+          'takeaway': 'Takeout',  // New schema uses 'takeaway' instead of 'takeout'
+          'TAKEAWAY': 'Takeout'
+        };
+        
+        normalizedType = typeMap[cleanType.toLowerCase()] || cleanType;
+      } else {
+        normalizedType = String(type);
+      }
+      
+      return normalizedType;
+    };
     
-    // Count orders by type
+    // Count orders by type - use exact OrderManagement normalization
     const orderTypeCount = {
       'Dine-In': 0,
       'Takeout': 0,
       'Delivery': 0
     };
     
-    branchOrders.forEach(order => {
-      if (order.OrderType && orderTypeCount.hasOwnProperty(order.OrderType)) {
-        orderTypeCount[order.OrderType]++;
+    // If no orders data, return empty structure
+    if (!branchOrders || branchOrders.length === 0) {
+      return {
+        labels: ["Dine-In", "Takeout", "Delivery"],
+        datasets: [
+          {
+            label: "Orders",
+            data: [0, 0, 0],
+            maxBarThickness: 10,
+            backgroundColor: ["#FB6340", "#11CDEF", "#2DCE89"]
+          }
+        ]
+      };
+    }
+    
+    // Process orders using exact same logic as OrderManagement
+    branchOrders.forEach((order, index) => {
+      const rawOrderType = getOrderType(order);
+      const normalizedOrderType = normalizeOrderType(rawOrderType);
+      
+      if (orderTypeCount.hasOwnProperty(normalizedOrderType)) {
+        orderTypeCount[normalizedOrderType]++;
+      } else {
+        console.warn(`Memoized: Unknown order type: ${normalizedOrderType} (original: ${rawOrderType})`);
+        // Add it to Dine-In as fallback
+        orderTypeCount['Dine-In']++;
       }
     });
     

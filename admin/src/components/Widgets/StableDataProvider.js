@@ -7,7 +7,6 @@ import { OrderContext } from '../../context/OrderContext';
 import { CustomerContext } from '../../context/CustomerContext'; 
 import { MenuContext } from '../../context/MenuContext'; // Add MenuContext import
 import { CategoryContext } from '../../context/CategoryContext'; // Add CategoryContext import
-import useRenderTracker from '../../utils/useRenderTracker';
 
 // Create a context to hold and provide stable widget data
 export const WidgetDataContext = React.createContext({
@@ -22,7 +21,6 @@ export const WidgetDataContext = React.createContext({
 
 // StableDataProvider - centralized data fetching to prevent re-renders
 const StableDataProvider = ({ children }) => {
-  useRenderTracker('StableDataProvider');
 
   // Get user data from AuthContext
   const { user } = useContext(AuthContext);
@@ -47,6 +45,10 @@ const StableDataProvider = ({ children }) => {
     menuItems: false, // Add menuItems to fetchedRef
     categories: false // Add categories to fetchedRef
   });
+  
+  // Add state to force loading completion after timeout
+  const [forceLoadingComplete, setForceLoadingComplete] = useState(false);
+  const loadingTimeoutRef = useRef(null);
 
   // State for role-specific filtered data
   const [filteredRestaurants, setFilteredRestaurants] = useState([]);
@@ -62,6 +64,26 @@ const StableDataProvider = ({ children }) => {
     timestamp: 0,
     ttl: 60000 // 1 minute cache TTL
   });
+  
+  // Add timeout mechanism to force loading completion
+  useEffect(() => {
+    if (user && !forceLoadingComplete) {
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.warn('StableDataProvider: Force completing loading after 20 seconds');
+        setForceLoadingComplete(true);
+        // Mark all as fetched to prevent infinite loading
+        Object.keys(fetchedRef.current).forEach(key => {
+          fetchedRef.current[key] = true;
+        });
+      }, 20000); // 20 second timeout
+      
+      return () => {
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current);
+        }
+      };
+    }
+  }, [user, forceLoadingComplete]);
   
   // Force an initial load of data
   useEffect(() => {
@@ -84,8 +106,21 @@ const StableDataProvider = ({ children }) => {
           categories: false
         };
         
-        // Trigger immediate fetch
-        await fetchData();
+        // Trigger immediate fetch with timeout
+        try {
+          await Promise.race([
+            fetchData(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 10000)) // 10 second timeout
+          ]);
+        } catch (error) {
+          console.error("Data fetch timed out or failed:", error);
+          // Mark all as fetched to prevent infinite loading
+          Object.keys(fetchedRef.current).forEach(key => {
+            fetchedRef.current[key] = true;
+          });
+          // Also trigger force loading completion
+          setForceLoadingComplete(true);
+        }
       } else {
         console.log("Using cached data, skipping fetch");
       }
@@ -388,16 +423,16 @@ const StableDataProvider = ({ children }) => {
     restaurantData: {
       restaurants: filteredData.restaurants,
       branches: filteredData.branches,
-      loading: restaurantsLoading || branchesLoading
+      loading: !forceLoadingComplete && (restaurantsLoading || branchesLoading)
     },
     tableData: {
       tables: filteredData.tables,
       reservations: reservations || [],
-      loading: tablesLoading
+      loading: !forceLoadingComplete && tablesLoading
     },
     orderData: {
       orders: filteredData.orders,
-      loading: ordersLoading
+      loading: !forceLoadingComplete && ordersLoading
     },
     userData: {
       role: user?.role || '',
@@ -406,15 +441,15 @@ const StableDataProvider = ({ children }) => {
     },
     customerData: {
       customers: filteredData.customers,
-      loading: customersLoading
+      loading: !forceLoadingComplete && customersLoading
     },
     menuData: {
       menuItems: filteredData.menuItems,
-      loading: menuItemsLoading
+      loading: !forceLoadingComplete && menuItemsLoading
     },
     categoryData: {
       categories: filteredData.categories,
-      loading: categoriesLoading
+      loading: !forceLoadingComplete && categoriesLoading
     }
   }), [
     filteredData,
@@ -424,7 +459,8 @@ const StableDataProvider = ({ children }) => {
     customersLoading,
     menuItemsLoading,
     categoriesLoading,
-    user
+    user,
+    forceLoadingComplete
   ]);
 
   return (
