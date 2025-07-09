@@ -4,6 +4,7 @@ import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useOrderNotifications } from '../../hooks/useOrderNotifications';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 
@@ -486,7 +487,9 @@ const CartContent = memo(({ checkoutStep = 'cart', setCheckoutStep }) => {
     cartTotal,
     updateItemQuantity: handleQuantityChange, 
     removeItem: handleRemoveFromCart,
-    clearCart: handleClearCart
+    clearCart: handleClearCart,
+    orderLoading,
+    ongoingOrderRequest
   } = useCart();
   
   // We'll receive setCheckoutStep as a prop
@@ -631,22 +634,24 @@ const CartContent = memo(({ checkoutStep = 'cart', setCheckoutStep }) => {
             </div>
             
             <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: orderLoading || ongoingOrderRequest ? 1 : 1.02 }}
+              whileTap={{ scale: orderLoading || ongoingOrderRequest ? 1 : 0.98 }}
               onClick={() => {
-                document.dispatchEvent(new CustomEvent('proceedToCheckout'));
+                if (!orderLoading && !ongoingOrderRequest) {
+                  document.dispatchEvent(new CustomEvent('proceedToCheckout'));
+                }
               }}
-              disabled={cartItems.length === 0}
+              disabled={cartItems.length === 0 || orderLoading || ongoingOrderRequest}
               style={{
                 backgroundColor: theme.colors.primary,
-                opacity: cartItems.length === 0 ? 0.7 : 1,
+                opacity: (cartItems.length === 0 || orderLoading || ongoingOrderRequest) ? 0.7 : 1,
                 color: theme.colors.text.light,
                 border: 'none',
                 borderRadius: theme.borderRadius.md,
                 padding: `${theme.spacing.md} ${theme.spacing.lg}`,
                 fontSize: theme.typography.sizes.md,
                 fontWeight: theme.typography.fontWeights.semibold,
-                cursor: cartItems.length === 0 ? 'not-allowed' : 'pointer',
+                cursor: (cartItems.length === 0 || orderLoading || ongoingOrderRequest) ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -655,21 +660,38 @@ const CartContent = memo(({ checkoutStep = 'cart', setCheckoutStep }) => {
                 minWidth: '180px'
               }}
             >
-              Checkout
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ marginLeft: theme.spacing.sm }}
-              >
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
+              {orderLoading || ongoingOrderRequest ? (
+                <>
+                  <div style={{ 
+                    width: '16px', 
+                    height: '16px', 
+                    borderRadius: '50%',
+                    border: '2px solid transparent',
+                    borderTop: '2px solid currentColor',
+                    animation: 'spin 1s linear infinite',
+                    marginRight: theme.spacing.sm
+                  }} />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  Checkout
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginLeft: theme.spacing.sm }}
+                  >
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                  </svg>
+                </>
+              )}
             </motion.button>
           </div>
         </motion.div>
@@ -698,6 +720,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
     setCurrentOrder,
     orderLoading,
     orderError,
+    ongoingOrderRequest, // Add this for duplicate prevention
     checkoutAuth,
     orderNote
   } = useCart();
@@ -705,10 +728,14 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
   // Auth state
   const { isAuthenticated } = useAuth();
   
-  // Payment loading state
+  // Notification tracking hook
+  const { trackOrder } = useOrderNotifications();
+  
+  // Payment loading state and status tracking
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState(null);
   
   // Check if cart is empty
   const isCartEmpty = cartItems.length === 0;
@@ -785,9 +812,29 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
     // Handler for placing an order
     const handlePlaceOrderEvent = async (event) => {
       if (cartItems.length > 0) {
+        // Additional duplicate prevention check
+        if (ongoingOrderRequest) {
+          console.log('[ENHANCED CART] Order request already in progress, ignoring duplicate request:', ongoingOrderRequest);
+          
+          // Show user feedback for duplicate request
+          setError('Order is already being processed. Please wait...');
+          setTimeout(() => setError(null), 3000);
+          return;
+        }
+        
+        if (orderLoading) {
+          console.log('[ENHANCED CART] Order loading already in progress, ignoring duplicate request');
+          
+          // Show user feedback for duplicate request
+          setError('Order is currently being submitted. Please wait...');
+          setTimeout(() => setError(null), 3000);
+          return;
+        }
+        
         try {
           setIsLoading(true);
           setError(null);
+          setSuccessMessage(null);
           
           // Extract data from the event
           const { orderData } = event.detail;
@@ -803,9 +850,25 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
           
           console.log('[ENHANCED CART] Order response:', orderResponse);
           
-          if (orderResponse && orderResponse._id) {
+          // Check if the order was successful (has an ID) regardless of whether it's a duplicate
+          if (orderResponse && (orderResponse._id || orderResponse.id)) {
+            // Handle duplicate detection gracefully
+            if (orderResponse._duplicateDetected) {
+              console.log('[ENHANCED CART] Duplicate order detected by backend, using existing order:', orderResponse._message);
+              setError(null); // Clear any existing errors since this is actually successful
+              setSuccessMessage('Order already exists - continuing with your existing order');
+              setTimeout(() => setSuccessMessage(null), 3000);
+            } else {
+              setError(null); // Clear any existing errors
+              setSuccessMessage('Order submitted successfully!');
+              setTimeout(() => setSuccessMessage(null), 2000);
+            }
+            
             setCurrentOrder(orderResponse);
             setOrderPlaced(true);
+            
+            // Track the new order for notifications
+            trackOrder(orderResponse);
             
             // Notify CheckoutForm of success
             document.dispatchEvent(
@@ -814,37 +877,112 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
               })
             );
             
+            // Clear any error state in the cart component as well
+            setError(null);
+            
             // Delay to show loading state and make transition smoother
             setTimeout(() => {
               setCheckoutStep('confirmation');
               setIsLoading(false);
             }, 1000);
+          } else if (orderResponse === null) {
+            // Check if there's a specific error from context, otherwise it might be a prevented duplicate/validation
+            if (orderError) {
+              // There's a specific error message from the context
+              console.error('[ENHANCED CART] Order creation failed with error:', orderError);
+              throw new Error(orderError);
+            } else {
+              // No error message but null response - likely a prevented duplicate or validation issue
+              // This is not necessarily an error, just log and return without throwing
+              console.log('[ENHANCED CART] Order creation returned null without error - likely prevented duplicate or validation issue');
+              
+              // Show a brief message to the user but don't treat it as an error
+              setError(null); // Make sure no error is shown
+              
+              // Optional: Show a brief informational message
+              console.log('[ENHANCED CART] Order request was handled (likely duplicate prevention)');
+              
+              setIsLoading(false);
+              return; // Don't throw error, just exit
+            }
           } else {
-            // More specific error handling
-            const contextError = orderError || 'Unknown error occurred';
-            const errorMsg = orderResponse === null ? 
-              `Order creation failed: ${contextError}` : 
-              'Invalid order response - missing order ID';
-            console.error('[ENHANCED CART] Order creation failed:', { orderResponse, orderError, errorMsg });
-            throw new Error(errorMsg);
+            // Handle unexpected response format
+            console.error('[ENHANCED CART] Unexpected order response format:', orderResponse);
+            throw new Error('Invalid order response - please try again');
           }
         } catch (error) {
           console.error('[ENHANCED CART] Error placing order:', error);
-          const errorMessage = 'There was an error processing your order. You can try again or continue with a temporary order.';
+          
+          // Enhanced error handling with specific messages
+          let errorMessage = 'There was an error processing your order. Please try again.';
+          let canRetry = true;
+          let isTemporary = false;
+          
+          if (error.response) {
+            const statusCode = error.response.status;
+            const responseData = error.response.data;
+            
+            if (statusCode === 429) {
+              // Rate limiting / duplicate request
+              errorMessage = responseData?.message || 'This order was just submitted. Please wait before trying again.';
+              canRetry = false;
+            } else if (statusCode === 400) {
+              // Bad request - validation errors
+              errorMessage = responseData?.message || 'Order information is invalid. Please check your details and try again.';
+              canRetry = true;
+            } else if (statusCode === 404) {
+              // Not found - restaurant/branch issues
+              errorMessage = 'Restaurant or menu information not found. Please reload the page and try again.';
+              canRetry = true;
+            } else if (statusCode >= 500) {
+              // Server errors
+              errorMessage = 'Server is temporarily unavailable. Please try again in a moment.';
+              isTemporary = true;
+              canRetry = true;
+            } else {
+              // Other client errors
+              errorMessage = responseData?.message || `Request failed (${statusCode}). Please try again.`;
+              canRetry = true;
+            }
+          } else if (error.request) {
+            // Network/connection issues
+            errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
+            canRetry = true;
+            isTemporary = true;
+          } else if (error.message) {
+            // Specific error messages from our validation
+            if (error.message.includes('wait')) {
+              errorMessage = error.message;
+              canRetry = false;
+            } else if (error.message.includes('missing') || error.message.includes('invalid')) {
+              errorMessage = error.message + '. Please refresh the page and try again.';
+              canRetry = true;
+            } else {
+              errorMessage = error.message;
+              canRetry = true;
+            }
+          }
+          
+          // Add helpful context for temporary errors
+          if (isTemporary) {
+            errorMessage += ' This is usually temporary.';
+          }
+          
           setError(errorMessage);
           
-          // Notify CheckoutForm of error
+          // Notify CheckoutForm of error with additional context
           document.dispatchEvent(
             new CustomEvent('orderError', {
-              detail: { message: errorMessage, error }
+              detail: { 
+                message: errorMessage, 
+                error,
+                canRetry,
+                isTemporary
+              }
             })
           );
           
-          // Instead of automatically proceeding to confirmation, we'll let the user decide
-          // The fallback order will only be created when the user chooses to proceed
           setIsLoading(false);
-          
-          // Display on screen options - handled by the ErrorRecoveryDialog component in CheckoutForm          // When user clicks "Continue Anyway" in the error message, forceConfirmation event will trigger
         }
       }
     };
@@ -860,10 +998,13 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         // Reset to cart view but keep modal open for new order
         setCheckoutStep('cart');
         setError(null);
+        setSuccessMessage(null);
         setIsLoading(false);
       } else {
         // Default behavior - just reset to cart view
         setCheckoutStep('cart');
+        setError(null);
+        setSuccessMessage(null);
       }
     };
       // Handler for going to menu
@@ -915,7 +1056,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
       document.removeEventListener('goToMenu', handleGoToMenu);
       document.removeEventListener('forceConfirmation', handleForceConfirmation);
     };
-  }, [cartItems, placeOrder, orderType, orderNote, cartTotal, setCurrentOrder, setOrderPlaced, onClose, setCheckoutStep]);
+  }, [cartItems, placeOrder, orderType, orderNote, cartTotal, setCurrentOrder, setOrderPlaced, onClose, setCheckoutStep, orderLoading, ongoingOrderRequest]);
   
   return (
     <AnimatePresence>
@@ -1094,100 +1235,280 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
               scrollbarWidth: 'thin',
               scrollbarColor: `${theme.colors.border} transparent`,
               WebkitOverflowScrolling: 'touch'
-            }}>              {/* Error message if there is one */}
-              {error && (
+            }}>              {/* Success message for positive feedback */}
+              {successMessage && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
                   style={{
-                    backgroundColor: theme.colors.danger + '15',
-                    color: theme.colors.danger,
+                    backgroundColor: theme.colors.success + '15',
+                    color: theme.colors.success,
                     padding: theme.spacing.md,
                     borderRadius: theme.borderRadius.md,
                     marginTop: theme.spacing.md,
-                    fontSize: theme.typography.sizes.sm
+                    fontSize: theme.typography.sizes.sm,
+                    border: `1px solid ${theme.colors.success}30`
                   }}
                 >
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
+                    gap: theme.spacing.sm
+                  }}>
+                    <span className="material-icons" style={{ 
+                      fontSize: '20px',
+                      color: theme.colors.success
+                    }}>
+                      check_circle
+                    </span>
+                    <span style={{ fontWeight: theme.typography.fontWeights.medium }}>
+                      {successMessage}
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Enhanced error message with better UX */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  style={{
+                    backgroundColor: error.includes('wait') || error.includes('submitted') ? 
+                      theme.colors.warning + '15' : theme.colors.danger + '15',
+                    color: error.includes('wait') || error.includes('submitted') ? 
+                      '#8B6B00' : theme.colors.danger,
+                    padding: theme.spacing.md,
+                    borderRadius: theme.borderRadius.md,
+                    marginTop: theme.spacing.md,
+                    fontSize: theme.typography.sizes.sm,
+                    border: `1px solid ${error.includes('wait') || error.includes('submitted') ? 
+                      '#F5A623' : theme.colors.danger}30`
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
                     gap: theme.spacing.sm,
                     marginBottom: theme.spacing.md
                   }}>
-                    <span className="material-icons" style={{ fontSize: '20px' }}>error_outline</span>
-                    {error}
+                    <span className="material-icons" style={{ 
+                      fontSize: '20px',
+                      color: error.includes('wait') || error.includes('submitted') ? '#F5A623' : theme.colors.danger,
+                      flexShrink: 0,
+                      marginTop: '2px'
+                    }}>
+                      {error.includes('wait') || error.includes('submitted') ? 'schedule' : 
+                       error.includes('connection') || error.includes('network') ? 'wifi_off' :
+                       error.includes('server') || error.includes('temporarily') ? 'cloud_off' :
+                       'error_outline'}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ 
+                        fontWeight: theme.typography.fontWeights.medium,
+                        marginBottom: theme.spacing.xs,
+                        lineHeight: 1.4
+                      }}>
+                        {error}
+                      </div>
+                      
+                      {/* Helpful tips based on error type */}
+                      {error.includes('connection') && (
+                        <div style={{
+                          fontSize: theme.typography.sizes.xs,
+                          opacity: 0.8,
+                          fontStyle: 'italic'
+                        }}>
+                          💡 Tip: Check your WiFi or mobile data connection
+                        </div>
+                      )}
+                      {error.includes('server') && (
+                        <div style={{
+                          fontSize: theme.typography.sizes.xs,
+                          opacity: 0.8,
+                          fontStyle: 'italic'
+                        }}>
+                          💡 Tip: This usually resolves quickly - try again in a moment
+                        </div>
+                      )}
+                      {error.includes('wait') && (
+                        <div style={{
+                          fontSize: theme.typography.sizes.xs,
+                          opacity: 0.8,
+                          fontStyle: 'italic'
+                        }}>
+                          💡 This prevents duplicate orders - your original order is being processed
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
                   <div style={{
                     display: 'flex',
                     justifyContent: 'flex-end',
-                    gap: theme.spacing.md
+                    gap: theme.spacing.sm
                   }}>
-                    <button
-                      onClick={() => setCheckoutStep('checkout')}
+                    {!error.includes('wait') && !error.includes('submitted') && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          setError(null);
+                          setCheckoutStep('checkout');
+                        }}
+                        style={{
+                          padding: `${theme.spacing.sm} ${theme.spacing.md}`,
+                          borderRadius: theme.borderRadius.sm,
+                          border: `1px solid ${theme.colors.border}`,
+                          backgroundColor: 'white',
+                          color: theme.colors.text.primary,
+                          cursor: 'pointer',
+                          fontSize: theme.typography.sizes.sm,
+                          fontWeight: theme.typography.fontWeights.medium,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: theme.spacing.xs,
+                          transition: theme.transitions.fast
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>refresh</span>
+                        Try Again
+                      </motion.button>
+                    )}
+                    
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setError(null)}
                       style={{
-                        padding: `${theme.spacing.xs} ${theme.spacing.md}`,
-                        borderRadius: theme.borderRadius.sm,
-                        border: `1px solid ${theme.colors.border}`,
-                        backgroundColor: 'transparent',
-                        color: theme.colors.text.secondary,
-                        cursor: 'pointer',
-                        fontSize: theme.typography.sizes.sm
-                      }}
-                    >
-                      Try Again
-                    </button>
-                    <button
-                      onClick={() => setCheckoutStep('confirmation')}
-                      style={{
-                        padding: `${theme.spacing.xs} ${theme.spacing.md}`,
+                        padding: `${theme.spacing.sm} ${theme.spacing.md}`,
                         borderRadius: theme.borderRadius.sm,
                         border: 'none',
-                        backgroundColor: theme.colors.primary,
+                        backgroundColor: error.includes('wait') || error.includes('submitted') ? 
+                          '#F5A623' : theme.colors.primary,
                         color: 'white',
                         cursor: 'pointer',
                         fontSize: theme.typography.sizes.sm,
-                        fontWeight: theme.typography.fontWeights.medium
+                        fontWeight: theme.typography.fontWeights.medium,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: theme.spacing.xs,
+                        transition: theme.transitions.fast
                       }}
                     >
-                      Continue Anyway
-                    </button>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
+                      Dismiss
+                    </motion.button>
                   </div>
                 </motion.div>
               )}
               
-              {/* Loading state */}
+              {/* Enhanced loading state with better UX */}
               {isLoading && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   style={{ 
                     display: 'flex', 
                     justifyContent: 'center', 
                     alignItems: 'center', 
                     padding: `${theme.spacing.xl} 0`,
-                    height: '300px'
+                    minHeight: '300px',
+                    flexDirection: 'column'
                   }}
                 >
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: theme.spacing.md
+                    gap: theme.spacing.lg,
+                    textAlign: 'center'
                   }}>
-                    <div style={{ 
-                      width: '40px', 
-                      height: '40px', 
-                      borderRadius: '50%',
-                      border: `3px solid ${theme.colors.border}`,
-                      borderTopColor: theme.colors.primary,
-                      animation: 'spin 1s linear infinite',
-                    }} />
-                    <p style={{ color: theme.colors.text.secondary }}>
-                      {checkoutStep === 'cart' ? 'Loading your cart...' :
-                       checkoutStep === 'checkout' ? 'Preparing checkout...' : 
-                       'Processing your order...'}
-                    </p>
+                    {/* Enhanced spinner */}
+                    <div style={{ position: 'relative' }}>
+                      <div style={{ 
+                        width: '60px', 
+                        height: '60px', 
+                        borderRadius: '50%',
+                        border: `4px solid ${theme.colors.border}`,
+                        borderTopColor: theme.colors.primary,
+                        animation: 'spin 1s linear infinite',
+                      }} />
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: theme.colors.primary + '20'
+                      }} />
+                    </div>
+                    
+                    {/* Status messages */}
+                    <div>
+                      <p style={{ 
+                        color: theme.colors.text.primary,
+                        fontSize: theme.typography.sizes.lg,
+                        fontWeight: theme.typography.fontWeights.medium,
+                        margin: 0,
+                        marginBottom: theme.spacing.sm
+                      }}>
+                        {checkoutStep === 'cart' ? 'Preparing your cart...' :
+                         checkoutStep === 'checkout' ? 'Setting up checkout...' : 
+                         'Processing your order...'}
+                      </p>
+                      
+                      <p style={{ 
+                        color: theme.colors.text.secondary,
+                        fontSize: theme.typography.sizes.sm,
+                        margin: 0,
+                        maxWidth: '280px',
+                        lineHeight: 1.4
+                      }}>
+                        {checkoutStep === 'cart' ? 'Loading your items and calculating totals' :
+                         checkoutStep === 'checkout' ? 'Verifying order details and preparing payment' : 
+                         'Sending your order to the kitchen. This may take a moment...'}
+                      </p>
+                      
+                      {checkoutStep !== 'cart' && (
+                        <p style={{ 
+                          color: theme.colors.text.tertiary,
+                          fontSize: theme.typography.sizes.xs,
+                          margin: `${theme.spacing.md} 0 0 0`,
+                          fontStyle: 'italic'
+                        }}>
+                          Please don't close this window or go back
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Progress indicator for order processing */}
+                    {checkoutStep !== 'cart' && (
+                      <div style={{
+                        width: '200px',
+                        height: '4px',
+                        backgroundColor: theme.colors.border,
+                        borderRadius: '2px',
+                        overflow: 'hidden',
+                        position: 'relative'
+                      }}>
+                        <motion.div
+                          initial={{ width: '0%' }}
+                          animate={{ width: '100%' }}
+                          transition={{ duration: 2, ease: 'easeInOut' }}
+                          style={{
+                            height: '100%',
+                            backgroundColor: theme.colors.primary,
+                            borderRadius: '2px'
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}

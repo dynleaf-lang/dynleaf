@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useRestaurant } from '../../context/RestaurantContext';
@@ -23,7 +23,21 @@ const OrderConfirmation = memo(() => {  const {
   const { orderType } = useOrderType();
   const { taxName, taxRate, formattedTaxRate, calculateTax } = useTax();
   const [isPrinting, setIsPrinting] = useState(false);
-  const [showErrorBanner, setShowErrorBanner] = useState(!!orderError);
+  
+  // Only show error banner if there's an error AND no valid order was created
+  const shouldShowErrorBanner = orderError && (!currentOrder || !currentOrder._id);
+  const [showErrorBanner, setShowErrorBanner] = useState(shouldShowErrorBanner);
+  
+  // Update error banner visibility when dependencies change
+  useEffect(() => {
+    console.log('[ORDER CONFIRMATION] Error state check:', {
+      orderError,
+      currentOrder: currentOrder?._id,
+      shouldShowErrorBanner,
+      showErrorBanner
+    });
+    setShowErrorBanner(shouldShowErrorBanner);
+  }, [shouldShowErrorBanner, orderError, currentOrder]);
   
   // Function to get a formatted order ID for display
   const getFormattedOrderId = () => {
@@ -72,8 +86,8 @@ const OrderConfirmation = memo(() => {  const {
         padding: 0
       }}
     >
-      {/* Warning banner if there was a processing error */}
-      {orderError && showErrorBanner && (
+      {/* Warning banner - only show if there's an error AND no successful order */}
+      {shouldShowErrorBanner && showErrorBanner && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -91,10 +105,19 @@ const OrderConfirmation = memo(() => {  const {
           }}
         >          <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.sm, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-              <span className="material-icons" style={{ fontSize: '20px' }}>warning</span>
+              <span className="material-icons" style={{ fontSize: '20px' }}>info</span>
               <span>
-                There was an issue processing your order, but we've created a temporary order record.
-                <br />Please save your order details or contact support if needed.
+                {currentOrder && currentOrder._id ? (
+                  <>
+                    Your order was processed successfully, but there may have been minor issues during submission.
+                    <br />Your order #{getFormattedOrderId()} is confirmed and being prepared.
+                  </>
+                ) : (
+                  <>
+                    There was an issue processing your order, but we've created a temporary order record.
+                    <br />Please save your order details or contact support if needed.
+                  </>
+                )}
               </span>
             </div>
             

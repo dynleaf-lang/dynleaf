@@ -29,6 +29,14 @@ export const OrderProvider = ({ children }) => {
   const restaurantsFetchDone = useRef(false);
   const dateFetchStarted = useRef(Date.now());
   
+  // Helper function to log API requests for debugging
+  const logAPIRequest = (endpoint, query, method = 'GET') => {
+    const baseURL = api.defaults.baseURL || '';
+    const fullURL = `${baseURL}${endpoint}${query}`;
+    console.log(`OrderContext: ${method} request to ${fullURL}`);
+    return fullURL;
+  };
+
   // Get all orders with optional filters - prevent excessive fetching
   const getAllOrders = useCallback(async (filters = {}, forceRefresh = false) => {
     setLoading(true);
@@ -52,15 +60,27 @@ export const OrderProvider = ({ children }) => {
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
       // Use different endpoints based on user role and filters
-      let endpoint = '/orders';
+      let endpoint = '/public/orders';
       
       // For Super_Admin with filters, use the specialized endpoint
       if (user?.role === 'Super_Admin' && (filters.restaurantId || filters.branchId || filters.orderStatus || filters.orderType || filters.startDate || filters.endDate)) {
-        endpoint = '/orders/all';
+        endpoint = '/public/orders/all';
       }
-      // For regular users, the /orders endpoint will automatically filter based on user's permissions
+
+      // Log the full URL for debugging
+      const apiUrl = logAPIRequest(endpoint, query);
+      
+      // For regular users, the /public/orders endpoint will automatically filter based on user's permissions
+      console.log(`OrderContext: Fetching orders from ${apiUrl}`);
       
       const response = await api.get(`${endpoint}${query}`);
+      console.log('OrderContext: Orders response received:', {
+        status: response.status,
+        dataType: typeof response.data,
+        isArray: Array.isArray(response.data),
+        itemCount: Array.isArray(response.data) ? response.data.length : 'N/A',
+        hasDataProperty: response.data && typeof response.data === 'object' && 'data' in response.data
+      });
       
       // Handle different response formats
       let ordersData;
@@ -80,7 +100,34 @@ export const OrderProvider = ({ children }) => {
       return { success: true, orders: ordersData };
     } catch (err) {
       console.error('Error fetching orders:', err);
-      const errorMsg = err.response?.data?.message || 'Failed to fetch orders';
+      let errorMsg = 'Failed to fetch orders';
+      
+      // Enhanced error logging with details
+      if (err.response) {
+        console.error('Server response error:', {
+          status: err.response.status,
+          data: err.response.data,
+          headers: err.response.headers
+        });
+        
+        // Get detailed error message from response if available
+        if (err.response.data?.message) {
+          errorMsg = `${errorMsg}: ${err.response.data.message}`;
+        } else if (typeof err.response.data === 'string') {
+          errorMsg = `${errorMsg}: ${err.response.data}`;
+        } else if (err.response.status) {
+          errorMsg = `${errorMsg} (Status: ${err.response.status})`;
+        }
+      } else if (err.request) {
+        // Request was made but no response received
+        console.error('Network error - no response received:', err.request);
+        errorMsg = 'Network error - failed to reach the server';
+      } else {
+        // Something else happened while setting up the request
+        console.error('Request setup error:', err.message);
+        errorMsg = `Request error: ${err.message}`;
+      }
+      
       setError(errorMsg);
       return { success: false, message: errorMsg };
     } finally {
@@ -117,22 +164,22 @@ export const OrderProvider = ({ children }) => {
         case 'daily':
         case 'weekly':
         case 'monthly':
-          endpoint = `/orders/reports/${reportType}${query}`;
+          endpoint = `/public/orders/reports/${reportType}${query}`;
           break;
         case 'topSellingItems':
-          endpoint = `/orders/reports/items/top${query}`;
+          endpoint = `/public/orders/reports/items/top${query}`;
           break;
         case 'revenueByCategory':
-          endpoint = `/orders/reports/revenue/category${query}`;
+          endpoint = `/public/orders/reports/revenue/category${query}`;
           break;
         case 'orderStatusDistribution':
-          endpoint = `/orders/statistics${query}`;
+          endpoint = `/public/orders/statistics${query}`;
           break;
         case 'revenueTrends':
-          endpoint = `/orders/reports/trends${query}`;
+          endpoint = `/public/orders/reports/trends${query}`;
           break;
         default:
-          endpoint = `/orders/reports/${reportType}${query}`;
+          endpoint = `/public/orders/reports/${reportType}${query}`;
       }
       
       console.log(`OrderContext: Fetching data from endpoint: ${endpoint}`);
@@ -157,7 +204,7 @@ export const OrderProvider = ({ children }) => {
           if (reportType === 'orderStatusDistribution') {
             // Try to use statistics endpoint for order status data
             try {
-              const statsResponse = await api.get('/orders/statistics' + query);
+              const statsResponse = await api.get('/public/orders/statistics' + query);
               if (statsResponse.data) {
                 reportData = processOrderStatisticsForStatusDistribution(statsResponse.data);
                 console.log(`OrderContext: Processed order statistics for status distribution:`, reportData);
@@ -262,7 +309,7 @@ export const OrderProvider = ({ children }) => {
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
       // Use the real API endpoint for report generation
-      const response = await api.get(`/orders/report/${reportType}/download${query}`, {
+      const response = await api.get(`/public/orders/report/${reportType}/download${query}`, {
         responseType: 'blob'
       });
       
@@ -304,7 +351,7 @@ export const OrderProvider = ({ children }) => {
       const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
       
       // Use the real API endpoint for export
-      const response = await api.get(`/orders/export/${format}${query}`, {
+      const response = await api.get(`/public/orders/export/${format}${query}`, {
         responseType: 'blob'
       });
       
@@ -398,7 +445,7 @@ export const OrderProvider = ({ children }) => {
     try {
       console.log('Updating order status:', orderId, 'to:', status);
       
-      const response = await api.patch(`/orders/${orderId}/status`, { 
+      const response = await api.patch(`/public/orders/${orderId}/status`, { 
         orderStatus: status  // Backend expects 'orderStatus', not 'status'
       });
       
@@ -449,7 +496,7 @@ export const OrderProvider = ({ children }) => {
     try {
       console.log('Deleting order:', orderId);
       
-      await api.delete(`/orders/${orderId}`);
+      await api.delete(`/public/orders/${orderId}`);
       
       console.log('Order deleted successfully');
       
@@ -502,7 +549,7 @@ export const OrderProvider = ({ children }) => {
         throw new Error('No authentication token found');
       }
       
-      const response = await api.get(`/orders/${orderId}/invoice`, {
+      const response = await api.get(`/public/orders/${orderId}/invoice`, {
         responseType: 'blob',
         timeout: 30000 // 30 second timeout for PDF generation
       });
@@ -624,13 +671,25 @@ export const OrderProvider = ({ children }) => {
     if (user && !initialFetchDone.current) {
       initialFetchDone.current = true;
       
+      console.log('OrderContext: Initial load with user:', { 
+        role: user.role,
+        restaurantId: user.restaurantId,
+        branchId: user.branchId
+      });
+      
       const initializeData = async () => {
-        // Fetch orders first
-        await getAllOrders({});
-        
-        // For Super_Admin, also fetch restaurants for filtering
-        if (user.role === 'Super_Admin' && !restaurantsFetchDone.current) {
-          await getRestaurants();
+        try {
+          // Fetch orders first
+          console.log('OrderContext: Fetching initial orders...');
+          await getAllOrders({}, true);
+          
+          // For Super_Admin, also fetch restaurants for filtering
+          if (user.role === 'Super_Admin' && !restaurantsFetchDone.current) {
+            console.log('OrderContext: Fetching restaurants for Super_Admin...');
+            await getRestaurants();
+          }
+        } catch (error) {
+          console.error('OrderContext: Error during data initialization:', error);
         }
       };
       
@@ -638,6 +697,82 @@ export const OrderProvider = ({ children }) => {
     }
   }, [user]); // Remove function dependencies that cause re-fetching
   
+  // Real-time order management functions for socket integration
+  const addNewOrder = useCallback((newOrder) => {
+    console.log('OrderContext: Adding new order via real-time update:', newOrder._id);
+    setOrders(prevOrders => {
+      // Ensure orders is always an array
+      if (!Array.isArray(prevOrders)) {
+        return [newOrder];
+      }
+      
+      // Check if order already exists to prevent duplicates
+      const exists = prevOrders.some(order => order._id === newOrder._id);
+      if (exists) {
+        console.log('OrderContext: Order already exists, skipping addition:', newOrder._id);
+        return prevOrders;
+      }
+      
+      // Add the new order to the beginning of the array
+      return [newOrder, ...prevOrders];
+    });
+  }, []);
+
+  const updateExistingOrder = useCallback((updatedOrder) => {
+    console.log('OrderContext: Updating existing order via real-time update:', updatedOrder._id);
+    setOrders(prevOrders => {
+      // Ensure orders is always an array
+      if (!Array.isArray(prevOrders)) {
+        return [updatedOrder];
+      }
+      
+      // Find and update the order
+      const orderIndex = prevOrders.findIndex(order => order._id === updatedOrder._id);
+      if (orderIndex !== -1) {
+        const newOrders = [...prevOrders];
+        newOrders[orderIndex] = updatedOrder;
+        return newOrders;
+      } else {
+        // Order doesn't exist, add it
+        console.log('OrderContext: Order not found for update, adding as new:', updatedOrder._id);
+        return [updatedOrder, ...prevOrders];
+      }
+    });
+  }, []);
+
+  const removeOrder = useCallback((orderId) => {
+    console.log('OrderContext: Removing order via real-time update:', orderId);
+    setOrders(prevOrders => {
+      // Ensure orders is always an array
+      if (!Array.isArray(prevOrders)) {
+        return [];
+      }
+      
+      return prevOrders.filter(order => order._id !== orderId);
+    });
+  }, []);
+
+  const updateOrderStatusRealTime = useCallback((orderId, newStatus) => {
+    console.log('OrderContext: Updating order status via real-time update:', orderId, newStatus);
+    setOrders(prevOrders => {
+      // Ensure orders is always an array
+      if (!Array.isArray(prevOrders)) {
+        return [];
+      }
+      
+      return prevOrders.map(order => {
+        if (order._id === orderId) {
+          return {
+            ...order,
+            orderStatus: newStatus,
+            status: newStatus // Update both possible status fields
+          };
+        }
+        return order;
+      });
+    });
+  }, []);
+
   // Export the context value with memoization to prevent unnecessary re-renders
   const contextValue = React.useMemo(() => ({
     orders,
@@ -657,7 +792,12 @@ export const OrderProvider = ({ children }) => {
     updateOrderStatus,
     deleteOrder,
     generateInvoice,
-    setCountryCode
+    setCountryCode,
+    // Real-time update functions
+    addNewOrder,
+    updateExistingOrder,
+    removeOrder,
+    updateOrderStatusRealTime
   }), [
     orders,
     orderReports,
@@ -675,7 +815,11 @@ export const OrderProvider = ({ children }) => {
     getBranchesForRestaurant,
     updateOrderStatus,
     deleteOrder,
-    generateInvoice
+    generateInvoice,
+    addNewOrder,
+    updateExistingOrder,
+    removeOrder,
+    updateOrderStatusRealTime
   ]);
 
   return (

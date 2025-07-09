@@ -14,6 +14,7 @@ export const CartProvider = ({ children }) => {
   const { restaurant, branch, table } = useRestaurant();
   const { taxRate, taxName, taxDetails, calculateTax } = useTax();
   const { isAuthenticated, user } = useAuth();
+  
   const [cartItems, setCartItems] = useState([]);
   const [cartTotal, setCartTotal] = useState(0);
   const [orderNote, setOrderNote] = useState('');
@@ -28,6 +29,11 @@ export const CartProvider = ({ children }) => {
     item: null,
     position: { x: 0, y: 0 }
   });
+  
+  // Track ongoing order requests to prevent duplicates
+  const [ongoingOrderRequest, setOngoingOrderRequest] = useState(null);
+  const [lastOrderAttempt, setLastOrderAttempt] = useState(null);
+  const [orderSubmissionCount, setOrderSubmissionCount] = useState(0);
 
   // Load cart from localStorage
   useEffect(() => {
@@ -346,8 +352,39 @@ export const CartProvider = ({ children }) => {
       return null;
     }
 
-    try {      setOrderLoading(true);
-      setOrderError(null);
+    // Generate a unique request ID to track this order attempt
+    const requestId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Enhanced duplicate prevention - check multiple conditions
+    if (orderLoading || ongoingOrderRequest) {
+      console.log('[CART CONTEXT] Order already in progress, ignoring duplicate request. Current request:', ongoingOrderRequest);
+      // Don't set error message - this is legitimate duplicate prevention
+      return null;
+    }
+    
+    // Prevent rapid successive order attempts (within 3 seconds)
+    const now = Date.now();
+    if (lastOrderAttempt && (now - lastOrderAttempt) < 3000) {
+      console.log('[CART CONTEXT] Too many rapid order attempts, ignoring request. Last attempt:', new Date(lastOrderAttempt));
+      setOrderError('Please wait a moment before trying again');
+      return null;
+    }
+    
+    // Track order submission attempts for this session
+    setOrderSubmissionCount(count => count + 1);
+    if (orderSubmissionCount > 5) {
+      console.log('[CART CONTEXT] Too many order submission attempts in this session');
+      setOrderError('Too many order attempts. Please refresh the page and try again.');
+      return null;
+    }
+
+    try {
+      setOrderLoading(true);
+      setOrderError(null); // Clear any previous errors at the start
+      setOngoingOrderRequest(requestId);
+      setLastOrderAttempt(now);
+      
+      console.log('[CART CONTEXT] Starting order placement with request ID:', requestId);
 
       console.log('[CART CONTEXT] Placing order with:', { customerInfo, orderType: providedOrderType, note });
 
@@ -388,6 +425,40 @@ export const CartProvider = ({ children }) => {
         branchId: branch._id,
         tableId: table?._id || null
       });
+
+      // Create a unique signature for this order to prevent exact duplicates
+      const orderSignature = {
+        restaurantId: restaurant._id,
+        branchId: branch._id,
+        tableId: table?._id || null,
+        items: cartItems.map(item => ({
+          id: item.id || item._id,
+          quantity: item.quantity,
+          price: item.price
+        })).sort((a, b) => a.id.localeCompare(b.id)), // Sort for consistent comparison
+        customerPhone: customerInfo.phone || '',
+        subtotal: subtotal
+      };
+      
+      const orderHash = btoa(JSON.stringify(orderSignature));
+      console.log('[CART CONTEXT] Order signature hash:', orderHash);
+      
+      // Check if we've recently submitted this exact order
+      const recentOrderHash = sessionStorage.getItem('lastOrderHash');
+      const recentOrderTime = sessionStorage.getItem('lastOrderTime');
+      
+      if (recentOrderHash === orderHash && recentOrderTime) {
+        const timeDiff = now - parseInt(recentOrderTime);
+        if (timeDiff < 10000) { // 10 seconds
+          console.log('[CART CONTEXT] Identical order detected within 10 seconds, preventing duplicate');
+          setOrderError('This exact order was just submitted. Please wait a moment before trying again.');
+          return null;
+        }
+      }
+      
+      // Store current order signature
+      sessionStorage.setItem('lastOrderHash', orderHash);
+      sessionStorage.setItem('lastOrderTime', now.toString());
 
       // Validate cart items have valid IDs
       const invalidItems = cartItems.filter(item => !item.id && !item._id);
@@ -490,8 +561,18 @@ export const CartProvider = ({ children }) => {
       
       if (createdOrder) {
         console.log('[CART CONTEXT] Order created successfully:', createdOrder);
+        
+        // Check if this was flagged as a duplicate by the backend
+        if (createdOrder._duplicateDetected) {
+          console.log('[CART CONTEXT] Backend detected and returned existing order:', createdOrder._message);
+        }
+        
+        // Clear any previous errors since the order was successful
+        setOrderError(null);
+        console.log('[CART CONTEXT] Order successful - clearing any previous errors');
         setCurrentOrder(createdOrder);
         setOrderPlaced(true);
+        setOrderSubmissionCount(0); // Reset submission count on success
         clearCart();
         return createdOrder;
       } else {
@@ -513,13 +594,18 @@ export const CartProvider = ({ children }) => {
         // Server responded with an error status
         const statusCode = error.response.status;
         const serverMessage = error.response.data?.message || error.response.data;
+        const responseData = error.response.data;
         
         console.error('[CART CONTEXT] Server error response:', {
           status: statusCode,
           data: error.response.data
         });
         
-        if (statusCode >= 500) {
+        // Handle duplicate request detection from backend
+        if (statusCode === 429 && responseData?._duplicateRequest) {
+          const waitSeconds = responseData._waitSeconds || 10;
+          errorMessage = `Please wait ${waitSeconds} seconds before submitting another order.`;
+        } else if (statusCode >= 500) {
           errorMessage = `Server error (${statusCode}): ${serverMessage || 'Internal server error'}`;
         } else if (statusCode >= 400) {
           errorMessage = `Request error (${statusCode}): ${serverMessage || 'Bad request'}`;
@@ -539,6 +625,8 @@ export const CartProvider = ({ children }) => {
       return null;
     } finally {
       setOrderLoading(false);
+      setOngoingOrderRequest(null);
+      console.log('[CART CONTEXT] Order request completed, clearing request ID:', requestId);
     }
   };
   // Check order status using public API
@@ -679,6 +767,7 @@ export const CartProvider = ({ children }) => {
     setCurrentOrder,
     orderLoading,
     orderError,
+    ongoingOrderRequest,
     checkOrderStatus,
     cartAnimation,
     syncCartWithUser,
@@ -703,7 +792,7 @@ export const CartProvider = ({ children }) => {
 export const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
-    throw new Error('useCart must be used within a CartProvider');
+    throw new Error('useCart must be used within a CartProvider. Make sure your component is wrapped in <CartProvider>.');
   }
   return context;
 };

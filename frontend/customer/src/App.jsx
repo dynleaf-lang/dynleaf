@@ -7,6 +7,7 @@ import { CurrencyProvider } from "./context/CurrencyContext";
 import { TaxProvider } from "./context/TaxContext";
 import AuthProvider from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
@@ -20,13 +21,15 @@ const App = () => {
 					<TaxProvider>
 						<AuthProvider>
 							<SocketProvider>
-								<CartProvider>
-								<ServerStatusCheck />
-								<ConnectionStatusModal />
-								<NetworkErrorHandler />
-								<OrderEaseApp />
-								<CartAnimationEffect /> 
-							</CartProvider>
+								<NotificationProvider>
+									<CartProvider>
+										<ServerStatusCheck />
+										<ConnectionStatusModal />
+										<NetworkErrorHandler />
+										<OrderEaseApp />
+										<CartAnimationEffect /> 
+									</CartProvider>
+								</NotificationProvider>
 							</SocketProvider>
 						</AuthProvider>
 					</TaxProvider>

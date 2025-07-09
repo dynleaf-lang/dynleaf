@@ -156,7 +156,8 @@ app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/taxes', taxRoutes);
-app.use('/api/orders', orderRoutes);
+// Commenting out regular orderRoutes to prevent duplicate order creation
+// app.use('/api/orders', orderRoutes);
 // Mount customer auth routes BEFORE general customer routes (more specific first)
 app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);

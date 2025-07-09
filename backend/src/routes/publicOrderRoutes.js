@@ -6,6 +6,19 @@ const mongoose = require('mongoose');
 const { publicAccess } = require('../middleware/authMiddleware');
 const { emitNewOrder } = require('../utils/socketUtils');
 
+// Simple in-memory cache to track recent order requests
+const recentOrderRequests = new Map();
+
+// Clean up old requests every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, timestamp] of recentOrderRequests.entries()) {
+        if (now - timestamp > 300000) { // 5 minutes
+            recentOrderRequests.delete(key);
+        }
+    }
+}, 300000);
+
 // Debug middleware for this router
 router.use((req, res, next) => {
     console.log(`[PUBLIC ORDERS DEBUG] ${req.method} ${req.originalUrl}`);
@@ -14,6 +27,77 @@ router.use((req, res, next) => {
 
 // Make all routes in this file public
 router.use(publicAccess);
+
+// Get all orders with filtering capability for admin dashboard
+router.get('/', async (req, res) => {
+    try {
+        console.log('[PUBLIC ORDERS] GET all orders request received');
+        console.log('[PUBLIC ORDERS] Query params:', req.query);
+
+        const { 
+            restaurantId, 
+            branchId, 
+            orderStatus, 
+            OrderType, 
+            startDate, 
+            endDate,
+            limit = 100 
+        } = req.query;
+
+        // Build filter object based on query parameters
+        const filter = {};
+        
+        if (restaurantId && mongoose.Types.ObjectId.isValid(restaurantId)) {
+            filter.restaurantId = restaurantId;
+        }
+        
+        if (branchId && mongoose.Types.ObjectId.isValid(branchId)) {
+            filter.branchId = branchId;
+        }
+        
+        if (orderStatus) {
+            filter.status = orderStatus;
+        }
+        
+        if (OrderType) {
+            filter.orderType = OrderType;
+        }
+        
+        // Date range filtering
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) {
+                filter.createdAt.$gte = new Date(startDate);
+            }
+            if (endDate) {
+                // Add 1 day to endDate to include the full day
+                const nextDay = new Date(endDate);
+                nextDay.setDate(nextDay.getDate() + 1);
+                filter.createdAt.$lt = nextDay;
+            }
+        }
+        
+        console.log('[PUBLIC ORDERS] Applying filters:', filter);
+
+        // Execute the query
+        const orders = await Order.find(filter)
+            .sort({ createdAt: -1 })
+            .limit(Number(limit))
+            .populate('restaurantId', 'name')
+            .populate('branchId', 'name')
+            .populate('tableId', 'tableNumber');
+            
+        console.log(`[PUBLIC ORDERS] Found ${orders.length} orders`);
+
+        res.json(orders);
+    } catch (error) {
+        console.error('[PUBLIC ORDERS] Error fetching orders:', error);
+        res.status(500).json({ 
+            message: 'Failed to fetch orders',
+            error: error.message 
+        });
+    }
+});
 
 // Create a new order
 router.post('/', async (req, res) => {
@@ -152,6 +236,106 @@ router.post('/', async (req, res) => {
         const finalCustomerPhone = customer.phone || customerPhone || '';
         const finalCustomerEmail = customer.email || '';
 
+        // Create a unique request signature to prevent rapid duplicate submissions
+        const requestSignature = `${branchId}-${restaurantId}-${finalCustomerPhone}-${JSON.stringify(items.map(i => ({ id: i.menuItemId, q: i.quantity, p: i.price })).sort((a, b) => a.id.localeCompare(b.id)))}`;
+        const requestHash = Buffer.from(requestSignature).toString('base64');
+        
+        // Check if this exact request was made recently (within 10 seconds)
+        const recentRequestTime = recentOrderRequests.get(requestHash);
+        if (recentRequestTime && (Date.now() - recentRequestTime) < 10000) {
+            console.log('[PUBLIC ORDER CREATE] Duplicate request detected within 10 seconds:', requestHash);
+            return res.status(429).json({ 
+                message: 'This order was just submitted. Please wait before trying again.',
+                _duplicateRequest: true,
+                _waitSeconds: Math.ceil((10000 - (Date.now() - recentRequestTime)) / 1000)
+            });
+        }
+        
+        // Track this request
+        recentOrderRequests.set(requestHash, Date.now());
+
+        // Check for potential duplicate orders within the last 30 seconds
+        const recentOrderThreshold = new Date(Date.now() - 30000); // 30 seconds ago
+        
+        // Calculate subtotal for comparison (ensure consistent calculation)
+        const calculatedSubtotal = items.reduce((total, item) => {
+            const itemSubtotal = Number(item.price) * Number(item.quantity);
+            return total + Math.round(itemSubtotal * 100) / 100; // Round to 2 decimal places
+        }, 0);
+        const orderSubtotal = Number(subtotal) || calculatedSubtotal;
+        const roundedSubtotal = Math.round(orderSubtotal * 100) / 100;
+        
+        // Build duplicate filter - be more strict to avoid false positives
+        const duplicateFilter = {
+            branchId,
+            restaurantId,
+            subtotal: roundedSubtotal,
+            createdAt: { $gte: recentOrderThreshold }
+        };
+        
+        // Only add customerPhone to filter if it's provided and not empty
+        if (finalCustomerPhone && finalCustomerPhone.trim() !== '') {
+            duplicateFilter.customerPhone = finalCustomerPhone.trim();
+        }
+        
+        // Add tableId to filter if provided (for dine-in orders)
+        if (tableId) {
+            duplicateFilter.tableId = tableId;
+        } else {
+            // For takeaway/delivery orders, ensure no table is assigned
+            duplicateFilter.tableId = { $exists: false };
+        }
+        
+        // Additional check: compare item count and total items to reduce false positives
+        duplicateFilter['items.0'] = { $exists: true }; // Must have at least one item
+        
+        console.log('[PUBLIC ORDER CREATE] Checking for duplicates with filter:', duplicateFilter);
+        
+        const recentDuplicateOrder = await Order.findOne(duplicateFilter);
+        
+        if (recentDuplicateOrder) {
+            console.log('[PUBLIC ORDER CREATE] Potential duplicate order detected:', {
+                existingOrderId: recentDuplicateOrder._id,
+                existingOrderTime: recentDuplicateOrder.createdAt,
+                timeDifferenceMs: Date.now() - recentDuplicateOrder.createdAt.getTime()
+            });
+            
+            // Additional verification: check if items are actually similar
+            const existingItems = recentDuplicateOrder.items || [];
+            const newItems = items || [];
+            
+            // Compare item counts first
+            if (existingItems.length !== newItems.length) {
+                console.log('[PUBLIC ORDER CREATE] Item counts differ, not a duplicate:', {
+                    existingCount: existingItems.length,
+                    newCount: newItems.length
+                });
+            } else {
+                // Check if items are similar (same menuItemIds and quantities)
+                const itemsMatch = newItems.every(newItem => {
+                    return existingItems.some(existingItem => 
+                        String(existingItem.menuItemId) === String(newItem.menuItemId) &&
+                        Number(existingItem.quantity) === Number(newItem.quantity) &&
+                        Math.abs(Number(existingItem.price) - Number(newItem.price)) < 0.01
+                    );
+                });
+                
+                if (itemsMatch) {
+                    console.log('[PUBLIC ORDER CREATE] Confirmed duplicate order - items match exactly');
+                    
+                    // Return the existing order instead of creating a duplicate
+                    return res.status(200).json({
+                        ...recentDuplicateOrder.toObject(),
+                        _duplicateDetected: true,
+                        _message: 'Duplicate order detected. Returning existing order.',
+                        _timeDifference: Date.now() - recentDuplicateOrder.createdAt.getTime()
+                    });
+                } else {
+                    console.log('[PUBLIC ORDER CREATE] Items differ, not a duplicate order');
+                }
+            }
+        }
+
         // Create a new order
         const order = new Order({
             restaurantId,
@@ -185,6 +369,9 @@ router.post('/', async (req, res) => {
         try {
             savedOrder = await order.save();
             console.log('[PUBLIC ORDER CREATE] Order saved successfully:', savedOrder._id);
+            
+            // Remove the request from tracking since it was successful
+            recentOrderRequests.delete(requestHash);
         } catch (saveError) {
             console.error('[PUBLIC ORDER CREATE] Error saving order:', saveError);
             console.error('[PUBLIC ORDER CREATE] Error name:', saveError.name);
@@ -375,6 +562,240 @@ router.post('/reset-all-tables', async (req, res) => {
     } catch (error) {
         console.error('Error resetting all tables:', error);
         res.status(500).json({ message: error.message });
+    }
+});
+
+// Routes for getting all orders with advanced filtering
+router.get('/all', async (req, res) => {
+    const { 
+        restaurantId, 
+        branchId, 
+        orderStatus, 
+        OrderType, 
+        startDate, 
+        endDate 
+    } = req.query;
+    
+    try {
+        // Build filter object
+        let filter = {};
+        
+        if (restaurantId) filter.restaurantId = restaurantId;
+        if (branchId) filter.branchId = branchId;
+        if (orderStatus) filter.orderStatus = orderStatus;
+        if (OrderType) filter.OrderType = OrderType;
+        
+        // Add date range filters if provided
+        if (startDate || endDate) {
+            filter.orderDate = {};
+            if (startDate) filter.orderDate.$gte = new Date(startDate);
+            if (endDate) filter.orderDate.$lte = new Date(endDate + 'T23:59:59');
+        }
+        
+        const orders = await Order.find(filter)
+            .populate('restaurantId', 'name address country')
+            .populate('branchId', 'name')
+            .populate('customerId', 'name email phone')
+            .populate('items.itemId', 'name')
+            .populate('items.categoryId', 'name')
+            .sort({ orderDate: -1 });
+            
+        res.status(200).json(orders);
+    } catch (error) {
+        console.error('Error fetching filtered orders:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching filtered orders',
+            error: error.message
+        });
+    }
+});
+
+// Get order status statistics
+router.get('/statistics', async (req, res) => {
+    const { restaurantId, branchId, startDate, endDate } = req.query;
+    
+    try {
+        // Build filter object
+        let filter = {};
+        
+        if (restaurantId) filter.restaurantId = restaurantId;
+        if (branchId) filter.branchId = branchId;
+        
+        // Add date range filters if provided
+        if (startDate || endDate) {
+            filter.orderDate = {};
+            if (startDate) filter.orderDate.$gte = new Date(startDate);
+            if (endDate) filter.orderDate.$lte = new Date(endDate + 'T23:59:59');
+        }
+        
+        // Get orders by status
+        const ordersByStatus = await Order.aggregate([
+            { $match: filter },
+            { $group: { 
+                _id: '$orderStatus', 
+                count: { $sum: 1 },
+                revenue: { $sum: '$totalAmount' }
+            }},
+            { $sort: { count: -1 } }
+        ]);
+        
+        res.status(200).json({ ordersByStatus });
+    } catch (error) {
+        console.error('Error fetching order statistics:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching order statistics',
+            error: error.message
+        });
+    }
+});
+
+// Update order status
+router.patch('/:id/status', async (req, res) => {
+    try {
+        const { orderStatus } = req.body;
+        const { id } = req.params;
+        
+        if (!orderStatus) {
+            return res.status(400).json({
+                success: false,
+                message: 'Order status is required'
+            });
+        }
+            
+        // Validate status values
+        const validStatuses = ['Pending', 'Processing', 'Completed', 'Cancelled'];
+        if (!validStatuses.includes(orderStatus)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
+            });
+        }
+
+        // Map legacy status to new status format
+        const statusMapping = {
+            'Pending': 'pending',
+            'Processing': 'preparing',
+            'Completed': 'ready',
+            'Cancelled': 'cancelled'
+        };
+
+        const newStatus = statusMapping[orderStatus];
+
+        // Get the current order to track old status
+        const currentOrder = await Order.findById(id);
+        if (!currentOrder) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        const oldStatus = currentOrder.orderStatus;
+
+        const order = await Order.findByIdAndUpdate(
+            id,
+            { 
+                orderStatus,  // Update legacy field
+                status: newStatus  // Update new field
+            },
+            { new: true, runValidators: true }
+        ).populate('restaurantId', 'name address country')
+         .populate('branchId', 'name address phone')
+         .populate('customerId', 'name email phone')
+         .populate('items.itemId', 'name description')
+         .populate('items.menuItemId', 'name description')
+         .populate('items.categoryId', 'name');
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        // Emit real-time status update notification
+        try {
+            const { emitStatusUpdate } = require('../utils/socketUtils');
+            emitStatusUpdate(order, oldStatus, orderStatus);
+        } catch (socketError) {
+            console.error('Error emitting status update notification:', socketError);
+            // Don't fail the status update if socket emission fails
+        }
+        
+        res.status(200).json({
+            success: true,
+            data: order,
+            message: `Order status updated to ${orderStatus}`
+        });
+    } catch (error) {
+        console.error(`Error updating order status:`, error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while updating order status',
+            error: error.message
+        });
+    }
+});
+
+// Delete order
+router.delete('/:id', async (req, res) => {
+    try {
+        const order = await Order.findByIdAndDelete(req.params.id);
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: 'Order deleted successfully',
+            data: {}
+        });
+    } catch (error) {
+        console.error(`Error deleting order ${req.params.id}:`, error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while deleting order',
+            error: error.message
+        });
+    }
+});
+
+// Generate invoice for an order
+router.get('/:id/invoice', async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id)
+            .populate('restaurantId', 'name address country')
+            .populate('customerId', 'name email')
+            .populate('items.itemId', 'name description')
+            .populate('items.categoryId', 'name');
+        
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        // Simple placeholder for invoice generation (actual implementation would use PDFKit)
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="invoice-${order._id}.pdf"`);
+        
+        // In a real implementation, you would generate a PDF here
+        // For now, we'll send a simple response
+        res.status(200).send('This would be a PDF invoice');
+    } catch (error) {
+        console.error(`Error generating invoice for order ${req.params.id}:`, error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while generating invoice',
+            error: error.message
+        });
     }
 });
 

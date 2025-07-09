@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useResponsive } from "../../context/ResponsiveContext";
 import { useAuth } from "../../context/AuthContext";
+import { useNotifications } from "../../context/NotificationContext";
 import { theme } from "../../data/theme";
 import ProfileButton from "../auth/ProfileButton";
 
@@ -47,41 +48,16 @@ if (typeof document !== 'undefined') {
 
 const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber, openLoginModal, onNavigateToProfile }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(2);
   const { isMobile, isTablet } = useResponsive();
   const { isAuthenticated, user } = useAuth();
+  const { 
+    notifications, 
+    unreadCount, 
+    markAsRead, 
+    markAllAsRead, 
+    getTimeAgo 
+  } = useNotifications();
   const notificationRef = useRef(null);
-  
-  // Sample notification data - in real app, this would come from context/API
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'order',
-      title: 'Order Confirmed',
-      message: 'Your order #1234 has been confirmed and is being prepared.',
-      time: '2 min ago',
-      read: false,
-      icon: 'check_circle'
-    },
-    {
-      id: 2,
-      type: 'promotion',
-      title: 'Special Offer',
-      message: '20% off on your next order! Use code SAVE20',
-      time: '1 hour ago',
-      read: false,
-      icon: 'local_offer'
-    },
-    {
-      id: 3,
-      type: 'delivery',
-      title: 'Order Delivered',
-      message: 'Your order #1230 has been delivered successfully.',
-      time: '2 hours ago',
-      read: true,
-      icon: 'delivery_dining'
-    }
-  ]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -115,22 +91,6 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
     setNotificationsOpen(!notificationsOpen);
   };
 
-  const markAsRead = (notificationId) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId ? { ...notif, read: true } : notif
-      )
-    );
-    // Update notification count
-    const unreadCount = notifications.filter(n => !n.read && n.id !== notificationId).length;
-    setNotificationCount(unreadCount);
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(notif => ({ ...notif, read: true })));
-    setNotificationCount(0);
-  };
-
   const handleProfileClick = () => {
     if (isAuthenticated && onNavigateToProfile) {
       onNavigateToProfile();
@@ -138,9 +98,6 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
       openLoginModal();
     }
   };
-
-  // Calculate unread notifications
-  const unreadCount = notifications.filter(n => !n.read).length;
   
   return (
     <header
@@ -407,99 +364,168 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
 
                   {/* Notification List */}
                   <div style={{
-                    maxHeight: "300px",
+                    maxHeight: "400px",
                     overflowY: "auto",
                   }}>
                     {notifications.length > 0 ? (
-                      notifications.map((notification) => (
-                        <motion.div
-                          key={notification.id}
-                          whileHover={{ backgroundColor: `${theme.colors.primary}05` }}
-                          style={{
-                            padding: theme.spacing.md,
-                            borderBottom: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
-                            cursor: "pointer",
-                            transition: "background-color 0.2s ease",
-                            position: "relative",
-                          }}
-                          onClick={() => markAsRead(notification.id)}
-                        >
-                          <div style={{
-                            display: "flex",
-                            gap: theme.spacing.sm,
-                            alignItems: "flex-start",
-                          }}>
-                            {/* Notification Icon */}
-                            <div style={{
-                              width: "40px",
-                              height: "40px",
-                              borderRadius: "50%",
-                              background: `linear-gradient(135deg, ${theme.colors.primary}15, ${theme.colors.secondary}15)`,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                            }}>
-                              <span className="material-icons" style={{
-                                fontSize: "20px",
-                                color: theme.colors.primary,
-                              }}>
-                                {notification.icon}
-                              </span>
-                            </div>
+                      notifications.slice(0, 10).map((notification) => {
+                        // Get notification styling based on type
+                        const getNotificationStyling = (type) => {
+                          const styles = {
+                            'order_confirmation': {
+                              bgColor: `${theme.colors.success}15`,
+                              iconColor: theme.colors.success,
+                              borderColor: `${theme.colors.success}30`
+                            },
+                            'order_update': {
+                              bgColor: `${theme.colors.primary}15`,
+                              iconColor: theme.colors.primary,
+                              borderColor: `${theme.colors.primary}30`
+                            },
+                            'promotion': {
+                              bgColor: `${theme.colors.warning}15`,
+                              iconColor: theme.colors.warning,
+                              borderColor: `${theme.colors.warning}30`
+                            },
+                            'delivery': {
+                              bgColor: `${theme.colors.info}15`,
+                              iconColor: theme.colors.info,
+                              borderColor: `${theme.colors.info}30`
+                            },
+                            'welcome': {
+                              bgColor: `${theme.colors.secondary}15`,
+                              iconColor: theme.colors.secondary,
+                              borderColor: `${theme.colors.secondary}30`
+                            },
+                            'table_service': {
+                              bgColor: `${theme.colors.primary}15`,
+                              iconColor: theme.colors.primary,
+                              borderColor: `${theme.colors.primary}30`
+                            }
+                          };
+                          
+                          return styles[type] || {
+                            bgColor: `${theme.colors.primary}15`,
+                            iconColor: theme.colors.primary,
+                            borderColor: `${theme.colors.primary}30`
+                          };
+                        };
 
-                            {/* Notification Content */}
-                            <div style={{ flex: 1, minWidth: 0 }}>
+                        const styling = getNotificationStyling(notification.type);
+                        
+                        return (
+                          <motion.div
+                            key={notification.id}
+                            whileHover={{ backgroundColor: styling.bgColor }}
+                            style={{
+                              padding: theme.spacing.md,
+                              borderBottom: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
+                              cursor: "pointer",
+                              transition: "background-color 0.2s ease",
+                              position: "relative",
+                              borderLeft: !notification.read ? `3px solid ${styling.iconColor}` : 'none',
+                            }}
+                            onClick={() => markAsRead(notification.id)}
+                          >
+                            <div style={{
+                              display: "flex",
+                              gap: theme.spacing.sm,
+                              alignItems: "flex-start",
+                            }}>
+                              {/* Notification Icon */}
                               <div style={{
+                                width: "40px",
+                                height: "40px",
+                                borderRadius: "50%",
+                                background: styling.bgColor,
+                                border: `1px solid ${styling.borderColor}`,
                                 display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "flex-start",
-                                marginBottom: theme.spacing.xs,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
                               }}>
-                                <h4 style={{
-                                  margin: 0,
-                                  fontSize: theme.typography.sizes.sm,
-                                  fontWeight: notification.read ? 
-                                    theme.typography.fontWeights.medium : 
-                                    theme.typography.fontWeights.semibold,
-                                  color: theme.colors.text.primary,
+                                <span className="material-icons" style={{
+                                  fontSize: "20px",
+                                  color: styling.iconColor,
                                 }}>
-                                  {notification.title}
-                                </h4>
-                                <span style={{
-                                  fontSize: theme.typography.sizes.xs,
-                                  color: theme.colors.text.secondary,
-                                  flexShrink: 0,
-                                  marginLeft: theme.spacing.sm,
-                                }}>
-                                  {notification.time}
+                                  {notification.icon}
                                 </span>
                               </div>
-                              <p style={{
-                                margin: 0,
-                                fontSize: theme.typography.sizes.sm,
-                                color: theme.colors.text.secondary,
-                                lineHeight: 1.4,
-                              }}>
-                                {notification.message}
-                              </p>
-                            </div>
 
-                            {/* Unread Indicator */}
-                            {!notification.read && (
-                              <div style={{
-                                width: "8px",
-                                height: "8px",
-                                borderRadius: "50%",
-                                background: theme.colors.primary,
-                                position: "absolute",
-                                top: theme.spacing.md,
-                                right: theme.spacing.md,
-                              }} />
-                            )}
-                          </div>
-                        </motion.div>
-                      ))
+                              {/* Notification Content */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "flex-start",
+                                  marginBottom: theme.spacing.xs,
+                                }}>
+                                  <h4 style={{
+                                    margin: 0,
+                                    fontSize: theme.typography.sizes.sm,
+                                    fontWeight: notification.read ? 
+                                      theme.typography.fontWeights.medium : 
+                                      theme.typography.fontWeights.semibold,
+                                    color: theme.colors.text.primary,
+                                    lineHeight: 1.3,
+                                  }}>
+                                    {notification.title}
+                                  </h4>
+                                  <span style={{
+                                    fontSize: theme.typography.sizes.xs,
+                                    color: theme.colors.text.secondary,
+                                    flexShrink: 0,
+                                    marginLeft: theme.spacing.sm,
+                                  }}>
+                                    {getTimeAgo(notification.timestamp)}
+                                  </span>
+                                </div>
+                                <p style={{
+                                  margin: 0,
+                                  fontSize: theme.typography.sizes.sm,
+                                  color: theme.colors.text.secondary,
+                                  lineHeight: 1.4,
+                                }}>
+                                  {notification.message}
+                                </p>
+                                
+                                {/* Additional metadata for order notifications */}
+                                {notification.metadata && notification.orderNumber && (
+                                  <div style={{
+                                    marginTop: theme.spacing.xs,
+                                    padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
+                                    background: `${theme.colors.background?.light || '#f8f9fa'}`,
+                                    borderRadius: theme.borderRadius.sm,
+                                    fontSize: theme.typography.sizes.xs,
+                                    color: theme.colors.text.secondary,
+                                  }}>
+                                    Order #{notification.orderNumber}
+                                    {notification.metadata.estimatedTime && (
+                                      <span style={{ marginLeft: theme.spacing.sm }}>
+                                        • ETA: {notification.metadata.estimatedTime}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Unread Indicator */}
+                              {!notification.read && (
+                                <div style={{
+                                  width: "8px",
+                                  height: "8px",
+                                  borderRadius: "50%",
+                                  background: styling.iconColor,
+                                  position: "absolute",
+                                  top: theme.spacing.md,
+                                  right: theme.spacing.md,
+                                  boxShadow: `0 0 0 2px #fff`,
+                                }} />
+                              )}
+                            </div>
+                          </motion.div>
+                        );
+                      })
                     ) : (
                       <div style={{
                         padding: `${theme.spacing.xl} ${theme.spacing.md}`,
@@ -519,6 +545,14 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                         }}>
                           No notifications yet
                         </p>
+                        <p style={{
+                          margin: 0,
+                          marginTop: theme.spacing.xs,
+                          fontSize: theme.typography.sizes.xs,
+                          opacity: 0.7,
+                        }}>
+                          You'll receive updates about your orders here
+                        </p>
                       </div>
                     )}
                   </div>
@@ -528,30 +562,65 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                     <div style={{
                       padding: theme.spacing.md,
                       borderTop: `1px solid ${theme.colors.border?.light || theme.colors.divider}`,
-                      background: `${theme.colors.primary}05`,
-                      textAlign: "center",
+                      background: `linear-gradient(135deg, ${theme.colors.primary}05, ${theme.colors.secondary}05)`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: theme.spacing.sm,
                     }}>
                       <button
+                        onClick={markAllAsRead}
+                        disabled={unreadCount === 0}
                         style={{
                           background: "transparent",
                           border: "none",
-                          color: theme.colors.primary,
+                          color: unreadCount > 0 ? theme.colors.primary : theme.colors.text.secondary,
                           fontSize: theme.typography.sizes.sm,
                           fontWeight: theme.typography.fontWeights.medium,
-                          cursor: "pointer",
-                          padding: theme.spacing.sm,
+                          cursor: unreadCount > 0 ? "pointer" : "default",
+                          padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
                           borderRadius: theme.borderRadius.md,
-                          transition: "background-color 0.2s ease",
+                          transition: "all 0.2s ease",
+                          opacity: unreadCount > 0 ? 1 : 0.5,
                         }}
                         onMouseEnter={(e) => {
-                          e.target.style.backgroundColor = `${theme.colors.primary}10`;
+                          if (unreadCount > 0) {
+                            e.target.style.backgroundColor = `${theme.colors.primary}10`;
+                          }
                         }}
                         onMouseLeave={(e) => {
                           e.target.style.backgroundColor = "transparent";
                         }}
                       >
-                        View all notifications
+                        <span className="material-icons" style={{ fontSize: "16px", marginRight: theme.spacing.xs }}>
+                          done_all
+                        </span>
+                        Mark all read
                       </button>
+                      
+                      <div style={{
+                        fontSize: theme.typography.sizes.xs,
+                        color: theme.colors.text.secondary,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: theme.spacing.xs,
+                      }}>
+                        {notifications.length > 10 && (
+                          <span>Showing 10 of {notifications.length}</span>
+                        )}
+                        {unreadCount > 0 && (
+                          <span style={{
+                            background: theme.colors.primary,
+                            color: "#fff",
+                            padding: `2px ${theme.spacing.xs}`,
+                            borderRadius: theme.borderRadius.sm,
+                            fontSize: "10px",
+                            fontWeight: theme.typography.fontWeights.bold,
+                          }}>
+                            {unreadCount} new
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </motion.div>
