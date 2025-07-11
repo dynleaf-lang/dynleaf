@@ -49,7 +49,10 @@ exports.login = async (req, res) => {
     const customer = await Customer.findOne(query);
     
     if (!customer) {
-      return res.status(404).json({ message: 'Customer not found. Please register first.' });
+      return res.status(404).json({ 
+        message: 'Customer not found. Please register first.',
+        shouldRegister: true 
+      });
     }
     
     // Generate JWT token
@@ -88,13 +91,30 @@ exports.requestOTP = async (req, res) => {
       return res.status(400).json({ message: 'Please provide identifier and restaurant/branch ID' });
     }
     
-    // Generate OTP
-    const otp = otpGenerator.generate(6, { 
-      upperCase: false, 
+    // Check if customer exists first
+    const isEmail = identifier.includes('@');
+    const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
+    const customer = await Customer.findOne(query);
+    
+    if (!customer) {
+      return res.status(404).json({ 
+        message: 'Customer not found. Please register first.',
+        shouldRegister: true 
+      });
+    }
+    
+    // Generate 6-digit numeric OTP
+    let otp = otpGenerator.generate(6, { 
+      upperCaseAlphabets: false,
+      lowerCaseAlphabets: false, 
       specialChars: false,
-      alphabets: false,
       digits: true
     });
+    
+    // Fallback: Ensure we only have digits (in case otp-generator has issues)
+    if (!/^\d{6}$/.test(otp)) {
+      otp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
     
     // Store OTP with expiry (5 minutes)
     const otpData = {
@@ -109,7 +129,7 @@ exports.requestOTP = async (req, res) => {
     otpStore.set(otpId, otpData);
     
     // In production, send OTP via SMS or email
-    console.log(`OTP for ${identifier}: ${otp}`);
+    console.log(`OTP for ${identifier}: ${otp} (Length: ${otp.length}, Type: ${typeof otp}, All digits: ${/^\d+$/.test(otp)})`);
     
     // Return success but don't include OTP in response (for security)
     return res.status(200).json({ 
@@ -304,13 +324,18 @@ exports.register = async (req, res) => {
       });
     }
     
-    // Generate OTP for verification
-    const otp = otpGenerator.generate(6, { 
-      upperCase: false, 
+    // Generate 6-digit numeric OTP for verification
+    let otp = otpGenerator.generate(6, { 
+      upperCaseAlphabets: false,
+      lowerCaseAlphabets: false, 
       specialChars: false,
-      alphabets: false,
       digits: true
     });
+    
+    // Fallback: Ensure we only have digits (in case otp-generator has issues)
+    if (!/^\d{6}$/.test(otp)) {
+      otp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
     
     // Store OTP with expiry (5 minutes)
     const otpId = uuidv4();
@@ -326,7 +351,7 @@ exports.register = async (req, res) => {
     });
     
     // In production, send OTP via SMS or email
-    console.log(`Registration OTP for ${identifier}: ${otp}`);
+    console.log(`Registration OTP for ${identifier}: ${otp} (Length: ${otp.length}, Type: ${typeof otp}, All digits: ${/^\d+$/.test(otp)})`);
     
     // Return partial user data with otpId for verification
     return res.status(200).json({
@@ -340,5 +365,75 @@ exports.register = async (req, res) => {
   } catch (error) {
     console.error('Registration error:', error);
     return res.status(500).json({ message: 'Server error during registration' });
+  }
+};
+
+// @desc    Verify customer session status
+// @route   GET /api/customers/auth/verify-session
+// @access  Private (Customer)
+exports.verifySession = async (req, res) => {
+  try {
+    // Check if user is authenticated (middleware should handle this)
+    if (!req.user || req.user.type !== 'customer') {
+      return res.status(401).json({ 
+        isValid: false, 
+        isActive: false,
+        message: 'Invalid session' 
+      });
+    }
+    
+    // Find the customer in database
+    const customer = await Customer.findById(req.user.id);
+    
+    if (!customer) {
+      return res.status(404).json({ 
+        isValid: false, 
+        isActive: false,
+        message: 'Customer not found' 
+      });
+    }
+    
+    // Check if customer account is active
+    const isActive = customer.isActive !== false;
+    
+    if (!isActive) {
+      return res.status(401).json({
+        isValid: false,
+        isActive: false,
+        message: 'Customer account has been deactivated'
+      });
+    }
+    
+    // Update last activity timestamp
+    try {
+      await Customer.findByIdAndUpdate(req.user.id, { 
+        lastActivity: new Date() 
+      });
+    } catch (updateError) {
+      console.error('Error updating last activity:', updateError);
+      // Don't fail the entire request for this
+    }
+    
+    // Return session status
+    return res.status(200).json({
+      isValid: true,
+      isActive: isActive,
+      customer: {
+        id: customer._id,
+        customerId: customer.customerId,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        lastActivity: customer.lastActivity
+      }
+    });
+    
+  } catch (error) {
+    console.error('Session verification error:', error);
+    return res.status(500).json({ 
+      isValid: false, 
+      isActive: false,
+      message: 'Server error during session verification' 
+    });
   }
 };

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const customerAuthController = require('../controllers/customerAuthController');
+const { customerProtect } = require('../middleware/authMiddleware');
 
 // Public routes (no authentication required)
 
@@ -18,6 +19,11 @@ router.post('/register', customerAuthController.register);
 
 // Sync cart with user account
 router.post('/sync-cart', customerAuthController.syncCart);
+
+// Protected routes (require customer authentication)
+
+// Verify customer session status
+router.get('/verify-session', customerProtect, customerAuthController.verifySession);
 
 // Public endpoint to get user's cart (dummy implementation)
 router.get('/:id/cart', (req, res) => {

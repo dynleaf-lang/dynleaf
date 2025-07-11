@@ -304,7 +304,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                   style={{
                     position: "absolute",
                     top: "100%",
-                    right: 0,
+                    right: "-70px",
                     marginTop: theme.spacing.sm,
                     width: isMobile ? "320px" : "380px",
                     maxWidth: "90vw",

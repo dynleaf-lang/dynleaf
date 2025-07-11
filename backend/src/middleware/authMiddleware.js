@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const Customer = require('../models/Customer');
 
 dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-for-dev-only';
@@ -159,10 +160,93 @@ const publicAccess = (req, res, next) => {
     next();
 };
 
+// Customer authentication middleware for customer-specific routes
+const customerProtect = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+        console.log('Missing Authorization header for customer');
+        return res.status(401).json({ message: 'Authorization header not provided' });
+    }
+    
+    // Handle both "Bearer token" and just "token" formats
+    const parts = authHeader.split(' ');
+    const token = parts.length === 2 && parts[0] === 'Bearer' ? parts[1] : parts[0];
+    
+    if (!token) {
+        console.log('Token not provided in header:', authHeader);
+        return res.status(401).json({ message: 'Token not provided' });
+    }
+    
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET, {
+            issuer: JWT_ISSUER,
+            audience: JWT_AUDIENCE
+        });
+        
+        // Verify this is a customer token
+        if (decoded.type !== 'customer') {
+            console.log('Invalid token type for customer route:', decoded.type);
+            return res.status(403).json({ 
+                message: 'Invalid token type. Customer access required.' 
+            });
+        }
+        
+        // Check if the customer still exists in the database
+        const customer = await Customer.findById(decoded.id);
+        if (!customer) {
+            console.log('Customer no longer exists in the database:', decoded.id);
+            return res.status(401).json({ 
+                message: 'Customer account not found',
+                reason: 'account_not_found'
+            });
+        }
+        
+        // Check if customer account is active
+        if (customer.isActive === false) {
+            console.log('Customer account is deactivated:', decoded.id);
+            return res.status(401).json({ 
+                message: 'Customer account has been deactivated',
+                reason: 'account_inactive'
+            });
+        }
+        
+        console.log('Authenticated customer:', {
+            id: decoded.id, 
+            customerId: customer.customerId,
+            name: customer.name
+        });
+        
+        req.user = decoded;
+        req.customer = customer; // Add customer data to request
+        next();
+    } catch (error) {
+        console.error('Customer JWT verification error:', error.message);
+        
+        // Provide more specific error messages based on error type
+        if (error.name === 'TokenExpiredError') {
+            return res.status(403).json({ 
+                message: 'Session has expired. Please log in again.', 
+                error: 'expired_token'
+            });
+        } else if (error.name === 'JsonWebTokenError') {
+            return res.status(403).json({ 
+                message: 'Invalid session. Please log in again.', 
+                error: 'invalid_token'
+            });
+        }
+        
+        return res.status(403).json({ 
+            message: 'Session is not valid: ' + error.message,
+            error: error.name
+        });
+    }
+};
+
 module.exports = {
     protect,
     authorize,
     authenticateJWT,
     authorizeAdmin,
-    publicAccess
+    publicAccess,
+    customerProtect
 };

@@ -98,6 +98,33 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('user');
   };
 
+  // Check if user session is still valid
+  const checkSession = async () => {
+    try {
+      if (!user || !isAuthenticated) {
+        return { valid: false, error: 'Not authenticated' };
+      }
+
+      // This will be caught by the interceptor if token is invalid
+      const response = await api.get('/api/customers/auth/verify-session');
+      
+      if (response.data.isValid && response.data.isActive) {
+        return { valid: true, customer: response.data.customer };
+      } else {
+        // Session is invalid, logout user
+        logout();
+        return { valid: false, error: 'Session invalid or user inactive' };
+      }
+    } catch (error) {
+      console.error('Session check failed:', error);
+      // If it's an auth error, logout the user
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        logout();
+      }
+      return { valid: false, error: error.response?.data?.message || 'Session check failed' };
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -107,7 +134,8 @@ export const AuthProvider = ({ children }) => {
     register,
     verifyOTP,
     login,
-    logout
+    logout,
+    checkSession
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

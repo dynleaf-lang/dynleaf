@@ -1,5 +1,4 @@
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useRestaurant } from "../../context/RestaurantContext";
 import { theme } from "../../data/theme";
@@ -13,17 +12,199 @@ const SignupModal = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [step, setStep] = useState("signup"); // signup, verify-otp
+  
+  // Validation states (only updated on blur, not during typing)
+  const [fieldErrors, setFieldErrors] = useState({
+    name: "",
+    identifier: "",
+    otp: ""
+  });
+
+  // Enhanced stable input component with validation styling
+  const StableInput = useCallback(({ label, value, onChange, onBlur, placeholder, disabled, id, error, type = "text" }) => {
+    const hasError = error && error.length > 0;
+    const hasValue = value && value.length > 0;
+    const isValid = hasValue && !hasError;
+    
+    return (
+      <div style={{ marginBottom: "20px" }}>
+        <label 
+          htmlFor={id}
+          style={{ 
+            display: "block", 
+            marginBottom: "8px", 
+            fontSize: "14px", 
+            color: hasError ? "#EF4444" : "#64748B",
+            fontWeight: "500",
+            transition: "color 0.2s ease"
+          }}
+        >
+          {label}
+        </label>
+        <div style={{ position: "relative" }}>
+          <input
+            id={id}
+            type={type}
+            value={value || ""}
+            onChange={onChange}
+            onBlur={(e) => {
+              // Handle focus styling
+              e.target.style.borderColor = hasError ? "#EF4444" : isValid ? "#10B981" : "#E2E8F0";
+              e.target.style.boxShadow = "none";
+              // Call custom onBlur handler
+              if (onBlur) onBlur(e);
+            }}
+            placeholder={placeholder}
+            disabled={disabled}
+            autoComplete="off"
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              paddingRight: isValid ? "45px" : "16px",
+              border: `2px solid ${hasError ? "#EF4444" : isValid ? "#10B981" : "#E2E8F0"}`,
+              borderRadius: "8px",
+              fontSize: "16px",
+              boxSizing: "border-box",
+              backgroundColor: disabled ? "#F8FAFC" : "#FFFFFF",
+              color: "#1E293B",
+              outline: "none",
+              fontFamily: "inherit",
+              transition: "all 0.2s ease",
+            }}
+            onFocus={(e) => {
+              if (!hasError) {
+                e.target.style.borderColor = "#E03151";
+                e.target.style.boxShadow = "0 0 0 3px rgba(224, 49, 81, 0.1)";
+              }
+            }}
+          />
+          
+          {/* Success indicator */}
+          {isValid && (
+            <div
+              style={{
+                position: "absolute",
+                right: "12px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#10B981",
+                fontSize: "16px",
+                pointerEvents: "none",
+                userSelect: "none",
+              }}
+            >
+              ✓
+            </div>
+          )}
+        </div>
+        
+        {/* Error message */}
+        {hasError && (
+          <div
+            style={{
+              marginTop: "6px",
+              fontSize: "12px",
+              color: "#EF4444",
+              fontWeight: "500",
+            }}
+          >
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }, []);
+
+  // Validation functions (only called on blur, not during typing)
+  const validateName = useCallback((nameValue) => {
+    if (!nameValue.trim()) return "";
+    if (nameValue.trim().length < 2) return "Name must be at least 2 characters";
+    if (!/^[a-zA-Z\s]+$/.test(nameValue.trim())) return "Name can only contain letters and spaces";
+    return "";
+  }, []);
+
+  const validateIdentifier = useCallback((identifierValue) => {
+    if (!identifierValue.trim()) return "";
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifierValue);
+    const isPhone = /^[\+]?[1-9][\d]{3,14}$/.test(identifierValue.replace(/[\s\-\(\)]/g, ''));
+    if (!isEmail && !isPhone) return "Please enter a valid email address or phone number";
+    return "";
+  }, []);
+
+  const validateOtp = useCallback((otpValue) => {
+    if (!otpValue.trim()) return "";
+    if (!/^\d{4,6}$/.test(otpValue)) return "OTP must be 4-6 digits";
+    return "";
+  }, []);
+
+  // Memoized onChange handlers with validation on blur
+  const handleNameChange = useCallback((e) => {
+    const value = e.target.value;
+    setName(value);
+    // Clear error when user starts typing
+    if (fieldErrors.name) {
+      setFieldErrors(prev => ({ ...prev, name: "" }));
+    }
+  }, [fieldErrors.name]);
+
+  const handleNameBlur = useCallback((e) => {
+    const error = validateName(e.target.value);
+    setFieldErrors(prev => ({ ...prev, name: error }));
+  }, [validateName]);
+
+  const handleIdentifierChange = useCallback((e) => {
+    const value = e.target.value;
+    setIdentifier(value);
+    // Clear error when user starts typing
+    if (fieldErrors.identifier) {
+      setFieldErrors(prev => ({ ...prev, identifier: "" }));
+    }
+  }, [fieldErrors.identifier]);
+
+  const handleIdentifierBlur = useCallback((e) => {
+    const error = validateIdentifier(e.target.value);
+    setFieldErrors(prev => ({ ...prev, identifier: error }));
+  }, [validateIdentifier]);
+
+  const handleOtpChange = useCallback((e) => {
+    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setOtp(value);
+    // Clear error when user starts typing
+    if (fieldErrors.otp) {
+      setFieldErrors(prev => ({ ...prev, otp: "" }));
+    }
+  }, [fieldErrors.otp]);
+
+  const handleOtpBlur = useCallback((e) => {
+    const error = validateOtp(e.target.value);
+    setFieldErrors(prev => ({ ...prev, otp: error }));
+  }, [validateOtp]);
 
   const handleSignup = async (e) => {
     e.preventDefault();
     
-    if (!name) {
+    // Simple validation on submit only
+    if (!name.trim()) {
       setError("Please enter your name");
       return;
     }
     
-    if (!identifier) {
+    if (name.trim().length < 2) {
+      setError("Name must be at least 2 characters");
+      return;
+    }
+    
+    if (!identifier.trim()) {
       setError("Please enter your email or phone number");
+      return;
+    }
+    
+    // Basic email/phone validation
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier);
+    const isPhone = /^[\+]?[1-9][\d]{3,14}$/.test(identifier.replace(/[\s\-\(\)]/g, ''));
+    
+    if (!isEmail && !isPhone) {
+      setError("Please enter a valid email address or phone number");
       return;
     }
     
@@ -69,8 +250,13 @@ const SignupModal = ({ isOpen, onClose }) => {
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     
-    if (!otp) {
+    if (!otp.trim()) {
       setError("Please enter the OTP sent to you");
+      return;
+    }
+    
+    if (!/^\d{4,6}$/.test(otp)) {
+      setError("OTP must be 4-6 digits");
       return;
     }
     
@@ -96,12 +282,17 @@ const SignupModal = ({ isOpen, onClose }) => {
   };
 
   return (
-    <AnimatePresence>
+    <>
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+        <div
           style={{
             position: "fixed",
             top: 0,
@@ -117,18 +308,14 @@ const SignupModal = ({ isOpen, onClose }) => {
           }}
           onClick={onClose}
         >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ type: "spring", damping: 20 }}
+          <div
             style={{
               width: "100%",
               maxWidth: "400px",
               backgroundColor: "#fff",
-              borderRadius: theme.borderRadius.lg,
-              boxShadow: theme.shadows.lg,
-              padding: theme.spacing.lg,
+              borderRadius: "16px",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+              padding: "24px",
               overflow: "hidden",
             }}
             onClick={(e) => e.stopPropagation()}
@@ -162,78 +349,66 @@ const SignupModal = ({ isOpen, onClose }) => {
 
             {step === "signup" ? (
               <form onSubmit={handleSignup}>
-                <div style={{ marginBottom: theme.spacing.md }}>
-                  <label
-                    htmlFor="name"
-                    style={{
-                      display: "block",
-                      marginBottom: theme.spacing.xs,
-                      fontSize: theme.typography.sizes.sm,
-                      color: theme.colors.text.secondary,
-                    }}
-                  >
-                    Your Name
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your full name"
-                    style={{
-                      width: "100%",
-                      padding: theme.spacing.sm,
-                      borderRadius: theme.borderRadius.md,
-                      border: `1px solid ${theme.colors.border}`,
-                      fontSize: theme.typography.sizes.md,
-                    }}
-                  />
-                </div>
+                <StableInput
+                  id="signup-name"
+                  label="Your Name"
+                  value={name}
+                  onChange={handleNameChange}
+                  onBlur={handleNameBlur}
+                  placeholder="Enter your full name"
+                  disabled={loading}
+                  error={fieldErrors.name}
+                />
 
-                <div style={{ marginBottom: theme.spacing.md }}>
-                  <label
-                    htmlFor="identifier"
-                    style={{
-                      display: "block",
-                      marginBottom: theme.spacing.xs,
-                      fontSize: theme.typography.sizes.sm,
-                      color: theme.colors.text.secondary,
-                    }}
-                  >
-                    Email or Phone Number
-                  </label>
-                  <input
-                    id="identifier"
-                    type="text"
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Enter your email or phone number"
-                    style={{
-                      width: "100%",
-                      padding: theme.spacing.sm,
-                      borderRadius: theme.borderRadius.md,
-                      border: `1px solid ${theme.colors.border}`,
-                      fontSize: theme.typography.sizes.md,
-                    }}
-                  />
-                </div>
+                <StableInput
+                  id="signup-identifier"
+                  label="Email or Phone Number"
+                  value={identifier}
+                  onChange={handleIdentifierChange}
+                  onBlur={handleIdentifierBlur}
+                  placeholder="Enter your email or phone number"
+                  disabled={loading}
+                  error={fieldErrors.identifier}
+                />
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !name || !identifier || fieldErrors.name || fieldErrors.identifier}
                   style={{
                     width: "100%",
-                    padding: theme.spacing.md,
-                    backgroundColor: theme.colors.primary,
+                    padding: "16px",
+                    backgroundColor: loading || !name || !identifier || fieldErrors.name || fieldErrors.identifier 
+                      ? "#94A3B8" 
+                      : "#E03151",
                     color: "#fff",
                     border: "none",
-                    borderRadius: theme.borderRadius.md,
-                    fontSize: theme.typography.sizes.md,
-                    cursor: loading ? "not-allowed" : "pointer",
-                    opacity: loading ? 0.7 : 1,
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: 600,
+                    cursor: loading || !name || !identifier || fieldErrors.name || fieldErrors.identifier 
+                      ? "not-allowed" 
+                      : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    transition: "all 0.2s ease",
+                    opacity: loading || !name || !identifier || fieldErrors.name || fieldErrors.identifier ? 0.7 : 1,
                   }}
                 >
-                  {loading ? "Registering..." : "Sign Up"}
+                  {loading && (
+                    <div
+                      style={{
+                        width: "16px",
+                        height: "16px",
+                        border: "2px solid transparent",
+                        borderTop: "2px solid #fff",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite",
+                      }}
+                    />
+                  )}
+                  {loading ? "Creating Account..." : "Sign Up"}
                 </button>
 
                 <div
@@ -263,49 +438,76 @@ const SignupModal = ({ isOpen, onClose }) => {
               </form>
             ) : (
               <form onSubmit={handleVerifyOTP}>
-                <div style={{ marginBottom: theme.spacing.md }}>
-                  <label
-                    htmlFor="otp"
-                    style={{
-                      display: "block",
-                      marginBottom: theme.spacing.xs,
-                      fontSize: theme.typography.sizes.sm,
-                      color: theme.colors.text.secondary,
-                    }}
-                  >
-                    One-Time Password (OTP)
-                  </label>
-                  <input
-                    id="otp"
-                    type="text"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="Enter OTP sent to your email/phone"
-                    style={{
-                      width: "100%",
-                      padding: theme.spacing.sm,
-                      borderRadius: theme.borderRadius.md,
-                      border: `1px solid ${theme.colors.border}`,
-                      fontSize: theme.typography.sizes.md,
-                    }}
-                  />
+                <div style={{ 
+                  textAlign: "center", 
+                  marginBottom: theme.spacing.lg,
+                  padding: theme.spacing.md,
+                  backgroundColor: theme.colors.backgroundAlt,
+                  borderRadius: theme.borderRadius.md,
+                  border: `1px solid ${theme.colors.border}`,
+                }}>
+                  <p style={{
+                    fontSize: theme.typography.sizes.sm,
+                    color: theme.colors.text.secondary,
+                    margin: 0,
+                    lineHeight: theme.typography.lineHeights.relaxed,
+                  }}>
+                    We've sent a verification code to <br />
+                    <strong style={{ color: theme.colors.text.primary }}>
+                      {identifier}
+                    </strong>
+                  </p>
                 </div>
+
+                <StableInput
+                  id="signup-otp"
+                  label="Verification Code"
+                  type="text"
+                  value={otp}
+                  onChange={handleOtpChange}
+                  onBlur={handleOtpBlur}
+                  placeholder="Enter 4-6 digit code"
+                  disabled={loading}
+                  error={fieldErrors.otp}
+                />
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !otp || fieldErrors.otp}
                   style={{
                     width: "100%",
-                    padding: theme.spacing.md,
-                    backgroundColor: theme.colors.primary,
+                    padding: "16px",
+                    backgroundColor: loading || !otp || fieldErrors.otp 
+                      ? "#94A3B8" 
+                      : "#E03151",
                     color: "#fff",
                     border: "none",
-                    borderRadius: theme.borderRadius.md,
-                    fontSize: theme.typography.sizes.md,
-                    cursor: loading ? "not-allowed" : "pointer",
-                    opacity: loading ? 0.7 : 1,
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: 600,
+                    cursor: loading || !otp || fieldErrors.otp 
+                      ? "not-allowed" 
+                      : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    transition: "all 0.2s ease",
+                    opacity: loading || !otp || fieldErrors.otp ? 0.7 : 1,
                   }}
                 >
+                  {loading && (
+                    <div
+                      style={{
+                        width: "16px",
+                        height: "16px",
+                        border: "2px solid transparent",
+                        borderTop: "2px solid #fff",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite",
+                      }}
+                    />
+                  )}
                   {loading ? "Verifying..." : "Complete Sign Up"}
                 </button>
 
@@ -335,10 +537,10 @@ const SignupModal = ({ isOpen, onClose }) => {
                 </div>
               </form>
             )}
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 };
 

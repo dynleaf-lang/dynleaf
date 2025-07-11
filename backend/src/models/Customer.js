@@ -37,6 +37,14 @@ const customerSchema = new mongoose.Schema({
         type: String,
         required: false, // Changed from true to false to make it optional
     },
+    isActive: {
+        type: Boolean,
+        default: true, // Customer is active by default
+    },
+    lastActivity: {
+        type: Date,
+        default: Date.now,
+    },
     createdAt: {
         type: Date,
         default: Date.now,

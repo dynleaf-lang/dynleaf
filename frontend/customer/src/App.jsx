@@ -11,6 +11,7 @@ import { NotificationProvider } from "./context/NotificationContext";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
+import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager";
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
 
@@ -23,13 +24,13 @@ const App = () => {
 						<AuthProvider>
 							<SocketProvider>
 								<NotificationProvider>
-									<CartProvider>
-										<ServerStatusCheck />
-										<ConnectionStatusModal />
-										<NetworkErrorHandler />
-										<OrderEaseApp />
-										<CartAnimationEffect />
-										<NotificationToast />
+									<CartProvider>						<ServerStatusCheck />
+						<ConnectionStatusModal />
+						<NetworkErrorHandler />
+						<SessionTimeoutManager />
+						<OrderEaseApp />
+						<CartAnimationEffect />
+						<NotificationToast />
 									</CartProvider>
 								</NotificationProvider>
 							</SocketProvider>
