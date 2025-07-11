@@ -6,6 +6,7 @@ import Header from "../ui/Header";
 import PreLoader from "../ui/PreLoader";
 import QRInstructions from "../ui/QRInstructions";
 import MenuView from "../ui/MenuView";
+import SearchView from "../ui/SearchView";
 import OrdersView from "../ui/OrdersView";
 import BottomNav from "../ui/BottomNav";
 import DesktopLayout from "./DesktopLayout";
@@ -205,82 +206,7 @@ const OrderEaseApp = () => {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <div className="d-flex flex-column align-items-center justify-content-center p-4" style={{ minHeight: "50vh" }}>
-                        <span className="material-icons" style={{ 
-                          fontSize: "48px", 
-                          color: theme.colors.text.secondary,
-                          marginBottom: theme.spacing.md
-                        }}>
-                          search
-                        </span>
-                        <h2 style={{
-                          fontSize: theme.typography.sizes.xl,
-                          marginBottom: theme.spacing.md,
-                          color: theme.colors.text.primary
-                        }}>
-                          Find Your Favorite Dishes
-                        </h2>
-                        <div style={{
-                          width: "100%",
-                          maxWidth: "400px",
-                          position: "relative",
-                          marginBottom: theme.spacing.lg
-                        }}>
-                          <input
-                            type="text"
-                            placeholder="Search menu items..."
-                            style={{
-                              width: "100%",
-                              padding: `${theme.spacing.md} ${theme.spacing.lg}`,
-                              paddingLeft: "3rem",
-                              borderRadius: theme.borderRadius.lg,
-                              border: `1px solid ${theme.colors.border}`,
-                              fontSize: theme.typography.sizes.md,
-                              boxShadow: theme.shadows.sm,
-                              backgroundColor: "#FFF"
-                            }}
-                          />
-                          <span className="material-icons" style={{
-                            position: "absolute",
-                            left: "12px",
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            color: theme.colors.text.secondary
-                          }}>
-                            search
-                          </span>
-                        </div>
-                        <div style={{
-                          width: "100%",
-                          maxWidth: "400px",
-                          display: "flex",
-                          flexWrap: "wrap",
-                          justifyContent: "center",
-                          gap: theme.spacing.md,
-                          marginBottom: theme.spacing.xl
-                        }}>
-                          {["Pizza", "Burgers", "Pasta", "Salads", "Drinks"].map(tag => (
-                            <span key={tag} style={{
-                              padding: `${theme.spacing.xs} ${theme.spacing.md}`,
-                              backgroundColor: `${theme.colors.primary}15`,
-                              color: theme.colors.primary,
-                              borderRadius: theme.borderRadius.pill,
-                              fontSize: theme.typography.sizes.sm,
-                              fontWeight: theme.typography.fontWeights.medium
-                            }}>
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                        <p style={{ 
-                          textAlign: "center", 
-                          color: theme.colors.text.secondary,
-                          maxWidth: "350px",
-                          fontSize: theme.typography.sizes.sm
-                        }}>
-                          Try searching for dishes by name, ingredients, or categories
-                        </p>
-                      </div>
+                      <SearchView />
                     </motion.div>
                   )}
                     {activeTab === "orders" && (
@@ -644,39 +570,7 @@ const OrderEaseApp = () => {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
                   >
-                    <div style={{ 
-                      display: "flex", 
-                      flexDirection: "column",
-                      alignItems: "center", 
-                      justifyContent: "center", 
-                      padding: theme.spacing.xl,
-                      minHeight: "50vh",
-                      background: theme.colors.card,
-                      borderRadius: theme.borderRadius.lg,
-                      boxShadow: theme.shadows.sm
-                    }}>
-                      <span className="material-icons" style={{ 
-                        fontSize: "48px", 
-                        color: theme.colors.text.secondary,
-                        marginBottom: theme.spacing.md
-                      }}>
-                        search
-                      </span>
-                      <h2 style={{
-                        fontSize: theme.typography.sizes["2xl"],
-                        marginBottom: theme.spacing.md
-                      }}>
-                        Search Feature
-                      </h2>
-                      <p style={{ 
-                        textAlign: "center", 
-                        color: theme.colors.text.secondary,
-                        maxWidth: "500px",
-                        fontSize: theme.typography.sizes.md
-                      }}>
-                        Search functionality will be implemented here. The enhanced experience allows you to quickly find menu items.
-                      </p>
-                    </div>
+                    <SearchView />
                   </motion.div>
                 )}
                   {activeTab === "orders" && (

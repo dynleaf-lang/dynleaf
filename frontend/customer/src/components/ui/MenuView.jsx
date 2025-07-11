@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useResponsive } from '../../context/ResponsiveContext';
 import ProductGrid from './ProductGrid';
 import CategoryFilter from './CategoryFilter';
 import SearchBar from './SearchBar';
@@ -31,17 +32,24 @@ const getTableDisplayName = (table) => {
 
 const MenuView = () => {
   const { restaurant, branch, table, menuItems, categories, loading, error } = useRestaurant();
+  const { isMobile, isTablet, isDesktop } = useResponsive();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
     
-   
-   
-
-
   // Memoized handler for category selection to avoid recreating function on each render
   const handleCategorySelect = useCallback((categoryId) => {
     setSelectedCategory(categoryId);
+  }, []);
+
+  // Handler for search input change
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  // Handler for clearing search
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
   }, []);
     // Filter menu items based on category and search query
   const filteredItems = menuItems
@@ -259,8 +267,12 @@ const MenuView = () => {
       <div style={{ padding: '0px 0px 10px' }}>
         <SearchBar 
           value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search menu..."
+          onChange={handleSearchChange}
+          onClear={searchQuery ? handleClearSearch : undefined}
+          isTablet={isTablet}
+          isDesktop={isDesktop}
+          placeholder="Search our delicious menu..."
+          showFilters={false}
         />
       </div>
       
