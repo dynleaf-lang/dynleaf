@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useRestaurant } from './RestaurantContext';
 import { useTax } from './TaxContext';
 import { api as authApi } from '../utils/authApiClient';
 import { api } from '../utils/api';
 import { useAuth } from './AuthContext';
 import { mapOrderTypeToBackend } from '../utils/orderTypeMapping';
+import { useOrderNotifications } from '../hooks/useOrderNotifications';
 
 // Create context
 const CartContext = createContext(null);
@@ -14,6 +15,7 @@ export const CartProvider = ({ children }) => {
   const { restaurant, branch, table } = useRestaurant();
   const { taxRate, taxName, taxDetails, calculateTax } = useTax();
   const { isAuthenticated, user } = useAuth();
+  const { trackOrder } = useOrderNotifications();
   
   const [cartItems, setCartItems] = useState([]);
   const [cartTotal, setCartTotal] = useState(0);
@@ -34,28 +36,23 @@ export const CartProvider = ({ children }) => {
   const [ongoingOrderRequest, setOngoingOrderRequest] = useState(null);
   const [lastOrderAttempt, setLastOrderAttempt] = useState(null);
   const [orderSubmissionCount, setOrderSubmissionCount] = useState(0);
+  const orderAttempts = useRef(0);
 
   // Load cart from localStorage
   useEffect(() => {
     const loadCartFromStorage = () => {
       try {
         const savedCart = localStorage.getItem('cart');
-        console.log('Loading cart from localStorage...');
-        console.log('Raw localStorage data:', savedCart);
         
         if (savedCart) {
           const parsedCart = JSON.parse(savedCart);
-          console.log('Parsed cart data:', parsedCart);
           
           if (Array.isArray(parsedCart) && parsedCart.length > 0) {
             setCartItems(parsedCart);
-            console.log('Cart loaded successfully with', parsedCart.length, 'items');
           } else {
-            console.log('Cart is empty or invalid format');
             setCartItems([]);
           }
         } else {
-          console.log('No saved cart found in localStorage');
           setCartItems([]);
         }
       } catch (error) {
@@ -63,7 +60,6 @@ export const CartProvider = ({ children }) => {
         setCartItems([]);
       } finally {
         setCartLoaded(true);
-        console.log('Cart loading completed');
       }
     };
 
@@ -80,7 +76,6 @@ export const CartProvider = ({ children }) => {
     if (cartLoaded) {
       try {
         localStorage.setItem('cart', JSON.stringify(cartItems));
-        console.log('Cart saved to localStorage:', cartItems);
         
         // Calculate total, accounting for size variants
         const total = cartItems.reduce((sum, item) => {
@@ -127,7 +122,6 @@ export const CartProvider = ({ children }) => {
       if (selectedSizeVariant && selectedSizeVariant.price !== undefined) {
         result.price = parseFloat(selectedSizeVariant.price);
         result.selectedSize = sizeOption.value;
-        console.log(`Using size variant price: ${selectedSizeVariant.price} for ${sizeOption.value}`);
       }
     }
     
@@ -149,7 +143,6 @@ export const CartProvider = ({ children }) => {
         
         result.price = parseFloat(lowestPriceVariant.price);
         result.selectedSize = variantName;
-        console.log(`Using lowest price variant: ${lowestPriceVariant.price} for ${variantName}`);
       }
     }
     
@@ -158,12 +151,8 @@ export const CartProvider = ({ children }) => {
   
   // Add item to cart
   const addToCart = (item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
-    console.log('Adding item to cart:', { item, quantity, selectedOptions });
-    console.log('Item ID check:', { id: item.id, _id: item._id });
-    
     // Reset order state when starting a new cart session (adding new items after order completion)
     if (orderPlaced || currentOrder) {
-      console.log('[CART CONTEXT] Resetting order state due to new item being added');
       resetOrderState();
     }
     
@@ -238,7 +227,6 @@ export const CartProvider = ({ children }) => {
         }];
       }
       
-      console.log('Updated cart items:', updatedItems);
       return updatedItems;
     });
   };
@@ -300,34 +288,12 @@ export const CartProvider = ({ children }) => {
     });
   };
 
-  // Debug function to check localStorage state
-  const debugCartState = () => {
-    try {
-      const localStorageCart = localStorage.getItem('cart');
-      console.log('=== CART DEBUG STATE ===');
-      console.log('Cart loaded state:', cartLoaded);
-      console.log('Current localStorage cart:', localStorageCart);
-      console.log('Current cartItems state:', cartItems);
-      console.log('Current cartTotal:', cartTotal);
-      
-      if (localStorageCart) {
-        const parsedCart = JSON.parse(localStorageCart);
-        console.log('Parsed localStorage cart:', parsedCart);
-        console.log('Items in localStorage:', parsedCart.length);
-      }
-      
-      console.log('Items in React state:', cartItems.length);
-      console.log('========================');
-    } catch (error) {
-      console.error('Error debugging cart state:', error);
-    }
-  };
+
 
   // Manually sync cart with localStorage
   const syncCartWithLocalStorage = () => {
     try {
       localStorage.setItem('cart', JSON.stringify(cartItems));
-      console.log('Cart manually synced with localStorage:', cartItems);
     } catch (error) {
       console.error('Error manually syncing cart with localStorage:', error);
     }
@@ -337,7 +303,6 @@ export const CartProvider = ({ children }) => {
   const clearCart = () => {
     setCartItems([]);
     localStorage.removeItem('cart');
-    console.log('Cart cleared from state and localStorage');
     // Note: We don't reset cartLoaded here because the cart is still "loaded", just empty
   };
   // Submit order using the real API
@@ -347,46 +312,32 @@ export const CartProvider = ({ children }) => {
       return null;
     }
 
-    if (!restaurant || !branch) {
-      setOrderError('Restaurant information is missing');
+    // Prevent duplicate orders
+    if (ongoingOrderRequest) {
       return null;
     }
 
-    // Generate a unique request ID to track this order attempt
-    const requestId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Enhanced duplicate prevention - check multiple conditions
-    if (orderLoading || ongoingOrderRequest) {
-      console.log('[CART CONTEXT] Order already in progress, ignoring duplicate request. Current request:', ongoingOrderRequest);
-      // Don't set error message - this is legitimate duplicate prevention
-      return null;
-    }
-    
-    // Prevent rapid successive order attempts (within 3 seconds)
+    // Rate limiting: prevent too many rapid order attempts
     const now = Date.now();
     if (lastOrderAttempt && (now - lastOrderAttempt) < 3000) {
-      console.log('[CART CONTEXT] Too many rapid order attempts, ignoring request. Last attempt:', new Date(lastOrderAttempt));
-      setOrderError('Please wait a moment before trying again');
       return null;
     }
-    
-    // Track order submission attempts for this session
-    setOrderSubmissionCount(count => count + 1);
-    if (orderSubmissionCount > 5) {
-      console.log('[CART CONTEXT] Too many order submission attempts in this session');
-      setOrderError('Too many order attempts. Please refresh the page and try again.');
+
+    // Session rate limiting: prevent too many order attempts in a short time
+    orderAttempts.current++;
+    if (orderAttempts.current > 5) {
+      setOrderError('Too many order attempts. Please wait a moment before trying again.');
       return null;
     }
 
     try {
-      setOrderLoading(true);
-      setOrderError(null); // Clear any previous errors at the start
+      // Generate a unique request ID for this order
+      const requestId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setOngoingOrderRequest(requestId);
       setLastOrderAttempt(now);
-      
-      console.log('[CART CONTEXT] Starting order placement with request ID:', requestId);
 
-      console.log('[CART CONTEXT] Placing order with:', { customerInfo, orderType: providedOrderType, note });
+      setOrderLoading(true);
+      setOrderError(null);
 
       // Calculate subtotal and tax for the order
       const subtotal = cartItems.reduce((sum, item) => {
@@ -399,12 +350,6 @@ export const CartProvider = ({ children }) => {
       // Determine order type and map it to backend format
       const frontendOrderType = providedOrderType || (table ? 'dineIn' : 'takeaway');
       const finalOrderType = mapOrderTypeToBackend(frontendOrderType);
-      
-      console.log('[CART CONTEXT] Order type mapping:', {
-        provided: providedOrderType,
-        frontend: frontendOrderType,
-        backend: finalOrderType
-      });
       
       // Validate required IDs
       if (!restaurant?._id) {
@@ -420,12 +365,6 @@ export const CartProvider = ({ children }) => {
         throw new Error(error);
       }
       
-      console.log('[CART CONTEXT] Using IDs:', {
-        restaurantId: restaurant._id,
-        branchId: branch._id,
-        tableId: table?._id || null
-      });
-
       // Create a unique signature for this order to prevent exact duplicates
       const orderSignature = {
         restaurantId: restaurant._id,
@@ -441,7 +380,6 @@ export const CartProvider = ({ children }) => {
       };
       
       const orderHash = btoa(JSON.stringify(orderSignature));
-      console.log('[CART CONTEXT] Order signature hash:', orderHash);
       
       // Check if we've recently submitted this exact order
       const recentOrderHash = sessionStorage.getItem('lastOrderHash');
@@ -450,7 +388,6 @@ export const CartProvider = ({ children }) => {
       if (recentOrderHash === orderHash && recentOrderTime) {
         const timeDiff = now - parseInt(recentOrderTime);
         if (timeDiff < 10000) { // 10 seconds
-          console.log('[CART CONTEXT] Identical order detected within 10 seconds, preventing duplicate');
           setOrderError('This exact order was just submitted. Please wait a moment before trying again.');
           return null;
         }
@@ -529,7 +466,6 @@ export const CartProvider = ({ children }) => {
             subtotal: subtotal
           };
           
-          console.log('[CART CONTEXT] Mapping cart item:', item, '-> mapped:', mappedItem);
           return mappedItem;
         }),
         customerInfo: {
@@ -552,28 +488,25 @@ export const CartProvider = ({ children }) => {
         total: subtotal + taxAmount
       };
 
-      console.log('[CART CONTEXT] Order data to send:', JSON.stringify(orderData, null, 2));
-      
-      console.log('[CART CONTEXT] About to call API...');
       // Call the public API to create the order
       const createdOrder = await api.public.orders.create(orderData);
-      console.log('[CART CONTEXT] API call completed successfully');
       
       if (createdOrder) {
-        console.log('[CART CONTEXT] Order created successfully:', createdOrder);
-        
         // Check if this was flagged as a duplicate by the backend
         if (createdOrder._duplicateDetected) {
-          console.log('[CART CONTEXT] Backend detected and returned existing order:', createdOrder._message);
+          // Backend detected and returned existing order
         }
         
         // Clear any previous errors since the order was successful
         setOrderError(null);
-        console.log('[CART CONTEXT] Order successful - clearing any previous errors');
         setCurrentOrder(createdOrder);
         setOrderPlaced(true);
         setOrderSubmissionCount(0); // Reset submission count on success
         clearCart();
+        
+        // Track the order for notifications
+        trackOrder(createdOrder);
+        
         return createdOrder;
       } else {
         throw new Error('Failed to create order');
@@ -626,7 +559,6 @@ export const CartProvider = ({ children }) => {
     } finally {
       setOrderLoading(false);
       setOngoingOrderRequest(null);
-      console.log('[CART CONTEXT] Order request completed, clearing request ID:', requestId);
     }
   };
   // Check order status using public API
@@ -736,14 +668,12 @@ export const CartProvider = ({ children }) => {
     setCurrentOrder(null);
     setOrderLoading(false);
     setOrderError(null);
-    console.log('[CART CONTEXT] Order state reset - ready for new order');
   };
 
   // Clear cart and reset order state (complete reset)
   const resetCartAndOrder = () => {
     clearCart();
     resetOrderState();
-    console.log('[CART CONTEXT] Cart and order state completely reset');
   };
 
   // Provide context value
@@ -772,7 +702,6 @@ export const CartProvider = ({ children }) => {
     cartAnimation,
     syncCartWithUser,
     syncCartWithLocalStorage,
-    debugCartState,
     checkoutAuth,
     authRequired,
     resetAuthRequired,

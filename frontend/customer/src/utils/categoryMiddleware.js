@@ -67,7 +67,7 @@ export const getCategoryImage = (categoryName) => {
  * @returns {Array} - A complete list of categories
  */
 export const ensureCategories = (existingCategories = []) => {
-  console.log('Ensuring categories from:', existingCategories);
+  // Ensuring categories
 
   // If we already have categories beyond just "All", use them
   if (existingCategories && Array.isArray(existingCategories) && existingCategories.length > 1) {
@@ -89,13 +89,13 @@ export const ensureCategories = (existingCategories = []) => {
         return [allCategory, ...existingCategories];
       }
       
-      console.log('Using existing category objects:', existingCategories);
+      // Using existing category objects
       return existingCategories;
     }
     
     // If these are just strings, convert to objects
     if (typeof existingCategories[0] === 'string') {
-      console.log('Converting category strings to objects:', existingCategories);
+      // Converting category strings to objects
       // Ensure "All" is included
       const categories = [...existingCategories];
       if (!categories.includes('All') && !categories.includes('all')) {
@@ -141,7 +141,7 @@ export const ensureCategories = (existingCategories = []) => {
     }
   ];
 
-  console.log('No categories found, using defaults:', defaultCategories);
+  // No categories found, using defaults
   return defaultCategories;
 };
 

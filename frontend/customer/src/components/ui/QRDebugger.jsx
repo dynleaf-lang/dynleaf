@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRestaurant } from '../../context/RestaurantContext';
-import ServerStatusChecker from '../debug/ServerStatusChecker';
+import ServerStatusCheck from '../Utils/ServerStatusCheck';
 
 const QRDebugger = () => {
   const { 
@@ -79,7 +79,7 @@ const QRDebugger = () => {
         </pre>
       </div>
 
-      <ServerStatusChecker baseUrl="http://localhost:5001" />
+      <ServerStatusCheck />
         <div style={{ display: 'flex', gap: '10px' }}>
         <button 
           onClick={() => {

@@ -14,7 +14,7 @@ const authService = {
       
       // Save the token to local storage
       localStorage.setItem('guestToken', dummyToken);
-      console.log('Created dummy guest token for offline mode');
+      // Created dummy guest token for offline mode
       return dummyToken;
     } catch (error) {
       console.error('Failed to create dummy guest token:', error);

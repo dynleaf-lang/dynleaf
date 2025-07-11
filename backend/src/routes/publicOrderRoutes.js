@@ -718,7 +718,10 @@ router.patch('/:id/status', async (req, res) => {
         // Emit real-time status update notification
         try {
             const { emitStatusUpdate } = require('../utils/socketUtils');
+            console.log(`[SOCKET] Emitting status update: ${oldStatus} → ${orderStatus}`);
+            console.log(`[SOCKET] Order ID: ${order._id}, Order Number: ${order.orderId}`);
             emitStatusUpdate(order, oldStatus, orderStatus);
+            console.log(`[SOCKET] Status update emitted successfully`);
         } catch (socketError) {
             console.error('Error emitting status update notification:', socketError);
             // Don't fail the status update if socket emission fails

@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start All Servers",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-Command",
+				"Start-Process powershell -ArgumentList '-NoExit', '-Command', 'Set-Location \"d:\\NodeJs\\food-menu-order-managment\\backend\"; npm run dev' -WindowStyle Normal; Start-Sleep 2; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'Set-Location \"d:\\NodeJs\\food-menu-order-managment\\frontend\\customer\"; npm run dev' -WindowStyle Normal"
+			],
+			"group": "build",
+			"isBackground": false
+		}
+	]
+}

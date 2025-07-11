@@ -464,7 +464,7 @@ export const api = {
     taxes: {
       // Get tax information by country code
       getByCountry: async (countryCode) => {
-        console.log(`Tax API Client: Fetching tax info for country: ${countryCode}`);
+        // Fetching tax info
         try {
           const result = await makeRequest({
             url: `${PUBLIC_API_PATH}/taxes/${countryCode}`,

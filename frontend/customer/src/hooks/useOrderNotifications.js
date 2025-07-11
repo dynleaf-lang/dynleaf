@@ -8,8 +8,18 @@ import { useNotifications } from '../context/NotificationContext';
 export const useOrderNotifications = () => {
   const { trackCustomerOrder, addNotification } = useNotifications();
 
-  // Function to track a new order for notifications
+  // Function to track a new order for notifications (without creating immediate notification)
   const trackOrder = (order) => {
+    if (order && (order._id || order.id)) {
+      const orderId = order._id || order.id;
+      trackCustomerOrder(orderId);
+      return orderId;
+    }
+    return null;
+  };
+
+  // Function to track order AND create immediate confirmation notification
+  const trackOrderWithNotification = (order) => {
     if (order && (order._id || order.id)) {
       const orderId = order._id || order.id;
       trackCustomerOrder(orderId);
@@ -30,7 +40,6 @@ export const useOrderNotifications = () => {
         }
       });
 
-      console.log('[ORDER NOTIFICATIONS] Order tracked:', orderId);
       return orderId;
     }
     return null;
@@ -43,6 +52,7 @@ export const useOrderNotifications = () => {
 
   return {
     trackOrder,
+    trackOrderWithNotification,
     addCustomNotification
   };
 };

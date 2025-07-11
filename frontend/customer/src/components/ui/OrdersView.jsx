@@ -5,6 +5,7 @@ import { useRestaurant } from '../../context/RestaurantContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useTax } from '../../context/TaxContext';
 import { useSocket } from '../../context/SocketContext';
+import { useNotifications } from '../../context/NotificationContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 import { api } from '../../utils/apiClient';
@@ -1227,13 +1228,13 @@ const OrdersView = ({ isDesktop = false }) => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const { currentOrder } = useCart();
   const { branch, table } = useRestaurant();
+  const { trackCustomerOrder } = useNotifications();
   const { 
+    socket,
     isConnected, 
     joinCustomerRooms, 
     onOrderUpdate, 
-    onStatusUpdate,
-    offOrderUpdate,
-    offStatusUpdate
+    offOrderUpdate
   } = useSocket();
 
   // Get mock orders
@@ -1269,6 +1270,14 @@ const OrdersView = ({ isDesktop = false }) => {
         }
         
         setOrders(allOrders);
+        
+        // Track all orders for notifications
+        allOrders.forEach(order => {
+          if (order._id) {
+            trackCustomerOrder(order._id);
+          }
+        });
+        
       } catch (err) {
         console.error('Error fetching orders:', err);
         setError(err || new Error('Failed to load orders'));
@@ -1287,9 +1296,8 @@ const OrdersView = ({ isDesktop = false }) => {
     // Join customer rooms for real-time updates
     joinCustomerRooms(table._id, branch._id);
 
-    // Handle order updates
+    // Handle order updates (for refreshing the order list)
     const handleOrderUpdate = (data) => {
-      console.log('[CUSTOMER SOCKET] Order update received:', data);
       const { order, eventType } = data;
       
       // If this update is for our table, refresh orders
@@ -1299,6 +1307,15 @@ const OrdersView = ({ isDesktop = false }) => {
           try {
             const updatedOrders = await api.public.orders.getByTable(table._id);
             setOrders(updatedOrders || []);
+            
+            // Track any new orders for notifications
+            if (updatedOrders && updatedOrders.length > 0) {
+              updatedOrders.forEach(order => {
+                if (order._id) {
+                  trackCustomerOrder(order._id);
+                }
+              });
+            }
           } catch (error) {
             console.error('Error refreshing orders after socket update:', error);
           }
@@ -1307,12 +1324,23 @@ const OrdersView = ({ isDesktop = false }) => {
       }
     };
 
-    // Handle status updates specifically
+    // Register event listeners (statusUpdate is now handled globally in NotificationContext)
+    onOrderUpdate(handleOrderUpdate);
+
+    // Cleanup listeners when component unmounts or dependencies change
+    return () => {
+      offOrderUpdate();
+    };
+  }, [isConnected, table?._id, branch?._id, trackCustomerOrder]);
+
+  // Listen for status updates to update the local order state
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
     const handleStatusUpdate = (data) => {
-      console.log('[CUSTOMER SOCKET] Status update received:', data);
       const { orderId, newStatus } = data;
       
-      // Update the specific order in our orders list
+      // Update the specific order in our orders list (UI update only)
       setOrders(prevOrders => 
         prevOrders.map(order => 
           order._id === orderId 
@@ -1322,16 +1350,13 @@ const OrdersView = ({ isDesktop = false }) => {
       );
     };
 
-    // Register event listeners
-    onOrderUpdate(handleOrderUpdate);
-    onStatusUpdate(handleStatusUpdate);
+    // Register status update listener for UI updates only
+    socket.on('statusUpdate', handleStatusUpdate);
 
-    // Cleanup listeners when component unmounts or dependencies change
     return () => {
-      offOrderUpdate();
-      offStatusUpdate();
+      socket.off('statusUpdate', handleStatusUpdate);
     };
-  }, [isConnected, table?._id, branch?._id]); // Only essential dependencies to avoid infinite re-renders
+  }, [socket, isConnected]);
 
   // Filter orders based on the active filter
   const filteredOrders = orders.filter(order => {
@@ -1380,6 +1405,15 @@ const OrdersView = ({ isDesktop = false }) => {
         }
         
         setOrders(orders);
+        
+        // Track all orders for notifications
+        orders.forEach(order => {
+          if (order._id) {
+            trackCustomerOrder(order._id);
+            console.log('[ORDERS VIEW] Tracked order for notifications (retry):', order._id);
+          }
+        });
+        
       } catch (err) {
         console.error('Error fetching orders:', err);
         setError(err || new Error('Failed to load orders'));

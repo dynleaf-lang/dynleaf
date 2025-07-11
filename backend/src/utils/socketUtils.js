@@ -78,6 +78,15 @@ const emitStatusUpdate = (order, oldStatus, newStatus) => {
       timestamp: new Date().toISOString()
     };
 
+    console.log('[SOCKET] Emitting status update with data:', {
+      orderId: eventData.orderId,
+      orderNumber: eventData.orderNumber,
+      oldStatus: eventData.oldStatus,
+      newStatus: eventData.newStatus,
+      branchId: order.branchId,
+      tableId: order.tableId
+    });
+
     // Emit to admin rooms
     if (order.restaurantId) {
       io.to(`restaurant_${order.restaurantId}`).emit('statusUpdate', eventData);
@@ -97,7 +106,12 @@ const emitStatusUpdate = (order, oldStatus, newStatus) => {
     
     if (order.branchId) {
       io.to(`customer_branch_${order.branchId}`).emit('statusUpdate', eventData);
+      console.log(`[SOCKET] Emitted status update to customer_branch_${order.branchId}: ${oldStatus} → ${newStatus}`);
     }
+    
+    // Also emit to customer global room as fallback
+    io.to('customer_global').emit('statusUpdate', eventData);
+    console.log(`[SOCKET] Emitted status update to customer_global: ${oldStatus} → ${newStatus}`);
     
   } catch (error) {
     console.error('[SOCKET] Error emitting status update:', error);

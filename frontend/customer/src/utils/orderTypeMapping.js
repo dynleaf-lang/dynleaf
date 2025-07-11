@@ -34,7 +34,6 @@ export const mapOrderTypeToBackend = (frontendOrderType) => {
     return 'takeaway';
   }
   
-  console.log(`[ORDER TYPE MAPPING] Mapped ${frontendOrderType} -> ${mapped}`);
   return mapped;
 };
 

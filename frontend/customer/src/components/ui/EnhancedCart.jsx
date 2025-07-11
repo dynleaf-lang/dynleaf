@@ -729,7 +729,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
   const { isAuthenticated } = useAuth();
   
   // Notification tracking hook
-  const { trackOrder } = useOrderNotifications();
+  const { trackOrderWithNotification } = useOrderNotifications();
   
   // Payment loading state and status tracking
   const [isLoading, setIsLoading] = useState(false);
@@ -868,7 +868,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             setOrderPlaced(true);
             
             // Track the new order for notifications
-            trackOrder(orderResponse);
+            trackOrderWithNotification(orderResponse);
             
             // Notify CheckoutForm of success
             document.dispatchEvent(

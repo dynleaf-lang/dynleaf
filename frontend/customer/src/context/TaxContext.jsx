@@ -80,7 +80,7 @@ export const TaxProvider = ({ children }) => {
     
     // Normalize the country code
     codeToUse = normalizeCountryCode(codeToUse);
-    console.log(`Tax API: Original code "${originalCode}" normalized to "${codeToUse}"`);
+    // Tax API: Code normalization
     
     // Even if the code is DEFAULT, try to fetch from the backend first
     // The backend has logic to handle DEFAULT as a special case
@@ -90,7 +90,7 @@ export const TaxProvider = ({ children }) => {
     const cachedData = ['GB', 'UK'].includes(codeToUse) ? null : getCachedData(cacheKey);
     
     if (cachedData) {
-      console.log('Using cached tax settings for', codeToUse);
+      // Using cached tax settings
       setTaxDetails(cachedData);
       setTaxRate(cachedData.percentage / 100);
       setTaxName(cachedData.name);

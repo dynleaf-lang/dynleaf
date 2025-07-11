@@ -163,10 +163,10 @@ const ProfileButton = ({ openLoginModal, onProfileClick, user, isAuthenticated }
               {/* Profile Menu Items */}
               <div>
                 {[
-                  { icon: "person", label: "My Profile", action: () => console.log("Navigate to profile") },
-                  { icon: "receipt_long", label: "Order History", action: () => console.log("Navigate to orders") },
-                  { icon: "favorite", label: "Favorites", action: () => console.log("Navigate to favorites") },
-                  { icon: "settings", label: "Settings", action: () => console.log("Navigate to settings") },
+                  { icon: "person", label: "My Profile", action: () => {} },
+                  { icon: "receipt_long", label: "Order History", action: () => {} },
+                  { icon: "favorite", label: "Favorites", action: () => {} },
+                  { icon: "settings", label: "Settings", action: () => {} },
                 ].map((item, index) => (
                   <button
                     key={index}

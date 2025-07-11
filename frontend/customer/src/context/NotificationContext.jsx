@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import { useRestaurant } from './RestaurantContext';
@@ -21,6 +21,61 @@ export const NotificationProvider = ({ children }) => {
   const { table, branch } = useRestaurant();
   const nextIdRef = useRef(1);
   const customerOrdersRef = useRef(new Set()); // Track customer's orders
+  const lastNotificationRef = useRef({}); // Track last notification per order to prevent rapid duplicates
+
+  // Add notification with duplicate prevention
+  const addNotification = (notificationData) => {
+    // Check for duplicate order update notifications with more specific criteria
+    if (notificationData.type === 'order_update') {
+      const isDuplicate = notifications.some(notification => 
+        notification.type === 'order_update' &&
+        notification.orderId === notificationData.orderId &&
+        notification.metadata?.newStatus === notificationData.metadata?.newStatus &&
+        (Date.now() - new Date(notification.timestamp).getTime()) < 10000 // Within last 10 seconds
+      );
+      
+      if (isDuplicate) {
+        return null;
+      }
+    }
+
+    const notification = {
+      id: nextIdRef.current++,
+      timestamp: new Date().toISOString(),
+      read: false,
+      ...notificationData
+    };
+    
+    setNotifications(prev => {
+      // Also remove any older notifications for the same order and status to keep the list clean
+      const filtered = prev.filter(n => 
+        !(n.type === 'order_update' && 
+          n.orderId === notification.orderId && 
+          n.metadata?.newStatus === notification.metadata?.newStatus)
+      );
+      return [notification, ...filtered];
+    });
+    
+    setUnreadCount(prev => prev + 1);
+
+    // Auto-remove notifications after 24 hours (optional)
+    setTimeout(() => {
+      removeNotification(notification.id);
+    }, 24 * 60 * 60 * 1000);
+
+    return notification.id;
+  };
+
+  // Remove notification
+  const removeNotification = (notificationId) => {
+    setNotifications(prev => {
+      const notification = prev.find(n => n.id === notificationId);
+      if (notification && !notification.read) {
+        setUnreadCount(count => Math.max(0, count - 1));
+      }
+      return prev.filter(n => n.id !== notificationId);
+    });
+  };
 
   // Add welcome notification for new customers
   useEffect(() => {
@@ -47,42 +102,17 @@ export const NotificationProvider = ({ children }) => {
 
   // Setup socket listeners for real-time notifications
   useEffect(() => {
-    if (!socket || !isConnected) return;
-
-    // Listen for order status updates
-    const handleOrderStatusUpdate = (data) => {
-      console.log('[NOTIFICATION] Order status update received:', data);
-      const { orderNumber, orderId, newStatus, oldStatus, customerOrderId } = data;
-      
-      // Only show notification if this is the customer's order
-      if (customerOrdersRef.current.has(orderId) || customerOrdersRef.current.has(customerOrderId)) {
-        const statusConfig = getOrderStatusConfig(newStatus);
-        
-        addNotification({
-          type: 'order_update',
-          title: `Order #${orderNumber} ${statusConfig.title}`,
-          message: statusConfig.message,
-          icon: statusConfig.icon,
-          priority: statusConfig.priority,
-          orderId: orderId || customerOrderId,
-          orderNumber,
-          metadata: {
-            oldStatus,
-            newStatus,
-            timestamp: new Date().toISOString()
-          }
-        });
-      }
-    };
+    if (!socket || !isConnected) {
+      return;
+    }
 
     // Listen for order confirmations
     const handleOrderConfirmation = (data) => {
-      console.log('[NOTIFICATION] Order confirmation received:', data);
       const { order, orderNumber } = data;
       
       // Add this order to customer's tracked orders
       if (order?.id || order?._id) {
-        customerOrdersRef.current.add(order.id || order._id);
+        customerOrdersRef.current.add(String(order.id || order._id));
       }
       
       addNotification({
@@ -101,9 +131,57 @@ export const NotificationProvider = ({ children }) => {
       });
     };
 
+    // Listen for order status updates - MOVED HERE FROM OrdersView
+    const handleStatusUpdate = (data) => {
+      const { orderNumber, orderId, newStatus, oldStatus, order } = data;
+      const orderIdToCheck = String(orderId || order?._id || order?.id);
+      
+      // Check for rapid duplicates using debouncing
+      const notificationKey = `${orderIdToCheck}-${newStatus}`;
+      const lastTime = lastNotificationRef.current[notificationKey];
+      const now = Date.now();
+      
+      if (lastTime && (now - lastTime) < 5000) {
+        return;
+      }
+      
+      lastNotificationRef.current[notificationKey] = now;
+      
+      // Check if this is a customer order
+      const isCustomerOrder = orderIdToCheck && (
+        customerOrdersRef.current.has(orderIdToCheck) ||
+        (table?._id && order?.tableId === table._id) ||
+        (branch?._id && order?.branchId === branch._id) ||
+        customerOrdersRef.current.size > 0
+      );
+      
+      if (isCustomerOrder) {
+        // Track this order for future updates if not already tracked
+        if (orderIdToCheck && !customerOrdersRef.current.has(orderIdToCheck)) {
+          customerOrdersRef.current.add(orderIdToCheck);
+        }
+        
+        const statusConfig = getOrderStatusConfig(newStatus);
+        
+        addNotification({
+          type: 'order_update',
+          title: `Order #${orderNumber || order?.orderId || order?.orderNumber} ${statusConfig.title}`,
+          message: statusConfig.message,
+          icon: statusConfig.icon,
+          priority: statusConfig.priority,
+          orderId: orderIdToCheck,
+          orderNumber: orderNumber || order?.orderId || order?.orderNumber,
+          metadata: {
+            oldStatus,
+            newStatus,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    };
+
     // Listen for promotional messages
     const handlePromotionalMessage = (data) => {
-      console.log('[NOTIFICATION] Promotional message received:', data);
       const { title, message, promoCode, discount } = data;
       
       addNotification({
@@ -122,7 +200,6 @@ export const NotificationProvider = ({ children }) => {
 
     // Listen for delivery updates (if applicable)
     const handleDeliveryUpdate = (data) => {
-      console.log('[NOTIFICATION] Delivery update received:', data);
       const { orderNumber, status, estimatedTime, driverInfo } = data;
       
       addNotification({
@@ -143,7 +220,6 @@ export const NotificationProvider = ({ children }) => {
 
     // Listen for table service notifications (for dine-in)
     const handleTableService = (data) => {
-      console.log('[NOTIFICATION] Table service notification received:', data);
       const { message, type, tableNumber } = data;
       
       if (table?.number === tableNumber || table?.id === data.tableId) {
@@ -162,60 +238,120 @@ export const NotificationProvider = ({ children }) => {
       }
     };
 
+    // Remove any existing listeners first to prevent duplicates
+    socket.off('orderConfirmation');
+    socket.off('statusUpdate'); // Now handled globally here
+    socket.off('promotionalMessage');
+    socket.off('deliveryUpdate');
+    socket.off('tableService');
+
     // Register socket event listeners
-    socket.on('orderStatusUpdate', handleOrderStatusUpdate);
     socket.on('orderConfirmation', handleOrderConfirmation);
+    socket.on('statusUpdate', handleStatusUpdate); // Now handled globally here
     socket.on('promotionalMessage', handlePromotionalMessage);
     socket.on('deliveryUpdate', handleDeliveryUpdate);
     socket.on('tableService', handleTableService);
 
     // Cleanup listeners
     return () => {
-      socket.off('orderStatusUpdate', handleOrderStatusUpdate);
       socket.off('orderConfirmation', handleOrderConfirmation);
+      socket.off('statusUpdate', handleStatusUpdate); // Now handled globally here
       socket.off('promotionalMessage', handlePromotionalMessage);
       socket.off('deliveryUpdate', handleDeliveryUpdate);
       socket.off('tableService', handleTableService);
     };
-  }, [socket, isConnected, table]);
+  }, [socket, isConnected, table, branch]);
+
+  // Track all existing orders for this table when context initializes
+  useEffect(() => {
+    const fetchAndTrackExistingOrders = async () => {
+      if (!table?._id || !branch?._id) return;
+      
+      try {
+        // Import the api client dynamically to avoid circular dependencies
+        const { api } = await import('../utils/apiClient');
+        const existingOrders = await api.public.orders.getByTable(table._id);
+        
+        if (existingOrders && existingOrders.length > 0) {
+          // Track all existing orders for notifications
+          existingOrders.forEach(order => {
+            if (order._id) {
+              customerOrdersRef.current.add(String(order._id));
+            }
+          });
+          
+          console.log(`[NOTIFICATION CONTEXT] Tracked ${existingOrders.length} existing orders for notifications`);
+        }
+      } catch (error) {
+        console.warn('[NOTIFICATION CONTEXT] Failed to fetch existing orders for tracking:', error);
+      }
+    };
+
+    fetchAndTrackExistingOrders();
+  }, [table?._id, branch?._id]);
 
   // Track customer orders for relevant notifications
   const trackCustomerOrder = (orderId) => {
     if (orderId) {
-      customerOrdersRef.current.add(orderId);
+      // Ensure consistent string format
+      const normalizedOrderId = String(orderId);
+      const wasAlreadyTracked = customerOrdersRef.current.has(normalizedOrderId);
+      customerOrdersRef.current.add(normalizedOrderId);
+      
+      if (!wasAlreadyTracked) {
+        console.log('[NOTIFICATION CONTEXT] Now tracking order for notifications:', normalizedOrderId);
+      }
     }
   };
 
-  // Add notification
-  const addNotification = (notificationData) => {
-    const notification = {
-      id: nextIdRef.current++,
-      timestamp: new Date().toISOString(),
-      read: false,
-      ...notificationData
-    };
-
-    setNotifications(prev => [notification, ...prev]);
-    setUnreadCount(prev => prev + 1);
-
-    // Auto-remove notifications after 24 hours (optional)
-    setTimeout(() => {
-      removeNotification(notification.id);
-    }, 24 * 60 * 60 * 1000);
-
-    return notification.id;
-  };
-
-  // Remove notification
-  const removeNotification = (notificationId) => {
-    setNotifications(prev => {
-      const notification = prev.find(n => n.id === notificationId);
-      if (notification && !notification.read) {
-        setUnreadCount(count => Math.max(0, count - 1));
+  // Handle order status updates (called by OrdersView to avoid duplicate socket listeners)
+  const handleOrderStatusUpdate = useCallback((data) => {
+    const { orderNumber, orderId, newStatus, oldStatus, order } = data;
+    const orderIdToCheck = String(orderId || order?._id || order?.id);
+    
+    // Check for rapid duplicates using debouncing
+    const notificationKey = `${orderIdToCheck}-${newStatus}`;
+    const lastTime = lastNotificationRef.current[notificationKey];
+    const now = Date.now();
+    
+    if (lastTime && (now - lastTime) < 5000) {
+      return;
+    }
+    
+    lastNotificationRef.current[notificationKey] = now;
+    
+    // Check if this is a customer order
+    const isCustomerOrder = orderIdToCheck && (
+      customerOrdersRef.current.has(orderIdToCheck) ||
+      (table?._id && order?.tableId === table._id) ||
+      (branch?._id && order?.branchId === branch._id) ||
+      customerOrdersRef.current.size > 0
+    );
+    
+    if (isCustomerOrder) {
+      // Track this order for future updates if not already tracked
+      if (orderIdToCheck && !customerOrdersRef.current.has(orderIdToCheck)) {
+        customerOrdersRef.current.add(orderIdToCheck);
       }
-      return prev.filter(n => n.id !== notificationId);
-    });
-  };
+      
+      const statusConfig = getOrderStatusConfig(newStatus);
+      
+      addNotification({
+        type: 'order_update',
+        title: `Order #${orderNumber || order?.orderId || order?.orderNumber} ${statusConfig.title}`,
+        message: statusConfig.message,
+        icon: statusConfig.icon,
+        priority: statusConfig.priority,
+        orderId: orderIdToCheck,
+        orderNumber: orderNumber || order?.orderId || order?.orderNumber,
+        metadata: {
+          oldStatus,
+          newStatus,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  }, [table?._id, branch?._id, addNotification]);
 
   // Mark notification as read
   const markAsRead = (notificationId) => {
@@ -326,6 +462,7 @@ export const NotificationProvider = ({ children }) => {
     markAllAsRead,
     clearAllNotifications,
     trackCustomerOrder,
+    handleOrderStatusUpdate,
     getTimeAgo
   };
 

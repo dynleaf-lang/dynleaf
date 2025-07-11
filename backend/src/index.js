@@ -178,7 +178,6 @@ app.use('/api/public/taxes', publicTaxRoutes);
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/diagnostics', diagnosticRoutes);
-    app.use('/api/schema-info', schemaInfoRoutes);
 }
 
 const PORT = process.env.PORT || 5000;
@@ -227,6 +226,9 @@ io.on('connection', (socket) => {
         socket.join(`customer_branch_${branchId}`);
         console.log(`[SOCKET] Customer joined branch room: customer_branch_${branchId}`);
       }
+      // All customers also join global customer room for fallback notifications
+      socket.join('customer_global');
+      console.log(`[SOCKET] Customer joined global customer room`);
     }
   });
   

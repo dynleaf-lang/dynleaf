@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import io from 'socket.io-client';
+import { useRestaurant } from './RestaurantContext';
 
 const SocketContext = createContext();
 
@@ -15,6 +16,7 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
+  const { restaurant, branch, table } = useRestaurant();
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
 
@@ -38,14 +40,12 @@ export const SocketProvider = ({ children }) => {
 
     // Connection event handlers
     socketInstance.on('connect', () => {
-      console.log('[CUSTOMER SOCKET] Connected to server:', socketInstance.id);
       setIsConnected(true);
       setConnectionError(null);
       reconnectAttempts.current = 0;
     });
 
     socketInstance.on('disconnect', (reason) => {
-      console.log('[CUSTOMER SOCKET] Disconnected from server:', reason);
       setIsConnected(false);
       
       if (reason === 'io server disconnect') {
@@ -55,25 +55,22 @@ export const SocketProvider = ({ children }) => {
     });
 
     socketInstance.on('connect_error', (error) => {
-      console.error('[CUSTOMER SOCKET] Connection error:', error);
       setConnectionError(error.message);
       reconnectAttempts.current++;
       
       if (reconnectAttempts.current >= maxReconnectAttempts) {
-        console.error('[CUSTOMER SOCKET] Max reconnection attempts reached');
         setConnectionError('Unable to connect to real-time server');
       }
     });
 
     socketInstance.on('reconnect', (attemptNumber) => {
-      console.log('[CUSTOMER SOCKET] Reconnected after', attemptNumber, 'attempts');
       setIsConnected(true);
       setConnectionError(null);
       reconnectAttempts.current = 0;
     });
 
     socketInstance.on('reconnect_error', (error) => {
-      console.error('[CUSTOMER SOCKET] Reconnection error:', error);
+      // Handle reconnection errors silently
     });
 
     setSocket(socketInstance);
@@ -86,6 +83,22 @@ export const SocketProvider = ({ children }) => {
     };
   }, []);
 
+  // Auto-join customer rooms when restaurant info is available and socket is connected
+  useEffect(() => {
+    if (socket && isConnected && branch) {
+      const joinData = {
+        userType: 'customer',
+        tableId: table?._id || null,
+        branchId: branch._id,
+      };
+
+      socket.emit('join', joinData);
+      
+      // Also manually join the global customer room as fallback
+      socket.emit('join-room', 'customer_global');
+    }
+  }, [socket, isConnected, restaurant, branch, table]);
+
   // Join customer rooms when table/branch info is available
   const joinCustomerRooms = (tableId, branchId) => {
     if (socket && isConnected) {
@@ -96,7 +109,6 @@ export const SocketProvider = ({ children }) => {
       };
 
       socket.emit('join', joinData);
-      console.log('[CUSTOMER SOCKET] Joined rooms with data:', joinData);
     }
   };
 

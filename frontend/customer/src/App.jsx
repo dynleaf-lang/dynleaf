@@ -12,6 +12,7 @@ import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
+import NotificationToast from "./components/ui/NotificationToast";
 
 const App = () => {
 	return (
@@ -27,7 +28,8 @@ const App = () => {
 										<ConnectionStatusModal />
 										<NetworkErrorHandler />
 										<OrderEaseApp />
-										<CartAnimationEffect /> 
+										<CartAnimationEffect />
+										<NotificationToast />
 									</CartProvider>
 								</NotificationProvider>
 							</SocketProvider>
