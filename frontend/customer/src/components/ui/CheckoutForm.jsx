@@ -887,7 +887,9 @@ const CheckoutForm = memo(() => {
               alignItems: 'center',
               justifyContent: 'center',
               transition: theme.transitions.fast,
-              boxShadow: theme.shadows.md
+              boxShadow: theme.shadows.md,
+              width: '100%',
+              marginBottom: theme.spacing.lg,
             }}
           >
             {isSubmitting ? (

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useRestaurant } from './RestaurantContext';
 import { useTax } from './TaxContext';
 import { api as authApi } from '../utils/authApiClient';
@@ -149,8 +149,33 @@ export const CartProvider = ({ children }) => {
     return result;
   };
   
+  // Track last add operation to prevent rapid duplicates
+  const lastAddOperation = useRef({ itemId: null, timestamp: 0 });
+
   // Add item to cart
-  const addToCart = (item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
+  const addToCart = useCallback((item, quantity = 1, selectedOptions = [], sourcePosition = null) => {
+    // Wait for cart to be loaded from localStorage before proceeding
+    if (!cartLoaded) {
+      // Retry after a short delay
+      setTimeout(() => {
+        addToCart(item, quantity, selectedOptions, sourcePosition);
+      }, 50);
+      return;
+    }
+    
+    // Prevent rapid duplicate additions (debounce within 300ms)
+    const now = Date.now();
+    const itemId = item.id || item._id;
+    if (lastAddOperation.current.itemId === itemId && 
+        (now - lastAddOperation.current.timestamp) < 300) {
+      console.log('⚠️ BLOCKED: Rapid duplicate add prevented for:', itemId);
+      return;
+    }
+    lastAddOperation.current = { itemId, timestamp: now };
+    
+    // Ensure quantity is always 1 for button clicks
+    const safeQuantity = Number(quantity) || 1;
+    
     // Reset order state when starting a new cart session (adding new items after order completion)
     if (orderPlaced || currentOrder) {
       resetOrderState();
@@ -177,7 +202,7 @@ export const CartProvider = ({ children }) => {
         isAnimating: true,
         item: {
           ...itemToAdd,
-          quantity,
+          quantity: safeQuantity,
           selectedOptions
         },
         position: sourcePosition
@@ -196,15 +221,25 @@ export const CartProvider = ({ children }) => {
     setCartItems(prevItems => {
       // Check if the item is already in the cart with the same options
       const existingItemIndex = prevItems.findIndex(cartItem => {
-        // Check if item ID matches
-        if (cartItem.id !== item.id) return false;
+        // Check if item ID matches - ensure both are strings for comparison
+        const cartItemId = String(cartItem.id || cartItem._id);
+        const newItemId = String(item.id || item._id);
         
-        // Check if options match
-        if (cartItem.selectedOptions?.length !== selectedOptions?.length) return false;
+        if (cartItemId !== newItemId) return false;
+        
+        // Normalize options arrays (treat undefined/null as empty arrays)
+        const cartItemOptions = cartItem.selectedOptions || [];
+        const newItemOptions = selectedOptions || [];
+        
+        // Check if options length match
+        if (cartItemOptions.length !== newItemOptions.length) return false;
+        
+        // If both have no options, they match
+        if (cartItemOptions.length === 0 && newItemOptions.length === 0) return true;
         
         // Compare each option
-        const optionsMatch = cartItem.selectedOptions?.every(option => {
-          return selectedOptions.some(selectedOption => 
+        const optionsMatch = cartItemOptions.every(option => {
+          return newItemOptions.some(selectedOption => 
             selectedOption.name === option.name && 
             selectedOption.value === option.value
           );
@@ -217,19 +252,22 @@ export const CartProvider = ({ children }) => {
       if (existingItemIndex !== -1) {
         // Update quantity if item already exists
         updatedItems = [...prevItems];
-        updatedItems[existingItemIndex].quantity += quantity;
+        updatedItems[existingItemIndex] = {
+          ...updatedItems[existingItemIndex],
+          quantity: updatedItems[existingItemIndex].quantity + safeQuantity
+        };
       } else {
         // Add new item to cart with potentially updated price from sizeVariant
         updatedItems = [...prevItems, { 
           ...itemToAdd, 
-          quantity, 
+          quantity: safeQuantity, 
           selectedOptions
         }];
       }
       
       return updatedItems;
     });
-  };
+  }, [cartLoaded, cartItems.length, orderPlaced, currentOrder]);
 
   // Remove item from cart
   const removeFromCart = (itemId, selectedOptions = []) => {
@@ -238,12 +276,16 @@ export const CartProvider = ({ children }) => {
         // If itemId doesn't match, keep the item
         if (item.id !== itemId) return true;
         
+        // Normalize options arrays
+        const itemOptions = item.selectedOptions || [];
+        const removeOptions = selectedOptions || [];
+        
         // If options are specified, only remove if they match
-        if (selectedOptions?.length > 0) {
+        if (removeOptions.length > 0) {
           // Check if options match
-          const optionsMatch = item.selectedOptions?.length === selectedOptions?.length &&
-            item.selectedOptions?.every(option => {
-              return selectedOptions.some(selectedOption => 
+          const optionsMatch = itemOptions.length === removeOptions.length &&
+            itemOptions.every(option => {
+              return removeOptions.some(selectedOption => 
                 selectedOption.name === option.name && 
                 selectedOption.value === option.value
               );
@@ -265,11 +307,15 @@ export const CartProvider = ({ children }) => {
       return prevItems.map(item => {
         // Find the specific item with matching ID and options
         if (item.id === itemId) {
+          // Normalize options arrays
+          const itemOptions = item.selectedOptions || [];
+          const updateOptions = selectedOptions || [];
+          
           // If options are specified, only update if they match
-          if (selectedOptions?.length > 0) {
-            const optionsMatch = item.selectedOptions?.length === selectedOptions?.length &&
-              item.selectedOptions?.every(option => {
-                return selectedOptions.some(selectedOption => 
+          if (updateOptions.length > 0) {
+            const optionsMatch = itemOptions.length === updateOptions.length &&
+              itemOptions.every(option => {
+                return updateOptions.some(selectedOption => 
                   selectedOption.name === option.name && 
                   selectedOption.value === option.value
                 );
@@ -278,8 +324,8 @@ export const CartProvider = ({ children }) => {
             if (optionsMatch) {
               return { ...item, quantity };
             }
-          } else {
-            // If no options specified, update the item
+          } else if (updateOptions.length === 0 && itemOptions.length === 0) {
+            // If both have no options, update the item
             return { ...item, quantity };
           }
         }
@@ -287,8 +333,6 @@ export const CartProvider = ({ children }) => {
       });
     });
   };
-
-
 
   // Manually sync cart with localStorage
   const syncCartWithLocalStorage = () => {
@@ -709,6 +753,31 @@ export const CartProvider = ({ children }) => {
     resetOrderState,
     resetCartAndOrder
   };
+
+  // Listen for user logout to clear user-specific cart data
+  useEffect(() => {
+    const handleUserLogout = () => {
+      console.log('[CART CONTEXT] User logged out, clearing user-specific data');
+      // Reset auth required state
+      setAuthRequired(false);
+      // Clear any order-related data that's user-specific
+      setOrderError(null);
+      // Don't clear the cart itself as guest users should keep their cart
+      // Only clear completed orders
+      if (orderPlaced) {
+        setOrderPlaced(false);
+        setCurrentOrder(null);
+      }
+    };
+
+    // Listen for logout event
+    window.addEventListener('user-logout', handleUserLogout);
+
+    // Cleanup listener
+    return () => {
+      window.removeEventListener('user-logout', handleUserLogout);
+    };
+  }, [orderPlaced]);
 
   return (
     <CartContext.Provider value={contextValue}>

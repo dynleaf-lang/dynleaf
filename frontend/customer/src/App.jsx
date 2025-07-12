@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import OrderEaseApp from "./components/layout/OrderEaseApp";
 import RestaurantProvider from "./context/RestaurantContext";
 import CartProvider from "./context/CartContext";
@@ -16,6 +16,59 @@ import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
 
 const App = () => {
+	// Handle session expiration globally
+	useEffect(() => {
+		const handleSessionExpired = (event) => {
+			const { reason, message } = event.detail || {};
+			
+			console.log('[APP] Session expired:', { reason, message });
+			
+			// Clear any remaining sensitive data from localStorage
+			try {
+				const sensitiveKeys = [
+					'cart',
+					'currentOrder',
+					'lastOrderHash',
+					'lastOrderTime',
+					'lastLoginTime',
+					'orderHistory',
+					'userPreferences'
+				];
+				
+				sensitiveKeys.forEach(key => {
+					localStorage.removeItem(key);
+				});
+				
+				console.log('[APP] Sensitive localStorage data cleared');
+			} catch (error) {
+				console.warn('[APP] Error clearing localStorage on session expiration:', error);
+			}
+			
+			// Navigate away from protected pages
+			const currentPath = window.location.pathname;
+			const protectedPaths = ['/orders', '/profile', '/notifications', '/account', '/checkout'];
+			
+			if (protectedPaths.some(path => currentPath.includes(path))) {
+				// Redirect away from protected pages
+				console.log('[APP] Redirecting from protected page:', currentPath);
+				window.location.href = '/';
+			}
+			
+			// Force a small delay to ensure all context cleanups are complete
+			setTimeout(() => {
+				console.log('[APP] Session cleanup completed');
+			}, 200);
+		};
+
+		// Add global event listener for session expiration
+		window.addEventListener('session-expired', handleSessionExpired);
+
+		// Cleanup listener on unmount
+		return () => {
+			window.removeEventListener('session-expired', handleSessionExpired);
+		};
+	}, []);
+
 	return (
 		<ResponsiveProvider>
 			<RestaurantProvider>

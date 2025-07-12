@@ -2,30 +2,39 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useCart } from '../../context/CartContext';
 import { theme } from '../../data/theme';
 
 // Session configuration
 const SESSION_CONFIG = {
+  // Enable/disable session timeout (set to false to disable completely)
+  ENABLED: true, // Re-enabled with proper logic
   // Time before showing warning (in milliseconds)
   WARNING_TIME: 25 * 60 * 1000, // 25 minutes
   // Total session timeout (in milliseconds)
   TIMEOUT_TIME: 30 * 60 * 1000, // 30 minutes
   // Warning countdown duration (in milliseconds)
   WARNING_COUNTDOWN: 5 * 60 * 1000, // 5 minutes
-  // Backend check interval (in milliseconds)
-  BACKEND_CHECK_INTERVAL: 5 * 60 * 1000, // 5 minutes
+  // Backend check interval (in milliseconds) - reduced frequency
+  BACKEND_CHECK_INTERVAL: 15 * 60 * 1000, // 15 minutes (less aggressive)
   // Activity check interval (in milliseconds)
-  ACTIVITY_CHECK_INTERVAL: 1000, // 1 second
+  ACTIVITY_CHECK_INTERVAL: 60 * 1000, // 1 minute (much less aggressive)
+  // Max failed backend checks before forcing logout
+  MAX_FAILED_CHECKS: 3, // More tolerant
+  // Debug mode
+  DEBUG: process.env.NODE_ENV === 'development',
 };
 
 const SessionTimeoutManager = () => {
   const { isAuthenticated, user, logout, checkSession } = useAuth();
-  const { addNotification } = useNotifications();
+  const { addNotification, clearAllNotifications } = useNotifications();
+  const { clearCart, resetCartAndOrder } = useCart();
   
   // State management
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [failedChecks, setFailedChecks] = useState(0);
   
   // Refs for timers and activity tracking
   const lastActivityRef = useRef(Date.now());
@@ -35,108 +44,11 @@ const SessionTimeoutManager = () => {
   const backendCheckTimerRef = useRef(null);
   const activityCheckTimerRef = useRef(null);
 
-  // Activity tracking events
-  const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-
-  // Update last activity time
-  const updateActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
-    
-    // If warning is showing and user is active, reset the session
-    if (showWarning) {
-      resetSession();
-    }
-  }, [showWarning]);
-
-  // Check user status with backend
-  const checkUserStatus = useCallback(async () => {
-    if (!isAuthenticated || !user || isCheckingStatus) return;
-
-    try {
-      setIsCheckingStatus(true);
-      
-      // Use the checkSession method from AuthContext
-      const { valid, error } = await checkSession();
-      
-      if (!valid) {
-        // User session is invalid or user is inactive
-        handleSessionExpired(error || 'Your account status has changed. Please log in again.');
-        return;
-      }
-      
-    } catch (error) {
-      console.error('Error checking user status:', error);
-      handleSessionExpired('Unable to verify session. Please log in again.');
-    } finally {
-      setIsCheckingStatus(false);
-    }
-  }, [isAuthenticated, user, isCheckingStatus, checkSession]);
-
-  // Handle session expiration
-  const handleSessionExpired = useCallback((message) => {
-    // Clear all timers
-    clearAllTimers();
-    
-    // Show notification
-    addNotification({
-      type: 'warning',
-      title: 'Session Expired',
-      message: message || 'Your session has timed out for security reasons.',
-      duration: 5000
-    });
-    
-    // Logout user
-    logout();
-    
-    // Reset states
-    setShowWarning(false);
-    setCountdown(0);
-  }, [addNotification, logout]);
-
-  // Show timeout warning
-  const showTimeoutWarning = useCallback(() => {
-    setShowWarning(true);
-    setCountdown(SESSION_CONFIG.WARNING_COUNTDOWN);
-    
-    // Start countdown timer
-    countdownTimerRef.current = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1000) {
-          // Time's up, logout
-          handleSessionExpired('Session timed out due to inactivity.');
-          return 0;
-        }
-        return prev - 1000;
-      });
-    }, 1000);
-    
-    // Add notification
-    addNotification({
-      type: 'warning',
-      title: 'Session Timeout Warning',
-      message: 'Your session will expire soon due to inactivity.',
-      duration: 8000
-    });
-  }, [addNotification, handleSessionExpired]);
-
-  // Reset session timers
-  const resetSession = useCallback(() => {
-    clearAllTimers();
-    setShowWarning(false);
-    setCountdown(0);
-    
-    if (isAuthenticated) {
-      // Start warning timer
-      warningTimerRef.current = setTimeout(() => {
-        showTimeoutWarning();
-      }, SESSION_CONFIG.WARNING_TIME);
-      
-      // Start timeout timer
-      timeoutTimerRef.current = setTimeout(() => {
-        handleSessionExpired('Session timed out due to inactivity.');
-      }, SESSION_CONFIG.TIMEOUT_TIME);
-    }
-  }, [isAuthenticated, showTimeoutWarning, handleSessionExpired]);
+  // Activity tracking events - more comprehensive
+  const activityEvents = [
+    'mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 
+    'click', 'focus', 'blur', 'resize', 'keydown'
+  ];
 
   // Clear all timers
   const clearAllTimers = useCallback(() => {
@@ -162,20 +74,270 @@ const SessionTimeoutManager = () => {
     }
   }, []);
 
+  // Update last activity time
+  const updateActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    
+    // Reset failed checks on user activity
+    if (failedChecks > 0) {
+      setFailedChecks(0);
+    }
+    
+    // If warning is showing and user is active, reset the session
+    if (showWarning) {
+      clearAllTimers();
+      setShowWarning(false);
+      setCountdown(0);
+      setFailedChecks(0);
+      
+      // Restart session timers if authenticated
+      if (isAuthenticated) {
+        // This will be handled by the main effect
+        setTimeout(() => {
+          // Trigger a re-initialization of timers
+          lastActivityRef.current = Date.now();
+        }, 10);
+      }
+    }
+  }, [showWarning, failedChecks, isAuthenticated, clearAllTimers]);
+
+  // Check user status with backend
+  const checkUserStatus = useCallback(async () => {
+    if (!isAuthenticated || !user || isCheckingStatus) return;
+
+    // Skip check if user has been recently active (within last 5 minutes)
+    const timeSinceLastActivity = Date.now() - lastActivityRef.current;
+    if (timeSinceLastActivity < 5 * 60 * 1000) {
+      // User is active, reset failed checks and skip this check
+      if (failedChecks > 0) {
+        setFailedChecks(0);
+        if (SESSION_CONFIG.DEBUG) {
+          console.log('User is active, resetting failed checks');
+        }
+      }
+      return;
+    }
+
+    if (SESSION_CONFIG.DEBUG) {
+      console.log('Performing backend session check...');
+    }
+
+    try {
+      setIsCheckingStatus(true);
+      
+      // Use the checkSession method from AuthContext
+      const { valid, error } = await checkSession();
+      
+      if (!valid) {
+        // Increment failed checks instead of immediately logging out
+        setFailedChecks(prev => {
+          const newCount = prev + 1;
+          
+          if (SESSION_CONFIG.DEBUG) {
+            console.warn(`Session check failed (${newCount}/${SESSION_CONFIG.MAX_FAILED_CHECKS}):`, error);
+          }
+          
+          // Only logout after MAX_FAILED_CHECKS consecutive failures
+          if (newCount >= SESSION_CONFIG.MAX_FAILED_CHECKS) {
+            handleSessionExpired(error || 'Your account status has changed. Please log in again.', true);
+          }
+          
+          return newCount;
+        });
+        return;
+      } else {
+        // Session is valid, reset failed checks
+        if (failedChecks > 0) {
+          setFailedChecks(0);
+          if (SESSION_CONFIG.DEBUG) {
+            console.log('Session check passed, resetting failed checks');
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error checking user status:', error);
+      
+      // Only increment failed checks for network/server errors
+      setFailedChecks(prev => {
+        const newCount = prev + 1;
+        
+        if (SESSION_CONFIG.DEBUG) {
+          console.warn(`Session check error (${newCount}/${SESSION_CONFIG.MAX_FAILED_CHECKS}):`, error.message);
+        }
+        
+        if (newCount >= SESSION_CONFIG.MAX_FAILED_CHECKS) {
+          handleSessionExpired('Unable to verify session. Please log in again.', true);
+        }
+        
+        return newCount;
+      });
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  }, [isAuthenticated, user, isCheckingStatus, checkSession, failedChecks]);
+
+  // Handle session expiration with proper cleanup
+  const handleSessionExpired = useCallback((message, isAutomatic = true) => {
+    // Clear all timers first
+    clearAllTimers();
+    
+    if (SESSION_CONFIG.DEBUG) {
+      console.log('Starting session cleanup...', { isAutomatic, message });
+    }
+    
+    // Professional cleanup process
+    try {
+      // 1. Clear sensitive cart and order data
+      if (resetCartAndOrder) {
+        resetCartAndOrder();
+        if (SESSION_CONFIG.DEBUG) console.log('Cart and order data cleared');
+      }
+      
+      // 2. Clear notifications that might contain sensitive info
+      if (clearAllNotifications) {
+        clearAllNotifications();
+        if (SESSION_CONFIG.DEBUG) console.log('Notifications and tracked orders cleared');
+      }
+      
+      // 3. Clear any cached order data from session storage
+      try {
+        sessionStorage.clear();
+        if (SESSION_CONFIG.DEBUG) console.log('Session storage cleared');
+      } catch (storageError) {
+        console.warn('Failed to clear session storage:', storageError);
+      }
+      
+      // 4. Show appropriate notification based on logout type
+      const notificationMessage = isAutomatic 
+        ? message || 'Your session has expired for security reasons. Please log in again to continue.'
+        : message || 'You have been logged out successfully.';
+        
+      addNotification({
+        type: isAutomatic ? 'warning' : 'info',
+        title: isAutomatic ? 'Session Expired' : 'Logged Out',
+        message: notificationMessage,
+        duration: isAutomatic ? 6000 : 4000
+      });
+      
+      // 5. Logout user (this will clear localStorage and auth state)
+      logout();
+      if (SESSION_CONFIG.DEBUG) console.log('User logged out');
+      
+      // 6. Navigate to public area and show login prompt
+      setTimeout(() => {
+        // Dispatch custom event to navigate to login
+        window.dispatchEvent(new CustomEvent('session-expired', {
+          detail: { 
+            reason: isAutomatic ? 'timeout' : 'manual',
+            message: notificationMessage 
+          }
+        }));
+        if (SESSION_CONFIG.DEBUG) console.log('Session expired event dispatched');
+      }, 100);
+      
+    } catch (error) {
+      console.error('Error during session cleanup:', error);
+      // Fallback: still logout even if cleanup fails
+      logout();
+      // Still dispatch the event for navigation
+      window.dispatchEvent(new CustomEvent('session-expired', {
+        detail: { 
+          reason: 'error',
+          message: 'Session cleanup failed. You have been logged out for security.'
+        }
+      }));
+    }
+    
+    // 7. Reset component states
+    setShowWarning(false);
+    setCountdown(0);
+    setFailedChecks(0);
+    
+    if (SESSION_CONFIG.DEBUG) {
+      console.log('Session cleanup completed:', { isAutomatic, message });
+    }
+  }, [clearAllTimers, resetCartAndOrder, clearAllNotifications, addNotification, logout]);
+
+  // Show timeout warning
+  const showTimeoutWarning = useCallback(() => {
+    setShowWarning(true);
+    setCountdown(SESSION_CONFIG.WARNING_COUNTDOWN);
+    
+    // Start countdown timer
+    countdownTimerRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1000) {
+          // Time's up, logout
+          handleSessionExpired('Session timed out due to inactivity.', true);
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    
+    // Add notification
+    addNotification({
+      type: 'warning',
+      title: 'Session Timeout Warning',
+      message: 'Your session will expire soon due to inactivity.',
+      duration: 8000
+    });
+  }, [addNotification, handleSessionExpired]);
+
+  // Reset session timers
+  const resetSession = useCallback(() => {
+    clearAllTimers();
+    setShowWarning(false);
+    setCountdown(0);
+    setFailedChecks(0);
+    
+    if (isAuthenticated) {
+      // Start warning timer
+      warningTimerRef.current = setTimeout(() => {
+        showTimeoutWarning();
+      }, SESSION_CONFIG.WARNING_TIME);
+      
+      // Start timeout timer
+      timeoutTimerRef.current = setTimeout(() => {
+        handleSessionExpired('Session timed out due to inactivity.', true);
+      }, SESSION_CONFIG.TIMEOUT_TIME);
+    }
+  }, [isAuthenticated, showTimeoutWarning, handleSessionExpired]);
+
   // Extend session when user chooses to continue
   const extendSession = useCallback(() => {
-    updateActivity();
+    // Update activity and reset timers
+    lastActivityRef.current = Date.now();
+    clearAllTimers();
+    setShowWarning(false);
+    setCountdown(0);
+    setFailedChecks(0);
+    
+    // Restart session timers if authenticated
+    if (isAuthenticated) {
+      // Start warning timer
+      warningTimerRef.current = setTimeout(() => {
+        showTimeoutWarning();
+      }, SESSION_CONFIG.WARNING_TIME);
+      
+      // Start timeout timer
+      timeoutTimerRef.current = setTimeout(() => {
+        handleSessionExpired('Session timed out due to inactivity.', true);
+      }, SESSION_CONFIG.TIMEOUT_TIME);
+    }
+    
     addNotification({
       type: 'success',
       title: 'Session Extended',
       message: 'Your session has been extended successfully.',
       duration: 3000
     });
-  }, [updateActivity, addNotification]);
+  }, [isAuthenticated, clearAllTimers, showTimeoutWarning, handleSessionExpired, addNotification]);
 
   // Manual logout from warning modal
   const handleManualLogout = useCallback(() => {
-    handleSessionExpired('You have been logged out.');
+    handleSessionExpired('You have been logged out.', false);
   }, [handleSessionExpired]);
 
   // Check for user activity periodically
@@ -184,20 +346,21 @@ const SessionTimeoutManager = () => {
     
     const timeSinceLastActivity = Date.now() - lastActivityRef.current;
     
-    // If user has been inactive for warning time and no warning is shown
+    // Only check if user has been inactive for a significant time
+    // and no warning is currently shown
     if (timeSinceLastActivity >= SESSION_CONFIG.WARNING_TIME && !showWarning) {
       showTimeoutWarning();
     }
     
-    // If user has been inactive for timeout time
+    // Only timeout after the full timeout period
     if (timeSinceLastActivity >= SESSION_CONFIG.TIMEOUT_TIME) {
-      handleSessionExpired('Session timed out due to inactivity.');
+      handleSessionExpired('Session timed out due to inactivity.', true);
     }
   }, [isAuthenticated, showWarning, showTimeoutWarning, handleSessionExpired]);
 
   // Setup activity listeners
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !SESSION_CONFIG.ENABLED) {
       clearAllTimers();
       return;
     }
@@ -239,8 +402,8 @@ const SessionTimeoutManager = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Don't render if user is not authenticated
-  if (!isAuthenticated) {
+  // Don't render if user is not authenticated or if session timeout is disabled
+  if (!isAuthenticated || !SESSION_CONFIG.ENABLED) {
     return null;
   }
 

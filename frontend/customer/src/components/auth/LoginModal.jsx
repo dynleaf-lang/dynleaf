@@ -1,11 +1,18 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useRestaurant } from "../../context/RestaurantContext";
 import { theme } from "../../data/theme";
 import { useCart } from "../../context/CartContext";
 
 const LoginModal = ({ isOpen, onClose }) => {
-  const { login } = useAuth();
+  const { 
+    login, 
+    verifyOTP, 
+    requestNewOTP, 
+    otpExpired, 
+    timeRemaining,
+    authError 
+  } = useAuth();
   const { restaurant, branch } = useRestaurant();
   const { syncCartWithUser } = useCart();
   const [identifier, setIdentifier] = useState("");
@@ -14,6 +21,7 @@ const LoginModal = ({ isOpen, onClose }) => {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [error, setError] = useState("");
   const [step, setStep] = useState("identifier"); // identifier, otp
+  const [requestingNewOTP, setRequestingNewOTP] = useState(false);
   
   // Validation states (only updated on blur, not during typing)
   const [fieldErrors, setFieldErrors] = useState({
@@ -21,8 +29,39 @@ const LoginModal = ({ isOpen, onClose }) => {
     otp: ""
   });
 
-  // Enhanced stable input component with validation styling
-  const StableInput = useCallback(({ label, value, onChange, onBlur, placeholder, disabled, id, error, type = "text" }) => {
+  // Reset form state when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      // Reset all form state when modal opens
+      setIdentifier("");
+      setOtp("");
+      setLoading(false);
+      setLoadingMessage("");
+      setError("");
+      setStep("identifier");
+      setFieldErrors({
+        identifier: "",
+        otp: ""
+      });
+    }
+  }, [isOpen]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && isOpen && !loading) {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => document.removeEventListener('keydown', handleEscKey);
+    }
+  }, [isOpen, onClose, loading]);
+
+  // Enhanced stable input component with validation styling and accessibility
+  const StableInput = useCallback(({ label, value, onChange, onBlur, placeholder, disabled, id, error, type = "text", ariaDescribedBy }) => {
     const hasError = error && error.length > 0;
     const hasValue = value && value.length > 0;
     const isValid = hasValue && !hasError;
@@ -58,6 +97,9 @@ const LoginModal = ({ isOpen, onClose }) => {
             placeholder={placeholder}
             disabled={disabled}
             autoComplete="off"
+            aria-invalid={hasError}
+            aria-describedby={ariaDescribedBy}
+            role="textbox"
             style={{
               width: "100%",
               padding: "12px 16px",
@@ -188,39 +230,40 @@ const LoginModal = ({ isOpen, onClose }) => {
     setError("");
     
     try {
-      // API call to request OTP
-      const response = await fetch("/api/customers/auth/request-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          identifier,
-          restaurantId: restaurant._id,
-          branchId: branch._id,
-        }),
+      // Use the login function which now handles OTP flow
+      const result = await login({ 
+        identifier,
+        restaurantId: restaurant._id,
+        branchId: branch._id,
       });
       
-      const data = await response.json();
-      
-      if (!response.ok) {
-        if (data.shouldRegister) {
+      if (!result.success) {
+        if (result.error?.shouldRegister) {
           setLoadingMessage("Customer not found...");
-          // Small delay to show the "not found" message before showing error
           setTimeout(() => {
-            setError(`${data.message} Click "Sign Up" below to create an account.`);
+            setError(`${result.error.message} Click "Sign Up" below to create an account.`);
             setLoading(false);
           }, 800);
           return;
         } else {
-          throw new Error(data.message || "Error sending OTP");
+          throw new Error(result.error?.message || "Error sending OTP");
         }
       }
       
-      setLoadingMessage("Sending OTP...");
-      // Small delay to show "Sending OTP..." message
-      setTimeout(() => {
-        setStep("otp");
-        setLoading(false);
-      }, 500);
+      // Check if OTP is required
+      if (result.requiresOTP) {
+        setLoadingMessage("Sending OTP...");
+        setTimeout(() => {
+          setStep("otp");
+          setLoading(false);
+        }, 500);
+      } else {
+        // Direct login successful
+        onClose();
+        syncCartWithUser().catch(err => {
+          console.warn('Cart sync failed after login:', err);
+        });
+      }
     } catch (err) {
       setError(err.message || "Failed to send OTP. Please try again.");
       setLoading(false);
@@ -240,12 +283,18 @@ const LoginModal = ({ isOpen, onClose }) => {
       return;
     }
     
+    // Check if OTP has expired
+    if (otpExpired) {
+      setError("OTP has expired. Please request a new one.");
+      return;
+    }
+    
     setLoading(true);
     setError("");
     
     try {
-      // Login with the OTP
-      const result = await login({ identifier, otp });
+      // Use the verifyOTP function from auth context with identifier
+      const result = await verifyOTP(otp, identifier);
       
       if (!result.success) {
         throw new Error(result.error?.message || "Invalid OTP");
@@ -264,6 +313,34 @@ const LoginModal = ({ isOpen, onClose }) => {
     }
     
     setLoading(false);
+  };
+
+  // Handle request new OTP
+  const handleRequestNewOTP = async () => {
+    setRequestingNewOTP(true);
+    setError("");
+    
+    try {
+      const result = await requestNewOTP(identifier);
+      
+      if (result.success) {
+        setError(""); // Clear any previous errors
+        // Could show a success message here
+      } else {
+        setError(result.error?.message || "Failed to send new OTP");
+      }
+    } catch (err) {
+      setError("Failed to send new OTP. Please try again.");
+    }
+    
+    setRequestingNewOTP(false);
+  };
+
+  // Format time remaining for display
+  const formatTimeRemaining = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -343,6 +420,7 @@ const LoginModal = ({ isOpen, onClose }) => {
                   placeholder="Enter your email or phone number"
                   disabled={loading}
                   error={fieldErrors.identifier}
+                  ariaDescribedBy={fieldErrors.identifier ? `identifier-error` : undefined}
                 />
 
                 <button
@@ -441,17 +519,70 @@ const LoginModal = ({ isOpen, onClose }) => {
                   onChange={handleOtpChange}
                   onBlur={handleOtpBlur}
                   placeholder="Enter 4-6 digit code"
-                  disabled={loading}
+                  disabled={loading || otpExpired}
                   error={fieldErrors.otp}
+                  ariaDescribedBy={fieldErrors.otp ? `otp-error` : undefined}
                 />
+
+                {/* OTP Timer and Status */}
+                <div style={{
+                  marginBottom: theme.spacing.md,
+                  textAlign: "center",
+                  fontSize: theme.typography.sizes.sm,
+                }}>
+                  {timeRemaining > 0 && !otpExpired ? (
+                    <div style={{
+                      color: timeRemaining <= 30 ? theme.colors.warning : theme.colors.text.secondary,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                    }}>
+                      <span className="material-icons" style={{ fontSize: "16px" }}>
+                        schedule
+                      </span>
+                      Code expires in {formatTimeRemaining(timeRemaining)}
+                    </div>
+                  ) : otpExpired ? (
+                    <div style={{
+                      color: theme.colors.danger,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      marginBottom: theme.spacing.sm,
+                    }}>
+                      <span className="material-icons" style={{ fontSize: "16px" }}>
+                        error_outline
+                      </span>
+                      Verification code has expired
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Error message display */}
+                {(error || authError) && (
+                  <div style={{
+                    marginBottom: theme.spacing.md,
+                    padding: theme.spacing.sm,
+                    backgroundColor: "#FEE2E2",
+                    color: "#B91C1C",
+                    borderRadius: theme.borderRadius.md,
+                    fontSize: theme.typography.sizes.sm,
+                    textAlign: "center",
+                    border: "1px solid #FECACA",
+                  }}>
+                    {error || authError}
+                  </div>
+                )}
 
                 <button
                   type="submit"
-                  disabled={loading || !otp || fieldErrors.otp}
+                  disabled={loading || !otp || fieldErrors.otp || otpExpired}
                   style={{
                     width: "100%",
                     padding: "16px",
-                    backgroundColor: loading || !otp || fieldErrors.otp 
+                    backgroundColor: loading || !otp || fieldErrors.otp || otpExpired
                       ? "#94A3B8" 
                       : "#E03151",
                     color: "#fff",
@@ -459,7 +590,7 @@ const LoginModal = ({ isOpen, onClose }) => {
                     borderRadius: "8px",
                     fontSize: "16px",
                     fontWeight: 600,
-                    cursor: loading || !otp || fieldErrors.otp 
+                    cursor: loading || !otp || fieldErrors.otp || otpExpired
                       ? "not-allowed" 
                       : "pointer",
                     display: "flex",
@@ -467,7 +598,7 @@ const LoginModal = ({ isOpen, onClose }) => {
                     justifyContent: "center",
                     gap: "8px",
                     transition: "all 0.2s ease",
-                    opacity: loading || !otp || fieldErrors.otp ? 0.7 : 1,
+                    opacity: loading || !otp || fieldErrors.otp || otpExpired ? 0.7 : 1,
                   }}
                 >
                   {loading && (
@@ -482,8 +613,51 @@ const LoginModal = ({ isOpen, onClose }) => {
                       }}
                     />
                   )}
-                  {loading ? "Verifying..." : "Login"}
+                  {loading ? "Verifying..." : otpExpired ? "Code Expired" : "Login"}
                 </button>
+
+                {/* Request New OTP Button */}
+                {otpExpired && (
+                  <button
+                    type="button"
+                    onClick={handleRequestNewOTP}
+                    disabled={requestingNewOTP}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      marginTop: theme.spacing.sm,
+                      backgroundColor: requestingNewOTP ? "#94A3B8" : theme.colors.primary,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      cursor: requestingNewOTP ? "not-allowed" : "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {requestingNewOTP && (
+                      <div
+                        style={{
+                          width: "14px",
+                          height: "14px",
+                          border: "2px solid transparent",
+                          borderTop: "2px solid #fff",
+                          borderRadius: "50%",
+                          animation: "spin 1s linear infinite",
+                        }}
+                      />
+                    )}
+                    <span className="material-icons" style={{ fontSize: "16px" }}>
+                      refresh
+                    </span>
+                    {requestingNewOTP ? "Sending..." : "Send New Code"}
+                  </button>
+                )}
 
                 <div
                   style={{
@@ -493,21 +667,47 @@ const LoginModal = ({ isOpen, onClose }) => {
                     color: theme.colors.text.secondary,
                   }}
                 >
-                  Didn't receive the code?{" "}
-                  <button
-                    onClick={() => setStep("identifier")}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: theme.colors.primary,
-                      cursor: "pointer",
-                      padding: 0,
-                      font: "inherit",
-                      textDecoration: "underline",
-                    }}
-                  >
-                    Try again
-                  </button>
+                  {!otpExpired && timeRemaining > 0 ? (
+                    <>
+                      Didn't receive the code?{" "}
+                      <button
+                        type="button"
+                        onClick={handleRequestNewOTP}
+                        disabled={requestingNewOTP}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: theme.colors.primary,
+                          cursor: requestingNewOTP ? "not-allowed" : "pointer",
+                          padding: 0,
+                          font: "inherit",
+                          textDecoration: "underline",
+                          opacity: requestingNewOTP ? 0.7 : 1,
+                        }}
+                      >
+                        {requestingNewOTP ? "Sending..." : "Resend"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Want to try a different number?{" "}
+                      <button
+                        type="button"
+                        onClick={() => setStep("identifier")}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: theme.colors.primary,
+                          cursor: "pointer",
+                          padding: 0,
+                          font: "inherit",
+                          textDecoration: "underline",
+                        }}
+                      >
+                        Go back
+                      </button>
+                    </>
+                  )}
                 </div>
               </form>
             )}

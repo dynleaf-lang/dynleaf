@@ -77,6 +77,31 @@ export const NotificationProvider = ({ children }) => {
     });
   };
 
+  // Listen for user logout to clear notifications
+  useEffect(() => {
+    const handleUserLogout = () => {
+      console.log('[NOTIFICATION CONTEXT] User logged out, clearing all notifications');
+      clearAllNotifications();
+    };
+
+    // Listen for logout event
+    window.addEventListener('user-logout', handleUserLogout);
+
+    // Cleanup listener
+    return () => {
+      window.removeEventListener('user-logout', handleUserLogout);
+    };
+  }, []);
+
+  // Clear notifications when user logs out or changes
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      // User logged out, clear all notifications and tracked orders
+      clearAllNotifications();
+      console.log('[NOTIFICATION CONTEXT] User logged out, clearing all notifications');
+    }
+  }, [isAuthenticated, user]);
+
   // Add welcome notification for new customers
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -110,25 +135,34 @@ export const NotificationProvider = ({ children }) => {
     const handleOrderConfirmation = (data) => {
       const { order, orderNumber } = data;
       
-      // Add this order to customer's tracked orders
-      if (order?.id || order?._id) {
-        customerOrdersRef.current.add(String(order.id || order._id));
-      }
+      // Determine the customer identifier
+      const customerIdentifier = user?.phone || user?.email || user?.identifier;
       
-      addNotification({
-        type: 'order_confirmation',
-        title: 'Order Confirmed!',
-        message: `Your order #${orderNumber} has been confirmed and is being prepared.`,
-        icon: 'check_circle',
-        priority: 'high',
-        orderId: order?.id || order?._id,
-        orderNumber,
-        metadata: {
-          totalAmount: order?.totalAmount,
-          estimatedTime: order?.estimatedTime || '15-20 minutes',
-          timestamp: new Date().toISOString()
+      // Only add notifications for this customer's orders
+      const isCustomerOrder = customerIdentifier && 
+        (order?.customerPhone === customerIdentifier || order?.customerEmail === customerIdentifier);
+      
+      if (isCustomerOrder) {
+        // Add this order to customer's tracked orders
+        if (order?.id || order?._id) {
+          customerOrdersRef.current.add(String(order.id || order._id));
         }
-      });
+        
+        addNotification({
+          type: 'order_confirmation',
+          title: 'Order Confirmed!',
+          message: `Your order #${orderNumber} has been confirmed and is being prepared.`,
+          icon: 'check_circle',
+          priority: 'high',
+          orderId: order?.id || order?._id,
+          orderNumber,
+          metadata: {
+            totalAmount: order?.totalAmount,
+            estimatedTime: order?.estimatedTime || '15-20 minutes',
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
     };
 
     // Listen for order status updates - MOVED HERE FROM OrdersView
@@ -147,12 +181,14 @@ export const NotificationProvider = ({ children }) => {
       
       lastNotificationRef.current[notificationKey] = now;
       
-      // Check if this is a customer order
+      // Determine the customer identifier
+      const customerIdentifier = user?.phone || user?.email || user?.identifier;
+      
+      // Check if this is a customer order - only by customer identifier or tracked orders
       const isCustomerOrder = orderIdToCheck && (
         customerOrdersRef.current.has(orderIdToCheck) ||
-        (table?._id && order?.tableId === table._id) ||
-        (branch?._id && order?.branchId === branch._id) ||
-        customerOrdersRef.current.size > 0
+        (customerIdentifier && 
+         (order?.customerPhone === customerIdentifier || order?.customerEmail === customerIdentifier))
       );
       
       if (isCustomerOrder) {
@@ -200,29 +236,39 @@ export const NotificationProvider = ({ children }) => {
 
     // Listen for delivery updates (if applicable)
     const handleDeliveryUpdate = (data) => {
-      const { orderNumber, status, estimatedTime, driverInfo } = data;
+      const { orderNumber, status, estimatedTime, driverInfo, order } = data;
       
-      addNotification({
-        type: 'delivery',
-        title: `Delivery Update - Order #${orderNumber}`,
-        message: getDeliveryMessage(status, estimatedTime, driverInfo),
-        icon: 'delivery_dining',
-        priority: 'high',
-        orderNumber,
-        metadata: {
-          deliveryStatus: status,
-          estimatedTime,
-          driverInfo,
-          timestamp: new Date().toISOString()
-        }
-      });
+      // Determine the customer identifier
+      const customerIdentifier = user?.phone || user?.email || user?.identifier;
+      
+      // Only show delivery notifications for this customer's orders
+      const isCustomerOrder = customerIdentifier && 
+        (order?.customerPhone === customerIdentifier || order?.customerEmail === customerIdentifier);
+      
+      if (isCustomerOrder) {
+        addNotification({
+          type: 'delivery',
+          title: `Delivery Update - Order #${orderNumber}`,
+          message: getDeliveryMessage(status, estimatedTime, driverInfo),
+          icon: 'delivery_dining',
+          priority: 'high',
+          orderNumber,
+          metadata: {
+            deliveryStatus: status,
+            estimatedTime,
+            driverInfo,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
     };
 
     // Listen for table service notifications (for dine-in)
     const handleTableService = (data) => {
-      const { message, type, tableNumber } = data;
+      const { message, type, tableNumber, tableId } = data;
       
-      if (table?.number === tableNumber || table?.id === data.tableId) {
+      // Only show table service notifications for the current customer's table
+      if ((table?.number === tableNumber || table?.id === tableId) && isAuthenticated) {
         addNotification({
           type: 'table_service',
           title: 'Table Service',
@@ -260,35 +306,39 @@ export const NotificationProvider = ({ children }) => {
       socket.off('deliveryUpdate', handleDeliveryUpdate);
       socket.off('tableService', handleTableService);
     };
-  }, [socket, isConnected, table, branch]);
+  }, [socket, isConnected, table, branch, user?.phone, isAuthenticated]);
 
-  // Track all existing orders for this table when context initializes
+  // Track customer-specific orders when context initializes
   useEffect(() => {
-    const fetchAndTrackExistingOrders = async () => {
-      if (!table?._id || !branch?._id) return;
+    const fetchAndTrackCustomerOrders = async () => {
+      if (!user || !isAuthenticated || !(user.phone || user.email || user.identifier)) return;
       
       try {
         // Import the api client dynamically to avoid circular dependencies
         const { api } = await import('../utils/apiClient');
-        const existingOrders = await api.public.orders.getByTable(table._id);
         
-        if (existingOrders && existingOrders.length > 0) {
-          // Track all existing orders for notifications
-          existingOrders.forEach(order => {
+        // Determine the customer identifier - prioritize phone, then email, then identifier
+        const customerIdentifier = user.phone || user.email || user.identifier;
+        
+        const customerOrders = await api.public.orders.getByCustomerIdentifier(customerIdentifier);
+        
+        if (customerOrders && customerOrders.length > 0) {
+          // Track all customer orders for notifications
+          customerOrders.forEach(order => {
             if (order._id) {
               customerOrdersRef.current.add(String(order._id));
             }
           });
           
-          console.log(`[NOTIFICATION CONTEXT] Tracked ${existingOrders.length} existing orders for notifications`);
+          console.log(`[NOTIFICATION CONTEXT] Tracked ${customerOrders.length} customer orders for notifications`);
         }
       } catch (error) {
-        console.warn('[NOTIFICATION CONTEXT] Failed to fetch existing orders for tracking:', error);
+        console.warn('[NOTIFICATION CONTEXT] Failed to fetch customer orders for tracking:', error);
       }
     };
 
-    fetchAndTrackExistingOrders();
-  }, [table?._id, branch?._id]);
+    fetchAndTrackCustomerOrders();
+  }, [user?.phone, user?.email, user?.identifier, isAuthenticated]);
 
   // Track customer orders for relevant notifications
   const trackCustomerOrder = (orderId) => {
@@ -320,12 +370,14 @@ export const NotificationProvider = ({ children }) => {
     
     lastNotificationRef.current[notificationKey] = now;
     
-    // Check if this is a customer order
+    // Determine the customer identifier
+    const customerIdentifier = user?.phone || user?.email || user?.identifier;
+    
+    // Check if this is a customer order - only by customer identifier or tracked orders
     const isCustomerOrder = orderIdToCheck && (
       customerOrdersRef.current.has(orderIdToCheck) ||
-      (table?._id && order?.tableId === table._id) ||
-      (branch?._id && order?.branchId === branch._id) ||
-      customerOrdersRef.current.size > 0
+      (customerIdentifier && 
+       (order?.customerPhone === customerIdentifier || order?.customerEmail === customerIdentifier))
     );
     
     if (isCustomerOrder) {
@@ -351,7 +403,7 @@ export const NotificationProvider = ({ children }) => {
         }
       });
     }
-  }, [table?._id, branch?._id, addNotification]);
+  }, [user?.phone, user?.email, user?.identifier, addNotification]);
 
   // Mark notification as read
   const markAsRead = (notificationId) => {
@@ -370,10 +422,14 @@ export const NotificationProvider = ({ children }) => {
     setUnreadCount(0);
   };
 
-  // Clear all notifications
+  // Clear all notifications and tracked orders (for session cleanup)
   const clearAllNotifications = () => {
     setNotifications([]);
     setUnreadCount(0);
+    // Clear tracked customer orders for complete session cleanup
+    customerOrdersRef.current.clear();
+    // Clear last notification tracking
+    lastNotificationRef.current = {};
   };
 
   // Get order status configuration

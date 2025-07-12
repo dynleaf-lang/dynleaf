@@ -237,61 +237,62 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           alignItems: "center",
           gap: theme.spacing.md
         }}>
-          {/* Enhanced Notification Bell with Dropdown */}
-          <div ref={notificationRef} style={{ position: "relative" }}>
-            <motion.div
-              whileTap={{ scale: 0.95 }}
-              whileHover={{ scale: 1.05 }}
-              style={{ 
-                position: "relative",
-                cursor: "pointer",
-                padding: theme.spacing.sm,
-                borderRadius: theme.borderRadius.lg,
-                background: unreadCount > 0 ? 
-                  `linear-gradient(135deg, ${theme.colors.primary}15, ${theme.colors.secondary}15)` : 
-                  "transparent",
-                border: unreadCount > 0 ? 
-                  `1px solid ${theme.colors.primary}30` : 
-                  `1px solid transparent`,
-                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-              onClick={toggleNotifications}
-            >
-              <span className="material-icons" style={{
-                color: unreadCount > 0 ? theme.colors.primary : theme.colors.text.secondary,
-                fontSize: "24px",
-                transition: "color 0.3s ease"
-              }}>
-                {unreadCount > 0 ? "notifications_active" : "notifications"}
-              </span>
-              
-              {/* Enhanced notification badge */}
-              {unreadCount > 0 && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  style={{
-                    position: "absolute",
-                    top: "4px",
-                    right: "4px",
-                    background: `linear-gradient(135deg, ${theme.colors.primary}, ${theme.colors.secondary})`,
-                    color: "#fff",
-                    borderRadius: "50%",
-                    minWidth: "18px",
-                    height: "18px",
-                    fontSize: "10px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: theme.typography.fontWeights.bold,
-                    border: "2px solid #fff",
-                    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
-                  }}
-                >
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </motion.span>
-              )}
-            </motion.div>
+          {/* Enhanced Notification Bell with Dropdown - Only show when authenticated */}
+          {isAuthenticated && (
+            <div ref={notificationRef} style={{ position: "relative" }}>
+              <motion.div
+                whileTap={{ scale: 0.95 }}
+                whileHover={{ scale: 1.05 }}
+                style={{ 
+                  position: "relative",
+                  cursor: "pointer",
+                  padding: theme.spacing.sm,
+                  borderRadius: theme.borderRadius.lg,
+                  background: unreadCount > 0 ? 
+                    `linear-gradient(135deg, ${theme.colors.primary}15, ${theme.colors.secondary}15)` : 
+                    "transparent",
+                  border: unreadCount > 0 ? 
+                    `1px solid ${theme.colors.primary}30` : 
+                    `1px solid transparent`,
+                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+                onClick={toggleNotifications}
+              >
+                <span className="material-icons" style={{
+                  color: unreadCount > 0 ? theme.colors.primary : theme.colors.text.secondary,
+                  fontSize: "24px",
+                  transition: "color 0.3s ease"
+                }}>
+                  {unreadCount > 0 ? "notifications_active" : "notifications"}
+                </span>
+                
+                {/* Enhanced notification badge */}
+                {unreadCount > 0 && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      right: "4px",
+                      background: `linear-gradient(135deg, ${theme.colors.primary}, ${theme.colors.secondary})`,
+                      color: "#fff",
+                      borderRadius: "50%",
+                      minWidth: "18px",
+                      height: "18px",
+                      fontSize: "10px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: theme.typography.fontWeights.bold,
+                      border: "2px solid #fff",
+                      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                    }}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </motion.span>
+                )}
+              </motion.div>
 
             {/* Professional Notification Dropdown */}
             <AnimatePresence>
@@ -626,7 +627,8 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+            </div>
+          )}
 
           {/* Enhanced Profile Button with Navigation */}
           <ProfileButton 

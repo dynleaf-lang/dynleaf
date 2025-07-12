@@ -504,6 +504,41 @@ router.get('/customer/:phoneNumber', async (req, res) => {
     }
 });
 
+// Get orders by customer identifier (phone or email) - more flexible endpoint
+router.get('/customer-orders/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        
+        if (!identifier) {
+            return res.status(400).json({ message: 'Customer identifier (phone or email) is required' });
+        }
+
+        // Check if identifier is email or phone
+        const isEmail = identifier.includes('@');
+        
+        let query;
+        if (isEmail) {
+            query = { customerEmail: identifier };
+        } else {
+            query = { customerPhone: identifier };
+        }
+
+        console.log('[GET CUSTOMER ORDERS] Searching for orders with:', query);
+
+        const orders = await Order.find(query)
+            .sort({ createdAt: -1 })
+            .limit(20) // Increased limit to get more order history
+            .lean();
+
+        console.log(`[GET CUSTOMER ORDERS] Found ${orders.length} orders for identifier: ${identifier}`);
+
+        res.json(orders);
+    } catch (error) {
+        console.error('Error fetching customer orders by identifier:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // Reset table status (utility route for development/testing)
 router.post('/reset-table/:tableId', async (req, res) => {
     try {

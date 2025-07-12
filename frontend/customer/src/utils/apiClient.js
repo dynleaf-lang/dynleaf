@@ -747,7 +747,18 @@ export const api = {
         }
       },
       
-      // Get orders for a customer by phone number
+      // Get orders for a customer by identifier (phone or email)
+      getByCustomerIdentifier: async (identifier) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/orders/customer-orders/${identifier}`);
+          return response.data;
+        } catch (error) {
+          console.error('Error fetching customer orders by identifier:', error);
+          throw error;
+        }
+      },
+
+      // Get orders for a customer by phone number (legacy, kept for backward compatibility)
       getByCustomerPhone: async (phoneNumber) => {
         try {
           const response = await apiClient.get(`${PUBLIC_API_PATH}/orders/customer/${phoneNumber}`);

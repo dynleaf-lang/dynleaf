@@ -6,7 +6,9 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { useTax } from '../../context/TaxContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
+import ProtectedRoute from '../Utils/ProtectedRoute';
 import { theme } from '../../data/theme';
 import { api } from '../../utils/apiClient';
 
@@ -904,7 +906,7 @@ const FilterTabs = memo(({ activeFilter, onFilterChange }) => {
         WebkitOverflowScrolling: 'touch',
         scrollbarWidth: 'none', // Firefox
         msOverflowStyle: 'none', // IE/Edge
-        '::-webkit-scrollbar': { display: 'none' } // Chrome/Safari/Opera
+        '::WebkitScrollbar': { display: 'none' } // Chrome/Safari/Opera
       }}
     >
       {filters.map(filter => (
@@ -1229,6 +1231,7 @@ const OrdersView = ({ isDesktop = false }) => {
   const { currentOrder } = useCart();
   const { branch, table } = useRestaurant();
   const { trackCustomerOrder } = useNotifications();
+  const { user } = useAuth();
   const { 
     socket,
     isConnected, 
@@ -1237,7 +1240,7 @@ const OrdersView = ({ isDesktop = false }) => {
     offOrderUpdate
   } = useSocket();
 
-  // Get mock orders
+  // Get customer orders
   useEffect(() => {
     const fetchOrders = async () => {
       setIsLoading(true);
@@ -1246,17 +1249,30 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
-        // Use branch and table from component scope
+        
         let orders = [];
         
-        if (branch && branch._id) {
+        // Only fetch orders if user is authenticated and has an identifier
+        if (user && (user.phone || user.email || user.identifier)) {
           try {
-            // Fetch orders for this table from the API
-            orders = await api.public.orders.getByTable(table._id);
+            // Determine the customer identifier - prioritize phone, then email, then identifier
+            const customerIdentifier = user.phone || user.email || user.identifier;
+            
+            // Fetch orders for this specific customer by identifier (phone or email)
+            console.log('[ORDERS VIEW] Fetching orders for customer identifier:', customerIdentifier);
+            orders = await api.public.orders.getByCustomerIdentifier(customerIdentifier);
+            console.log('[ORDERS VIEW] Fetched customer orders:', orders);
           } catch (apiError) {
-            console.error('API error fetching orders:', apiError);
+            console.error('API error fetching customer orders:', apiError);
             orders = []; // Use empty array if API fails
           }
+        } else {
+          console.log('[ORDERS VIEW] No user or identifier available:', { 
+            hasPhone: !!user?.phone, 
+            hasEmail: !!user?.email, 
+            hasIdentifier: !!user?.identifier,
+            isAuthenticated: !!user 
+          });
         }
         
         // If we have a currentOrder in cart context, add it to the orders list
@@ -1287,11 +1303,11 @@ const OrdersView = ({ isDesktop = false }) => {
     };
 
     fetchOrders();
-  }, [currentOrder]);
+  }, [currentOrder, user]);
 
   // Setup real-time socket listeners
   useEffect(() => {
-    if (!isConnected || !table?._id || !branch?._id) return;
+    if (!isConnected || !table?._id || !branch?._id || !user || !(user.phone || user.email || user.identifier)) return;
 
     // Join customer rooms for real-time updates
     joinCustomerRooms(table._id, branch._id);
@@ -1300,12 +1316,15 @@ const OrdersView = ({ isDesktop = false }) => {
     const handleOrderUpdate = (data) => {
       const { order, eventType } = data;
       
-      // If this update is for our table, refresh orders
-      if (order.tableId === table._id) {
+      // Determine the customer identifier
+      const customerIdentifier = user.phone || user.email || user.identifier;
+      
+      // If this update is for our customer (by phone or email), refresh orders
+      if (order.customerPhone === customerIdentifier || order.customerEmail === customerIdentifier) {
         // Re-fetch orders to get latest data
         const fetchOrders = async () => {
           try {
-            const updatedOrders = await api.public.orders.getByTable(table._id);
+            const updatedOrders = await api.public.orders.getByCustomerIdentifier(customerIdentifier);
             setOrders(updatedOrders || []);
             
             // Track any new orders for notifications
@@ -1317,7 +1336,7 @@ const OrdersView = ({ isDesktop = false }) => {
               });
             }
           } catch (error) {
-            console.error('Error refreshing orders after socket update:', error);
+            console.error('Error refreshing customer orders after socket update:', error);
           }
         };
         fetchOrders();
@@ -1331,21 +1350,27 @@ const OrdersView = ({ isDesktop = false }) => {
     return () => {
       offOrderUpdate();
     };
-  }, [isConnected, table?._id, branch?._id, trackCustomerOrder]);
+  }, [isConnected, table?._id, branch?._id, user?.phone, user?.email, user?.identifier, trackCustomerOrder]);
 
   // Listen for status updates to update the local order state
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    if (!socket || !isConnected || !user || !(user.phone || user.email || user.identifier)) return;
 
     const handleStatusUpdate = (data) => {
-      const { orderId, newStatus } = data;
+      const { orderId, newStatus, order } = data;
       
-      // Update the specific order in our orders list (UI update only)
+      // Determine the customer identifier
+      const customerIdentifier = user.phone || user.email || user.identifier;
+      
+      // Update the specific order in our orders list if it belongs to this customer
       setOrders(prevOrders => 
-        prevOrders.map(order => 
-          order._id === orderId 
-            ? { ...order, orderStatus: newStatus, status: newStatus.toLowerCase() }
-            : order
+        prevOrders.map(existingOrder => 
+          existingOrder._id === orderId && 
+          (existingOrder.customerPhone === customerIdentifier || 
+           existingOrder.customerEmail === customerIdentifier ||
+           (order && (order.customerPhone === customerIdentifier || order.customerEmail === customerIdentifier)))
+            ? { ...existingOrder, orderStatus: newStatus, status: newStatus.toLowerCase() }
+            : existingOrder
         )
       );
     };
@@ -1356,7 +1381,7 @@ const OrdersView = ({ isDesktop = false }) => {
     return () => {
       socket.off('statusUpdate', handleStatusUpdate);
     };
-  }, [socket, isConnected]);
+  }, [socket, isConnected, user?.phone, user?.email, user?.identifier]);
 
   // Filter orders based on the active filter
   const filteredOrders = orders.filter(order => {
@@ -1391,17 +1416,30 @@ const OrdersView = ({ isDesktop = false }) => {
       try {
         // Simulate API call with a delay
         await new Promise(resolve => setTimeout(resolve, 1000));
-        // Use branch and table from the component scope (already declared)
+        
         let orders = [];
         
-        if (branch && branch._id && table && table._id) {
+        // Only fetch orders if user is authenticated and has an identifier
+        if (user && (user.phone || user.email || user.identifier)) {
           try {
-            // Fetch orders for this table from the API
-            orders = await api.public.orders.getByTable(table._id);
+            // Determine the customer identifier - prioritize phone, then email, then identifier
+            const customerIdentifier = user.phone || user.email || user.identifier;
+            
+            // Fetch orders for this specific customer by identifier (phone or email)
+            console.log('[ORDERS VIEW] Fetching orders for customer identifier:', customerIdentifier);
+            orders = await api.public.orders.getByCustomerIdentifier(customerIdentifier);
+            console.log('[ORDERS VIEW] Fetched customer orders:', orders);
           } catch (apiError) {
-            console.error('API error fetching orders:', apiError);
+            console.error('API error fetching customer orders:', apiError);
             orders = []; // Use empty array if API fails
           }
+        } else {
+          console.log('[ORDERS VIEW] No user or identifier available:', { 
+            hasPhone: !!user?.phone, 
+            hasEmail: !!user?.email, 
+            hasIdentifier: !!user?.identifier,
+            isAuthenticated: !!user 
+          });
         }
         
         setOrders(orders);
@@ -1524,4 +1562,13 @@ const OrdersView = ({ isDesktop = false }) => {
   );
 };
 
-export default OrdersView;
+// Create protected wrapper component
+const ProtectedOrdersView = () => {
+  return (
+    <ProtectedRoute>
+      <OrdersView />
+    </ProtectedRoute>
+  );
+};
+
+export default ProtectedOrdersView;

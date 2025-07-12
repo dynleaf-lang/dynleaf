@@ -8,9 +8,11 @@ import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { useOrderType } from '../ui/EnhancedCart';
 import { theme } from '../../data/theme';
 import TaxInfo from './TaxInfo';
+import jsPDF from 'jspdf';
 
 // Enhanced OrderConfirmation component with better visuals and functionality
-const OrderConfirmation = memo(() => {  const { 
+const OrderConfirmation = memo(() => {  
+  const { 
     cartItems, 
     cartTotal, 
     orderNote, 
@@ -22,7 +24,8 @@ const OrderConfirmation = memo(() => {  const {
   const { restaurant, branch, table } = useRestaurant();
   const { orderType } = useOrderType();
   const { taxName, taxRate, formattedTaxRate, calculateTax } = useTax();
-  const [isPrinting, setIsPrinting] = useState(false);
+  const { currencySymbol, formatCurrency } = useCurrency();
+  const [isDownloading, setIsDownloading] = useState(false);
   
   // Only show error banner if there's an error AND no valid order was created
   const shouldShowErrorBanner = orderError && (!currentOrder || !currentOrder._id);
@@ -30,12 +33,6 @@ const OrderConfirmation = memo(() => {  const {
   
   // Update error banner visibility when dependencies change
   useEffect(() => {
-    console.log('[ORDER CONFIRMATION] Error state check:', {
-      orderError,
-      currentOrder: currentOrder?._id,
-      shouldShowErrorBanner,
-      showErrorBanner
-    });
     setShowErrorBanner(shouldShowErrorBanner);
   }, [shouldShowErrorBanner, orderError, currentOrder]);
   
@@ -59,19 +56,307 @@ const OrderConfirmation = memo(() => {  const {
     });
   };
   
-  // Handle print receipt button
-  const handlePrintReceipt = () => {
-    setIsPrinting(true);
+  // Handle download PDF receipt button
+  const handleDownloadReceipt = () => {
+    setIsDownloading(true);
     
     setTimeout(() => {
-      window.print();
-      setIsPrinting(false);
+      try {
+        // Create a new PDF instance
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        // Set font
+        pdf.setFont('helvetica');
+        
+        // PDF dimensions
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 20;
+        const contentWidth = pageWidth - (2 * margin);
+        
+        let yPosition = margin;
+        
+        // Helper function to add text and manage page breaks
+        const addText = (text, fontSize = 10, style = 'normal', align = 'left') => {
+          pdf.setFontSize(fontSize);
+          pdf.setFont('helvetica', style);
+          
+          if (yPosition > pageHeight - 30) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+          
+          if (align === 'center') {
+            pdf.text(text, pageWidth / 2, yPosition, { align: 'center' });
+          } else if (align === 'right') {
+            pdf.text(text, pageWidth - margin, yPosition, { align: 'right' });
+          } else {
+            pdf.text(text, margin, yPosition);
+          }
+          
+          yPosition += fontSize * 0.5 + 2;
+          return yPosition;
+        };
+        
+        // Helper function to add a line
+        const addLine = (thickness = 0.5) => {
+          pdf.setLineWidth(thickness);
+          pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+          yPosition += 5;
+        };
+        
+        // Header - Restaurant Info
+        addText(restaurant?.name || 'Restaurant Name', 16, 'bold', 'center');
+        addText(branch?.name || 'Main Branch', 12, 'normal', 'center');
+        yPosition += 5;
+        addLine(1);
+        
+        // Order Information
+        addText(`Order #${getFormattedOrderId()}`, 14, 'bold');
+        addText(`Date: ${getFormattedDate()}`, 10);
+        yPosition += 5;
+        
+        // Customer Information Section
+        addText('Customer Information', 12, 'bold');
+        addLine(0.3);
+        
+        const customerName = currentOrder?.customerInfo?.name || currentOrder?.customerName || 'Guest Customer';
+        addText(`Name: ${customerName}`, 10);
+        
+        const customerPhone = currentOrder?.customerInfo?.phone || currentOrder?.customerPhone;
+        if (customerPhone) {
+          addText(`Phone: ${customerPhone}`, 10);
+        }
+        
+        const customerEmail = currentOrder?.customerInfo?.email || currentOrder?.customerEmail;
+        if (customerEmail) {
+          addText(`Email: ${customerEmail}`, 10);
+        }
+        
+        const customerAddress = currentOrder?.customerInfo?.address || currentOrder?.customerAddress;
+        if (orderType === 'takeaway' && customerAddress) {
+          addText(`Address: ${customerAddress}`, 10);
+        }
+        
+        yPosition += 5;
+        
+        // Order Details Section
+        addText('Order Details', 12, 'bold');
+        addLine(0.3);
+        
+        addText(`Order Type: ${orderType === 'dineIn' ? 'Dine In' : 'Takeaway'}`, 10);
+        if (table) {
+          addText(`Table: ${table.name || 'Table'}`, 10);
+        }
+        addText(`Status: ${currentOrder?.status || 'Processing'}`, 10);
+        yPosition += 5;
+        
+        // Order Items Section
+        addText('Order Items', 12, 'bold');
+        addLine(0.3);
+        
+        // Items table header
+        const tableStartY = yPosition;
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        
+        const colWidths = {
+          qty: 15,
+          item: contentWidth * 0.5,
+          price: contentWidth * 0.2,
+          total: contentWidth * 0.2
+        };
+        
+        let xPos = margin;
+        pdf.text('Qty', xPos, yPosition);
+        xPos += colWidths.qty;
+        pdf.text('Item', xPos, yPosition);
+        xPos += colWidths.item;
+        pdf.text('Unit Price', xPos, yPosition, { align: 'right' });
+        xPos += colWidths.price;
+        pdf.text('Total', pageWidth - margin, yPosition, { align: 'right' });
+        
+        yPosition += 5;
+        addLine(0.3);
+        
+        // Items data
+        const displayItems = currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems;
+        
+        pdf.setFont('helvetica', 'normal');
+        displayItems.forEach((item) => {
+          const itemName = item.name || item.title;
+          const itemQuantity = item.quantity;
+          const itemPrice = item.price;
+          
+          // Check if we need a new page
+          if (yPosition > pageHeight - 40) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+          
+          xPos = margin;
+          pdf.text(String(itemQuantity), xPos, yPosition);
+          xPos += colWidths.qty;
+          
+          // Handle long item names
+          const maxItemWidth = colWidths.item - 5;
+          const itemLines = pdf.splitTextToSize(itemName, maxItemWidth);
+          pdf.text(itemLines, xPos, yPosition);
+          
+          xPos += colWidths.item;
+          const unitPriceText = formatCurrency ? formatCurrency(itemPrice) : `${currencySymbol || '$'}${itemPrice.toFixed(2)}`;
+          pdf.text(unitPriceText, xPos + colWidths.price, yPosition, { align: 'right' });
+          
+          const totalPriceText = formatCurrency ? formatCurrency(itemPrice * itemQuantity) : `${currencySymbol || '$'}${(itemPrice * itemQuantity).toFixed(2)}`;
+          pdf.text(totalPriceText, pageWidth - margin, yPosition, { align: 'right' });
+          
+          yPosition += Math.max(itemLines.length * 4, 8);
+          
+          // Add item options/notes if available
+          const itemOptions = item.selectedOptions || [];
+          if (itemOptions.length > 0) {
+            pdf.setFontSize(8);
+            pdf.setFont('helvetica', 'italic');
+            const optionsText = itemOptions.map(opt => `${opt.name}: ${opt.value}`).join(', ');
+            const optionsLines = pdf.splitTextToSize(`   ${optionsText}`, maxItemWidth);
+            pdf.text(optionsLines, margin + colWidths.qty, yPosition - 2);
+            yPosition += optionsLines.length * 3;
+            pdf.setFontSize(9);
+            pdf.setFont('helvetica', 'normal');
+          } else if (item.notes) {
+            pdf.setFontSize(8);
+            pdf.setFont('helvetica', 'italic');
+            const notesLines = pdf.splitTextToSize(`   ${item.notes}`, maxItemWidth);
+            pdf.text(notesLines, margin + colWidths.qty, yPosition - 2);
+            yPosition += notesLines.length * 3;
+            pdf.setFontSize(9);
+            pdf.setFont('helvetica', 'normal');
+          }
+        });
+        
+        yPosition += 5;
+        addLine(1);
+        
+        // Order Notes
+        if (currentOrder?.notes || orderNote) {
+          addText('Special Instructions', 12, 'bold');
+          addLine(0.3);
+          pdf.setFontSize(10);
+          const notesText = currentOrder?.notes || orderNote;
+          const notesLines = pdf.splitTextToSize(notesText, contentWidth);
+          notesLines.forEach(line => {
+            addText(line, 10, 'italic');
+          });
+          yPosition += 5;
+        }
+        
+        // Payment Summary
+        addText('Payment Summary', 12, 'bold');
+        addLine(0.3);
+        
+        const summaryX = pageWidth - margin - 60;
+        
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
+        
+        const subtotalText = formatCurrency ? formatCurrency(subtotal) : `${currencySymbol || '$'}${subtotal.toFixed(2)}`;
+        pdf.text('Subtotal:', summaryX - 40, yPosition);
+        pdf.text(subtotalText, pageWidth - margin, yPosition, { align: 'right' });
+        yPosition += 6;
+        
+        const taxText = formatCurrency ? formatCurrency(tax) : `${currencySymbol || '$'}${tax.toFixed(2)}`;
+        pdf.text(`${taxName || 'Tax'}:`, summaryX - 40, yPosition);
+        pdf.text(taxText, pageWidth - margin, yPosition, { align: 'right' });
+        yPosition += 8;
+        
+        addLine(0.5);
+        
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(12);
+        const totalText = formatCurrency ? formatCurrency(total) : `${currencySymbol || '$'}${total.toFixed(2)}`;
+        pdf.text('TOTAL:', summaryX - 40, yPosition);
+        pdf.text(totalText, pageWidth - margin, yPosition, { align: 'right' });
+        yPosition += 10;
+        
+        addLine(1);
+        
+        // Footer
+        yPosition += 5;
+        addText('Thank you for your order!', 11, 'bold', 'center');
+        addText('Visit us again soon.', 9, 'normal', 'center');
+        yPosition += 10;
+        addText(`Generated on: ${new Date().toLocaleString()}`, 8, 'italic', 'center');
+        
+        // Save the PDF
+        const fileName = `receipt-${getFormattedOrderId()}-${new Date().toISOString().split('T')[0]}.pdf`;
+        pdf.save(fileName);
+        
+      } catch (error) {
+        console.error('Error generating PDF receipt:', error);
+        // Fallback to text download if PDF generation fails
+        const receiptContent = `
+═══════════════════════════════════════
+${restaurant?.name || 'Restaurant Name'}
+${branch?.name || 'Main Branch'}
+═══════════════════════════════════════
+
+Order #${getFormattedOrderId()}
+Date: ${getFormattedDate()}
+
+Customer Information:
+${currentOrder?.customerInfo?.name || currentOrder?.customerName || 'Guest Customer'}
+${currentOrder?.customerInfo?.phone || currentOrder?.customerPhone ? `Phone: ${currentOrder.customerInfo?.phone || currentOrder.customerPhone}` : ''}
+${currentOrder?.customerInfo?.email || currentOrder?.customerEmail ? `Email: ${currentOrder.customerInfo?.email || currentOrder.customerEmail}` : ''}
+
+Order Details:
+Order Type: ${orderType === 'dineIn' ? 'Dine In' : 'Takeaway'}
+${table ? `Table: ${table.name || 'Table'}` : ''}
+Status: ${currentOrder?.status || 'Processing'}
+
+ORDER ITEMS:
+${(currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems)
+  .map(item => {
+    const itemPrice = formatCurrency ? formatCurrency(item.price) : `${currencySymbol || '$'}${item.price.toFixed(2)}`;
+    const itemTotal = formatCurrency ? formatCurrency(item.price * item.quantity) : `${currencySymbol || '$'}${(item.price * item.quantity).toFixed(2)}`;
+    return `${item.quantity}x ${item.name || item.title}
+   Unit Price: ${itemPrice}
+   Total: ${itemTotal}`;
+  }).join('\n\n')}
+
+═══════════════════════════════════════
+PAYMENT SUMMARY:
+───────────────────────────────────────
+Subtotal: ${formatCurrency ? formatCurrency(subtotal) : `${currencySymbol || '$'}${subtotal.toFixed(2)}`}
+${taxName || 'Tax'}: ${formatCurrency ? formatCurrency(tax) : `${currencySymbol || '$'}${tax.toFixed(2)}`}
+───────────────────────────────────────
+TOTAL: ${formatCurrency ? formatCurrency(total) : `${currencySymbol || '$'}${total.toFixed(2)}`}
+═══════════════════════════════════════
+
+${(currentOrder?.notes || orderNote) ? `Special Instructions:\n${currentOrder?.notes || orderNote}\n\n` : ''}Thank you for your order!
+Visit us again soon.
+
+Generated on: ${new Date().toLocaleString()}
+        `;
+        
+        const blob = new Blob([receiptContent], { type: 'text/plain;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `receipt-${getFormattedOrderId()}-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
+      
+      setIsDownloading(false);
     }, 500);
   };
-    // Calculate totals
-  const subtotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = calculateTax(subtotal); // Dynamic tax calculation based on country
-  const total = subtotal + tax;
+    // Calculate totals - use currentOrder totals if available, otherwise calculate from cartItems
+  const displayItems = currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems;
+  const subtotal = currentOrder?.subtotal || displayItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const tax = currentOrder?.taxAmount || calculateTax(subtotal); // Dynamic tax calculation based on country
+  const total = currentOrder?.total || (subtotal + tax);
   
   return (
     <motion.div
@@ -128,7 +413,7 @@ const OrderConfirmation = memo(() => {  const {
               paddingLeft: theme.spacing.xl
             }}>
               <motion.button
-                onClick={handlePrintReceipt}
+                onClick={handleDownloadReceipt}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 style={{
@@ -145,8 +430,8 @@ const OrderConfirmation = memo(() => {  const {
                   gap: theme.spacing.xs
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '14px' }}>print</span>
-                Print Receipt
+                <span className="material-icons" style={{ fontSize: '14px' }}>picture_as_pdf</span>
+                Download PDF
               </motion.button>
               <motion.button
                 onClick={() => {
@@ -252,7 +537,7 @@ const OrderConfirmation = memo(() => {  const {
           style={{ textAlign: 'center' }}
         >
           <h2 style={{ 
-            fontSize: theme.typography.sizes['3xl'], 
+            fontSize: theme.typography.sizes['2xl'], 
             fontWeight: theme.typography.fontWeights.bold, 
             margin: `${theme.spacing.sm} 0`,
             color: theme.colors.text.primary,
@@ -410,33 +695,44 @@ const OrderConfirmation = memo(() => {  const {
             Customer Details:
           </h4>
           
-          {currentOrder?.customerInfo && (
+          {(currentOrder?.customerInfo || currentOrder?.customerName || currentOrder?.customerPhone || currentOrder?.customerEmail) ? (
             <div style={{ fontSize: theme.typography.sizes.sm }}>
               <p style={{ margin: `${theme.spacing.xs} 0`, display: 'flex', alignItems: 'center', gap: theme.spacing.xs }}>
                 <span className="material-icons" style={{ fontSize: '16px', color: theme.colors.text.secondary }}>person</span>
-                <strong>Name:</strong> {currentOrder.customerInfo.name}
+                <strong>Name:</strong> {currentOrder.customerInfo?.name || currentOrder.customerName || 'Guest Customer'}
               </p>
               
-              {currentOrder.customerInfo.phone && (
+              {(currentOrder.customerInfo?.phone || currentOrder.customerPhone) && (
                 <p style={{ margin: `${theme.spacing.xs} 0`, display: 'flex', alignItems: 'center', gap: theme.spacing.xs }}>
                   <span className="material-icons" style={{ fontSize: '16px', color: theme.colors.text.secondary }}>phone</span>
-                  <strong>Phone:</strong> {currentOrder.customerInfo.phone}
+                  <strong>Phone:</strong> {currentOrder.customerInfo?.phone || currentOrder.customerPhone}
                 </p>
               )}
               
-              {currentOrder.customerInfo.email && (
+              {(currentOrder.customerInfo?.email || currentOrder.customerEmail) && (
                 <p style={{ margin: `${theme.spacing.xs} 0`, display: 'flex', alignItems: 'center', gap: theme.spacing.xs }}>
                   <span className="material-icons" style={{ fontSize: '16px', color: theme.colors.text.secondary }}>email</span>
-                  <strong>Email:</strong> {currentOrder.customerInfo.email}
+                  <strong>Email:</strong> {currentOrder.customerInfo?.email || currentOrder.customerEmail}
                 </p>
               )}
               
-              {orderType === 'takeaway' && currentOrder.customerInfo.address && (
+              {orderType === 'takeaway' && (currentOrder.customerInfo?.address || currentOrder.customerAddress) && (
                 <p style={{ margin: `${theme.spacing.xs} 0`, display: 'flex', alignItems: 'center', gap: theme.spacing.xs }}>
                   <span className="material-icons" style={{ fontSize: '16px', color: theme.colors.text.secondary }}>location_on</span>
-                  <strong>Address:</strong> {currentOrder.customerInfo.address}
+                  <strong>Address:</strong> {currentOrder.customerInfo?.address || currentOrder.customerAddress}
                 </p>
               )}
+            </div>
+          ) : (
+            <div style={{ 
+              fontSize: theme.typography.sizes.sm,
+              color: theme.colors.text.secondary,
+              fontStyle: 'italic'
+            }}>
+              <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: theme.spacing.xs }}>
+                <span className="material-icons" style={{ fontSize: '16px' }}>person</span>
+                Guest Customer - No customer details provided
+              </p>
             </div>
           )}
         </div>
@@ -475,46 +771,72 @@ const OrderConfirmation = memo(() => {  const {
             <div style={{ textAlign: 'right' }}>Total</div>
           </div>
           
-          {/* Table rows */}
-          {cartItems.map((item) => (
-            <div 
-              key={`${item.id}-${JSON.stringify(item.selectedOptions)}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '50px 1fr auto auto',
-                gap: theme.spacing.md,
-                padding: theme.spacing.sm,
-                borderBottom: `1px solid ${theme.colors.border}10`,
-                fontSize: theme.typography.sizes.md,
-              }}
-            >
-              <div style={{ color: theme.colors.text.primary, fontWeight: theme.typography.fontWeights.semibold }}>{item.quantity}</div>
-              <div>
-                <div style={{ color: theme.colors.text.primary }}>{item.title || item.name}</div>
-                
-                {/* Item options */}
-                {item.selectedOptions && item.selectedOptions.length > 0 && (
-                  <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, marginTop: '2px' }}>
-                    {item.selectedOptions.map((option, index) => (
-                      <span key={`${option.category}-${index}`}>
-                        {option.name}: {option.value}
-                        {index < item.selectedOptions.length - 1 ? ', ' : ''}
-                      </span>
-                    ))}
+          {/* Table rows - use currentOrder.items if available, otherwise fallback to cartItems */}
+          {(currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems).length > 0 ? (
+            (currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems).map((item, index) => {
+              // Handle different data structures between order items and cart items
+              const itemName = item.name || item.title;
+              const itemQuantity = item.quantity;
+              const itemPrice = item.price;
+              const itemOptions = item.selectedOptions || [];
+              const itemKey = item.menuItemId || item.id || item._id || index;
+              
+              return (
+                <div 
+                  key={`${itemKey}-${index}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '50px 1fr auto auto',
+                    gap: theme.spacing.md,
+                    padding: theme.spacing.sm,
+                    borderBottom: `1px solid ${theme.colors.border}10`,
+                    fontSize: theme.typography.sizes.md,
+                  }}
+                >
+                  <div style={{ color: theme.colors.text.primary, fontWeight: theme.typography.fontWeights.semibold }}>{itemQuantity}</div>
+                  <div>
+                    <div style={{ color: theme.colors.text.primary }}>{itemName}</div>
+                    
+                    {/* Item options/notes */}
+                    {itemOptions && itemOptions.length > 0 ? (
+                      <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, marginTop: '2px' }}>
+                        {itemOptions.map((option, optIndex) => (
+                          <span key={`${option.category}-${optIndex}`}>
+                            {option.name}: {option.value}
+                            {optIndex < itemOptions.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </div>
+                    ) : item.notes && (
+                      <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, marginTop: '2px' }}>
+                        {item.notes}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>              <div style={{ color: theme.colors.text.secondary, textAlign: 'right' }}>
-                <CurrencyDisplay amount={item.price} />
-              </div>
-              <div style={{ fontWeight: theme.typography.fontWeights.semibold, textAlign: 'right' }}>
-                <CurrencyDisplay amount={item.price * item.quantity} />
-              </div>
+                  <div style={{ color: theme.colors.text.secondary, textAlign: 'right' }}>
+                    <CurrencyDisplay amount={itemPrice} />
+                  </div>
+                  <div style={{ fontWeight: theme.typography.fontWeights.semibold, textAlign: 'right' }}>
+                    <CurrencyDisplay amount={itemPrice * itemQuantity} />
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div style={{
+              padding: theme.spacing.lg,
+              textAlign: 'center',
+              color: theme.colors.text.secondary,
+              fontSize: theme.typography.sizes.sm,
+              fontStyle: 'italic'
+            }}>
+              No items found in this order
             </div>
-          ))}
+          )}
         </div>
         
         {/* Order Notes */}
-        {orderNote && (
+        {(currentOrder?.notes || orderNote) && (
           <div style={{
             marginBottom: theme.spacing.lg,
             padding: theme.spacing.md,
@@ -540,7 +862,7 @@ const OrderConfirmation = memo(() => {  const {
               fontStyle: 'italic',
               color: theme.colors.text.secondary
             }}>
-              "{orderNote}"
+              "{currentOrder?.notes || orderNote}"
             </p>
           </div>
         )}
@@ -595,12 +917,13 @@ const OrderConfirmation = memo(() => {  const {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.6 }}
-        className="no-print"
+        className="no-print order-confirmation-buttons"
         style={{ 
           display: 'flex', 
-          gap: theme.spacing.md, 
+          gap: theme.spacing.sm, 
           justifyContent: 'center',
-          flexWrap: 'wrap'
+          flexWrap: 'wrap',
+          padding: `0 ${theme.spacing.sm}` // Add horizontal padding for small screens
         }}
       >
         <motion.button
@@ -615,14 +938,15 @@ const OrderConfirmation = memo(() => {  const {
             }));
           }}
           style={{
-            flex: 1,
-            maxWidth: '180px',
+            flex: '1 1 auto',
+            minWidth: '140px', // Minimum width for readability
+            maxWidth: '200px', // Maximum width to prevent buttons from being too wide
             backgroundColor: theme.colors.primary,
             color: theme.colors.text.light,
             border: 'none',
             borderRadius: theme.borderRadius.md,
-            padding: `${theme.spacing.md} ${theme.spacing.sm}`,
-            fontSize: theme.typography.sizes.md,
+            padding: `${theme.spacing.sm} ${theme.spacing.xs}`, // Reduced padding for small screens
+            fontSize: theme.typography.sizes.sm, // Smaller font size for better fit
             fontWeight: theme.typography.fontWeights.semibold,
             cursor: 'pointer',
             transition: theme.transitions.fast,
@@ -630,37 +954,42 @@ const OrderConfirmation = memo(() => {  const {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: theme.spacing.sm
+            gap: theme.spacing.xs, // Reduced gap
+            whiteSpace: 'nowrap' // Prevent text wrapping
           }}
         >
-          <span className="material-icons">restaurant_menu</span>
-          Back to Menu
+          <span className="material-icons" style={{ fontSize: '18px' }}>restaurant_menu</span>
+          <span>
+            Back to Menu
+          </span>
         </motion.button>
         
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={handlePrintReceipt}
-          disabled={isPrinting}
+          onClick={handleDownloadReceipt}
+          disabled={isDownloading}
           style={{
-            flex: 1,
-            maxWidth: '180px',
-            backgroundColor: isPrinting ? theme.colors.background : 'white',
+            flex: '1 1 auto',
+            minWidth: '140px',
+            maxWidth: '200px',
+            backgroundColor: isDownloading ? theme.colors.background : 'white',
             color: theme.colors.text.primary,
             border: `1px solid ${theme.colors.border}`,
             borderRadius: theme.borderRadius.md,
-            padding: `${theme.spacing.md} ${theme.spacing.sm}`,
-            fontSize: theme.typography.sizes.md,
+            padding: `${theme.spacing.sm} ${theme.spacing.xs}`,
+            fontSize: theme.typography.sizes.sm,
             fontWeight: theme.typography.fontWeights.semibold,
-            cursor: isPrinting ? 'not-allowed' : 'pointer',
+            cursor: isDownloading ? 'not-allowed' : 'pointer',
             transition: theme.transitions.fast,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: theme.spacing.sm
+            gap: theme.spacing.xs,
+            whiteSpace: 'nowrap'
           }}
         >
-          {isPrinting ? (
+          {isDownloading ? (
             <>
               <div style={{ 
                 width: '16px', 
@@ -670,12 +999,18 @@ const OrderConfirmation = memo(() => {  const {
                 borderTopColor: theme.colors.text.primary,
                 animation: 'spin 1s linear infinite',
               }} />
-              Printing...
+              <span>
+                Downloading...
+              </span>
             </>
           ) : (
             <>
-              <span className="material-icons">print</span>
-              Print Receipt
+              <span className="material-icons" style={{ fontSize: '18px' }}>picture_as_pdf</span>
+              <span style={{ 
+                '@media (max-width: 480px)': { display: 'none' }
+              }}>
+                Download PDF
+              </span>
             </>
           )}
         </motion.button>
@@ -692,25 +1027,29 @@ const OrderConfirmation = memo(() => {  const {
             }));
           }}
           style={{
-            flex: 1,
-            maxWidth: '180px',
+            flex: '1 1 auto',
+            minWidth: '140px',
+            maxWidth: '200px',
             backgroundColor: theme.colors.background,
             color: theme.colors.text.primary,
             border: `1px solid ${theme.colors.border}`,
             borderRadius: theme.borderRadius.md,
-            padding: `${theme.spacing.md} ${theme.spacing.sm}`,
-            fontSize: theme.typography.sizes.md,
+            padding: `${theme.spacing.sm} ${theme.spacing.xs}`,
+            fontSize: theme.typography.sizes.sm,
             fontWeight: theme.typography.fontWeights.semibold,
             cursor: 'pointer',
             transition: theme.transitions.fast,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: theme.spacing.sm
+            gap: theme.spacing.xs,
+            whiteSpace: 'nowrap'
           }}
         >
-          <span className="material-icons">add_shopping_cart</span>
-          Start New Order
+          <span className="material-icons" style={{ fontSize: '18px' }}>add_shopping_cart</span>
+          <span>
+            Start New Order
+          </span>
         </motion.button>
       </motion.div>
       
@@ -737,6 +1076,40 @@ const OrderConfirmation = memo(() => {  const {
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        
+        /* Responsive styles for small screens */
+        @media (max-width: 768px) {
+          .no-print {
+            gap: 8px !important;
+            padding: 0 8px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .no-print {
+            flex-direction: column !important;
+            gap: 12px !important;
+          }
+          
+          .no-print button {
+            width: 100% !important;
+            max-width: none !important;
+            min-width: auto !important;
+            justify-content: center !important;
+          }
+          
+           
+          
+          .no-print button .material-icons {
+            margin-right: 0 !important;
+          }
+        }
+        
+        @media (max-width: 360px) {
+          .order-confirmation-buttons {
+            padding: 0 4px !important;
+          }
         }
       `}</style>
     </motion.div>

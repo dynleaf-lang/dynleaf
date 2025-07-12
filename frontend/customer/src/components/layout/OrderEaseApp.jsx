@@ -8,12 +8,14 @@ import QRInstructions from "../ui/QRInstructions";
 import MenuView from "../ui/MenuView";
 import SearchView from "../ui/SearchView";
 import OrdersView from "../ui/OrdersView";
+import ProfileView from "../ui/ProfileView";
 import BottomNav from "../ui/BottomNav";
 import DesktopLayout from "./DesktopLayout";
 import EnhancedCart from "../ui/EnhancedCart";
 import CartButton from "../ui/CartButton";
 import LoginModal from "../auth/LoginModal";
 import SignupModal from "../auth/SignupModal";
+import ErrorBoundary from "../Utils/ErrorBoundary";
 
 // Import context and theme
 import { useRestaurant } from "../../context/RestaurantContext";
@@ -116,49 +118,42 @@ const OrderEaseApp = () => {
     }
   };
 
-  // Account settings items
-  const accountSettings = [
-    { icon: "notifications", label: "Notifications" },
-    { icon: "payment", label: "Payment Methods" },
-    { icon: "location_on", label: "Delivery Addresses" },
-    { icon: "language", label: "Language" }
-  ];
-
-  // Help & Support items
-  const helpSupportItems = [
-    { icon: "help", label: "FAQ" },
-    { icon: "support_agent", label: "Contact Support" },
-    { icon: "description", label: "Terms & Conditions" },
-    { icon: "privacy_tip", label: "Privacy Policy" }
-  ];
-
-  // Compute what to render based on state - avoiding early returns
+  // Compute what to render based on state
   const urlParams = new URLSearchParams(window.location.search);
   const hasRestaurantParams = urlParams.has('restaurantId') && urlParams.has('branchId');
-  const hasParamsRef = useRef(hasRestaurantParams);
+  
+  // Determine what to show based on the current state
+  const shouldShowPreLoader = () => {
+    // Show preloader when initially loading or when we have params and are loading
+    return loading && (!error || hasRestaurantParams);
+  };
+  
+  const shouldShowQRInstructions = () => {
+    // Show QR instructions when:
+    // 1. No URL params (need to scan QR)
+    // 2. Have params but there's an error and not loading
+    // 3. Initialized but no restaurant data (failed to load)
+    return !hasRestaurantParams || 
+           (hasRestaurantParams && error && !loading) ||
+           (initialized && (!restaurant || !branch) && !loading);
+  };
+  
+  const shouldShowMainApp = () => {
+    // Show main app when we have successfully loaded restaurant data
+    return initialized && restaurant && branch && !error;
+  };
 
-  // Use conditional rendering instead of early returns
+  // Use conditional rendering
   return (
-    <>      {/* Case 1: Not initialized and loading with params */}
-      {!initialized && loading && hasParamsRef.current && (
-        <PreLoader />
-      )}{/* Case 2: Not initialized and need to show pre-loader */}
-      {!initialized && !hasParamsRef.current && (
-        <PreLoader />
-      )}
+    <ErrorBoundary>
+      {/* Loading State */}
+      {shouldShowPreLoader() && <PreLoader />}
 
-      {/* Case 3: Not initialized and error loading */}
-      {!initialized && !loading && hasParamsRef.current && (
-        <QRInstructions />
-      )}
+      {/* QR Instructions / Error State */}
+      {shouldShowQRInstructions() && !shouldShowPreLoader() && <QRInstructions />}
 
-      {/* Case 4: Initialized but no restaurant data */}
-      {initialized && (!restaurant || !branch) && (
-        <QRInstructions />
-      )}
-
-      {/* Case 5: Main content - Restaurant data loaded */}
-      {initialized && restaurant && branch && (
+      {/* Main Application */}
+      {shouldShowMainApp() && (
         isMobile ? (
           <motion.main
             initial={{ opacity: 0 }}
@@ -229,279 +224,7 @@ const OrderEaseApp = () => {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      {isAuthenticated ? (
-                        <div style={{
-                          padding: theme.spacing.md
-                        }}>
-                          <div style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            padding: theme.spacing.lg,
-                            backgroundColor: "#FFF",
-                            borderRadius: theme.borderRadius.lg,
-                            boxShadow: theme.shadows.sm,
-                            marginBottom: theme.spacing.lg
-                          }}>
-                            <div style={{
-                              width: "80px",
-                              height: "80px",
-                              borderRadius: "50%",
-                              backgroundColor: theme.colors.background,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              marginBottom: theme.spacing.md,
-                              overflow: "hidden",
-                              backgroundColor: theme.colors.primary,
-                              color: "#fff",
-                              fontSize: "32px",
-                              fontWeight: theme.typography.fontWeights.bold
-                            }}>
-                              {user?.name?.charAt(0).toUpperCase() || "U"}
-                            </div>
-                            <h3 style={{
-                              fontSize: theme.typography.sizes.lg,
-                              fontWeight: theme.typography.fontWeights.semibold,
-                              margin: `${theme.spacing.xs} 0`,
-                              color: theme.colors.text.primary
-                            }}>
-                              {user?.name || "User"}
-                            </h3>
-                            <p style={{
-                              color: theme.colors.text.secondary,
-                              fontSize: theme.typography.sizes.sm,
-                              marginBottom: theme.spacing.md
-                            }}>
-                              {user?.email || user?.phone || ""}
-                            </p>
-                            <button 
-                              onClick={() => logout()}
-                              style={{
-                                backgroundColor: "#f5f5f5",
-                                color: theme.colors.text.primary,
-                                border: "none",
-                                padding: `${theme.spacing.sm} ${theme.spacing.lg}`,
-                                borderRadius: theme.borderRadius.md,
-                                fontWeight: theme.typography.fontWeights.medium
-                              }}
-                            >
-                              Logout
-                            </button>
-                          </div>
-                          
-                          {/* Settings sections */}
-                          <div style={{
-                            backgroundColor: "#fff",
-                            borderRadius: theme.borderRadius.lg,
-                            boxShadow: theme.shadows.sm,
-                            overflow: "hidden",
-                            marginBottom: theme.spacing.lg
-                          }}>
-                            <h4 style={{
-                              padding: theme.spacing.md,
-                              margin: 0,
-                              borderBottom: `1px solid ${theme.colors.border}`,
-                              fontWeight: theme.typography.fontWeights.medium,
-                              fontSize: theme.typography.sizes.md,
-                              color: theme.colors.text.primary
-                            }}>
-                              Account Settings
-                            </h4>
-                            <ul style={{
-                              listStyle: "none",
-                              padding: 0,
-                              margin: 0
-                            }}>
-                              {accountSettings.map((item, index) => (
-                                <li key={index} style={{
-                                  borderBottom: index !== accountSettings.length - 1 ? 
-                                    `1px solid ${theme.colors.border}` : 
-                                    "none"
-                                }}>
-                                  <button style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    width: "100%",
-                                    padding: theme.spacing.md,
-                                    backgroundColor: "transparent",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    textAlign: "left"
-                                  }}>
-                                    <span className="material-icons" style={{
-                                      color: theme.colors.text.secondary,
-                                      marginRight: theme.spacing.md
-                                    }}>
-                                      {item.icon}
-                                    </span>
-                                    <span style={{
-                                      flex: 1,
-                                      fontSize: theme.typography.sizes.md,
-                                      color: theme.colors.text.primary
-                                    }}>
-                                      {item.label}
-                                    </span>
-                                    <span className="material-icons" style={{
-                                      color: theme.colors.text.secondary,
-                                      fontSize: "18px"
-                                    }}>
-                                      chevron_right
-                                    </span>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          <div style={{
-                            backgroundColor: "#fff",
-                            borderRadius: theme.borderRadius.lg,
-                            boxShadow: theme.shadows.sm,
-                            overflow: "hidden"
-                          }}>
-                            <h4 style={{
-                              padding: theme.spacing.md,
-                              margin: 0,
-                              borderBottom: `1px solid ${theme.colors.border}`,
-                              fontWeight: theme.typography.fontWeights.medium,
-                              fontSize: theme.typography.sizes.md,
-                              color: theme.colors.text.primary
-                            }}>
-                              Help & Support
-                            </h4>
-                            <ul style={{
-                              listStyle: "none",
-                              padding: 0,
-                              margin: 0
-                            }}>
-                              {helpSupportItems.map((item, index) => (
-                                <li key={index} style={{
-                                  borderBottom: index !== helpSupportItems.length - 1 ? 
-                                    `1px solid ${theme.colors.border}` : 
-                                    "none"
-                                }}>
-                                  <button style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    width: "100%",
-                                    padding: theme.spacing.md,
-                                    backgroundColor: "transparent",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    textAlign: "left"
-                                  }}>
-                                    <span className="material-icons" style={{
-                                      color: theme.colors.text.secondary,
-                                      marginRight: theme.spacing.md
-                                    }}>
-                                      {item.icon}
-                                    </span>
-                                    <span style={{
-                                      flex: 1,
-                                      fontSize: theme.typography.sizes.md,
-                                      color: theme.colors.text.primary
-                                    }}>
-                                      {item.label}
-                                    </span>
-                                    <span className="material-icons" style={{
-                                      color: theme.colors.text.secondary,
-                                      fontSize: "18px"
-                                    }}>
-                                      chevron_right
-                                    </span>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          minHeight: "60vh",
-                          padding: theme.spacing.lg
-                        }}>
-                          <div style={{
-                            width: "80px",
-                            height: "80px",
-                            borderRadius: "50%",
-                            backgroundColor: `${theme.colors.primary}15`,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginBottom: theme.spacing.lg
-                          }}>
-                            <span className="material-icons" style={{
-                              fontSize: "40px",
-                              color: theme.colors.primary
-                            }}>account_circle</span>
-                          </div>
-                          
-                          <h2 style={{
-                            fontSize: theme.typography.sizes.xl,
-                            fontWeight: theme.typography.fontWeights.semibold,
-                            marginBottom: theme.spacing.md,
-                            color: theme.colors.text.primary,
-                            textAlign: "center"
-                          }}>Sign in to your account</h2>
-                          
-                          <p style={{
-                            fontSize: theme.typography.sizes.md,
-                            color: theme.colors.text.secondary,
-                            marginBottom: theme.spacing.lg,
-                            textAlign: "center",
-                            maxWidth: "300px"
-                          }}>
-                            Login to access your profile, view order history, and checkout faster
-                          </p>
-                          
-                          <div style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: theme.spacing.md,
-                            width: "100%",
-                            maxWidth: "300px"
-                          }}>
-                            <button
-                              onClick={handleOpenLoginModal}
-                              style={{
-                                width: "100%",
-                                padding: theme.spacing.md,
-                                backgroundColor: theme.colors.primary,
-                                color: "#fff",
-                                border: "none",
-                                borderRadius: theme.borderRadius.md,
-                                fontSize: theme.typography.sizes.md,
-                                fontWeight: theme.typography.fontWeights.medium,
-                                cursor: "pointer"
-                              }}
-                            >
-                              Login
-                            </button>
-                            
-                            <button
-                              onClick={handleOpenSignupModal}
-                              style={{
-                                width: "100%",
-                                padding: theme.spacing.md,
-                                backgroundColor: "#fff",
-                                color: theme.colors.primary,
-                                border: `1px solid ${theme.colors.primary}`,
-                                borderRadius: theme.borderRadius.md,
-                                fontSize: theme.typography.sizes.md,
-                                fontWeight: theme.typography.fontWeights.medium,
-                                cursor: "pointer"
-                              }}
-                            >
-                              Create Account
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <ProfileView />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -773,7 +496,8 @@ const OrderEaseApp = () => {
           </DesktopLayout>
         )
       )}
-        {/* Add a global keyframe for spinner animation */}
+
+      {/* Add a global keyframe for spinner animation */}
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
@@ -795,7 +519,7 @@ const OrderEaseApp = () => {
         isOpen={isSignupModalOpen} 
         onClose={handleCloseSignupModal} 
       />
-    </>
+    </ErrorBoundary>
   );
 };
 

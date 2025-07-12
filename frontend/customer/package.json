@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-     "build": "NODE_OPTIONS='--max-old-space-size=4096' vite build",
+    "build": "NODE_OPTIONS='--max-old-space-size=4096' vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -17,6 +17,7 @@
     "axios": "^1.10.0",
     "framer-motion": "^12.18.1",
     "html5-qrcode": "^2.3.8",
+    "jspdf": "^3.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.2",
