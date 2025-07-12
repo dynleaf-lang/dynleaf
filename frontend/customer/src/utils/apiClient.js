@@ -10,7 +10,7 @@ import {
 import { getCachedData, setCachedData } from './cacheHelper';
 
 // API base URL from environment variables or default
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 const PUBLIC_API_PATH = '/api/public';
  
 // Configuration options with defaults
@@ -765,6 +765,55 @@ export const api = {
           return response.data;
         } catch (error) {
           console.error('Error fetching customer orders:', error);
+          throw error;
+        }
+      }
+    },
+
+    // Favorites APIs
+    favorites: {
+      // Get customer's favorites
+      getFavorites: async (identifier) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/favorites/${identifier}`);
+          return response.data;
+        } catch (error) {
+          console.error('Error fetching favorites:', error);
+          throw error;
+        }
+      },
+
+      // Check if a product is favorite
+      isFavorite: async (identifier, productId) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/favorites/${identifier}/${productId}`);
+          return response.data;
+        } catch (error) {
+          console.error('Error checking favorite status:', error);
+          throw error;
+        }
+      },
+
+      // Add product to favorites
+      addToFavorites: async (identifier, productId) => {
+        try {
+          const response = await apiClient.post(`${PUBLIC_API_PATH}/favorites/${identifier}`, {
+            productId: productId
+          });
+          return response.data;
+        } catch (error) {
+          console.error('Error adding to favorites:', error);
+          throw error;
+        }
+      },
+
+      // Remove product from favorites
+      removeFromFavorites: async (identifier, productId) => {
+        try {
+          const response = await apiClient.delete(`${PUBLIC_API_PATH}/favorites/${identifier}/${productId}`);
+          return response.data;
+        } catch (error) {
+          console.error('Error removing from favorites:', error);
           throw error;
         }
       }

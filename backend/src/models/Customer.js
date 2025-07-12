@@ -45,6 +45,16 @@ const customerSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    favorites: [{
+        productId: {
+            type: String,
+            required: true
+        },
+        addedAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
     createdAt: {
         type: Date,
         default: Date.now,

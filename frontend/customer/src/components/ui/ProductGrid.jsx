@@ -7,8 +7,7 @@ import { useRestaurant } from "../../context/RestaurantContext";
 const ProductGrid = ({ products, onAdd }) => {
   const { isDesktop, isTablet, isMobile } = useResponsive();
   const { categories } = useRestaurant();
-
-  console.log('products in ProductGrid:', products);
+ 
   
 
   // Find subcategories from the global categories list

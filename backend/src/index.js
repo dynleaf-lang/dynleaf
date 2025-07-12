@@ -99,12 +99,6 @@ mongoose.set('strictQuery', false);
 // This must be done before importing routes
 require('./models');
 
-// Import debug middleware
-const debugMiddleware = require('./middleware/debugMiddleware');
-
-// Then apply debug middleware
-app.use(debugMiddleware);
-
 // Import routes
 const userRoutes = require('./routes/userRoutes');  
 const categoryRoutes = require('./routes/categoryRoutes'); 
@@ -118,6 +112,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const floorRoutes = require('./routes/floorRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
+const favoritesRoutes = require('./routes/favoritesRoutes');
 
 // Import public routes for customer application
 const publicTableRoutes = require('./routes/publicTableRoutes');
@@ -175,6 +170,7 @@ app.use('/api/public/menus', publicMenuRoutes);
 app.use('/api/public/branches', publicBranchRoutes);
 app.use('/api/public/orders', publicOrderRoutes);
 app.use('/api/public/taxes', publicTaxRoutes);
+app.use('/api/public/favorites', favoritesRoutes);
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/diagnostics', diagnosticRoutes);

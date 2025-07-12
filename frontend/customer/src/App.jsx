@@ -8,6 +8,7 @@ import { TaxProvider } from "./context/TaxContext";
 import AuthProvider from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import { NotificationProvider } from "./context/NotificationContext";
+import { FavoritesProvider } from "./context/FavoritesContext";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
@@ -75,18 +76,20 @@ const App = () => {
 				<CurrencyProvider>
 					<TaxProvider>
 						<AuthProvider>
-							<SocketProvider>
-								<NotificationProvider>
-									<CartProvider>						<ServerStatusCheck />
+							<FavoritesProvider>
+								<SocketProvider>
+									<NotificationProvider>
+											<CartProvider>						<ServerStatusCheck />
 						<ConnectionStatusModal />
 						<NetworkErrorHandler />
 						<SessionTimeoutManager />
 						<OrderEaseApp />
 						<CartAnimationEffect />
 						<NotificationToast />
-									</CartProvider>
-								</NotificationProvider>
-							</SocketProvider>
+										</CartProvider>
+									</NotificationProvider>
+								</SocketProvider>
+							</FavoritesProvider>
 						</AuthProvider>
 					</TaxProvider>
 				</CurrencyProvider>

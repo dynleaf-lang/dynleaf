@@ -7,6 +7,7 @@ import PreLoader from "../ui/PreLoader";
 import QRInstructions from "../ui/QRInstructions";
 import MenuView from "../ui/MenuView";
 import SearchView from "../ui/SearchView";
+import FavoritesView from "../ui/FavoritesView";
 import OrdersView from "../ui/OrdersView";
 import ProfileView from "../ui/ProfileView";
 import BottomNav from "../ui/BottomNav";
@@ -59,6 +60,37 @@ const OrderEaseApp = () => {
       setIsLoginModalOpen(true);
     }
   }, [authRequired]);
+  
+  // Add global event listener for opening auth modal from favorites
+  useEffect(() => {
+    const handleOpenAuthModal = () => {
+      setIsLoginModalOpen(true);
+    };
+
+    const handleNavigateToMenu = () => {
+      setActiveTab("menu");
+    };
+
+    const handleNavigateToFavorites = () => {
+      setActiveTab("favorites");
+    };
+
+    const handleNavigateToProfile = () => {
+      setActiveTab("profile");
+    };
+
+    window.addEventListener('open-auth-modal', handleOpenAuthModal);
+    window.addEventListener('navigate-to-menu', handleNavigateToMenu);
+    window.addEventListener('navigate-to-favorites', handleNavigateToFavorites);
+    window.addEventListener('navigate-to-profile', handleNavigateToProfile);
+
+    return () => {
+      window.removeEventListener('open-auth-modal', handleOpenAuthModal);
+      window.removeEventListener('navigate-to-menu', handleNavigateToMenu);
+      window.removeEventListener('navigate-to-favorites', handleNavigateToFavorites);
+      window.removeEventListener('navigate-to-profile', handleNavigateToProfile);
+    };
+  }, []);
   
   // Handler for bottom navigation tab changes
   const handleTabChange = (tabId) => {
@@ -204,7 +236,20 @@ const OrderEaseApp = () => {
                       <SearchView />
                     </motion.div>
                   )}
-                    {activeTab === "orders" && (
+                  
+                  {activeTab === "favorites" && (
+                    <motion.div
+                      key="favorites"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <FavoritesView />
+                    </motion.div>
+                  )}
+                  
+                  {activeTab === "orders" && (
                     <motion.div
                       key="orders"
                       initial={{ opacity: 0 }}
@@ -296,7 +341,20 @@ const OrderEaseApp = () => {
                     <SearchView />
                   </motion.div>
                 )}
-                  {activeTab === "orders" && (
+                
+                {activeTab === "favorites" && (
+                  <motion.div
+                    key="favorites"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <FavoritesView />
+                  </motion.div>
+                )}
+                
+                {activeTab === "orders" && (
                   <motion.div
                     key="orders"
                     initial={{ opacity: 0 }}

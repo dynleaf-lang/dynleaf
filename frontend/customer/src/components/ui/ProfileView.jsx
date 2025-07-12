@@ -1,13 +1,27 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useFavorites } from '../../context/FavoritesContext';
 import ProtectedRoute from '../Utils/ProtectedRoute';
 import { theme } from '../../data/theme';
 
 const ProfileContent = () => {
   const { user, logout } = useAuth();
+  const { favorites } = useFavorites();
+
+  // Handle navigation to favorites
+  const handleNavigateToFavorites = () => {
+    // Emit event to navigate to favorites view
+    window.dispatchEvent(new CustomEvent('navigate-to-favorites'));
+  };
 
   // Account settings items
   const accountSettings = [
+    { 
+      icon: "favorite", 
+      label: "My Favorites", 
+      action: handleNavigateToFavorites,
+      badge: favorites?.length > 0 ? favorites.length : null
+    },
     { icon: "notifications", label: "Notifications" },
     { icon: "payment", label: "Payment Methods" },
     { icon: "location_on", label: "Delivery Addresses" },
@@ -116,26 +130,42 @@ const ProfileContent = () => {
               cursor: "pointer",
               transition: "background-color 0.2s ease"
             }}
-            onMouseEnter={(e) => e.target.style.backgroundColor = theme.colors.backgroundAlt}
-            onMouseLeave={(e) => e.target.style.backgroundColor = "transparent"}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.colors.backgroundAlt}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+            onClick={item.action || (() => {})}
           >
             <span className="material-icons" style={{
               fontSize: "20px",
-              color: theme.colors.text.secondary,
+              color: item.icon === "favorite" ? theme.colors.primary : theme.colors.text.secondary,
               marginRight: theme.spacing.md
             }}>
               {item.icon}
             </span>
             <span style={{
               fontSize: theme.typography.sizes.md,
-              color: theme.colors.text.primary
+              color: theme.colors.text.primary,
+              flex: 1
             }}>
               {item.label}
             </span>
+            {item.badge && (
+              <span style={{
+                backgroundColor: theme.colors.primary,
+                color: "white",
+                borderRadius: "12px",
+                padding: "2px 8px",
+                fontSize: theme.typography.sizes.xs,
+                fontWeight: theme.typography.fontWeights.bold,
+                marginRight: theme.spacing.sm,
+                minWidth: "20px",
+                textAlign: "center"
+              }}>
+                {item.badge}
+              </span>
+            )}
             <span className="material-icons" style={{
               fontSize: "20px",
-              color: theme.colors.text.muted,
-              marginLeft: "auto"
+              color: theme.colors.text.muted
             }}>
               chevron_right
             </span>

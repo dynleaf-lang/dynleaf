@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AddButton from "./AddButton";
 import CurrencyDisplay from "../Utils/CurrencyFormatter";
+import LoginPromptModal from "./LoginPromptModal";
 import { theme } from "../../data/theme";
 import { useCart } from "../../context/CartContext";
 import { useCurrency } from "../../context/CurrencyContext";
+import { useAuth } from "../../context/AuthContext";
+import { useFavorites } from "../../context/FavoritesContext";
 
-const ProductCard = ({ product, isTablet, isDesktop }) => {
+const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, isMobileCompact = false }) => {
   // Handle undefined product
   if (!product) {
     console.error("ProductCard received undefined product");
@@ -23,13 +26,26 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
   
   const { addItem } = useCart();
   const { currencySymbol, formatCurrency } = useCurrency();
+  const { isAuthenticated } = useAuth();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const [showOptions, setShowOptions] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState({});
   const [quantity, setQuantity] = useState(1);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [activeTab, setActiveTab] = useState("size");
   const [lowestPriceSizeVariant, setLowestPriceSizeVariant] = useState(null);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const addBtnRef = useRef(null);
+  
+  // Default image URL for products without images
+  const defaultImage = 'https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png';
+
+  // Handle image error
+  const handleImageError = () => {
+    setImageError(true);
+  };
   
   // Helper function to find the lowest price size variant
   const findLowestPriceSizeVariant = () => {
@@ -84,7 +100,46 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         }
       });
     }
-  }, [product]);// Handle adding product to cart
+  }, [product]);
+
+  // Handle favorites button click
+  const handleFavoritesClick = async (e) => {
+    e.stopPropagation();
+    
+    if (!isAuthenticated) {
+      setShowLoginPrompt(true);
+      return;
+    }
+
+    if (!product?.id) {
+      console.error('Product ID is missing');
+      return;
+    }
+
+    try {
+      setFavoriteLoading(true);
+      await toggleFavorite(product.id);
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      // Could show a toast notification here
+    } finally {
+      setFavoriteLoading(false);
+    }
+  };
+
+  // Handle login prompt actions
+  const handleLoginPromptLogin = () => {
+    setShowLoginPrompt(false);
+    // Navigate to login/signup - you might want to emit an event or use a router here
+    // For now, we'll assume there's a global login function or navigation
+    window.dispatchEvent(new CustomEvent('open-auth-modal'));
+  };
+
+  const handleLoginPromptClose = () => {
+    setShowLoginPrompt(false);
+  };
+
+  // Handle adding product to cart
   const handleAddToCart = (event) => {
     // Get the button's position for animation
     let sourcePosition = null;
@@ -274,7 +329,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2
       };
-      console.log("Modal position for animation:", sourcePosition);
     }
 
     addItem(product, quantity, formattedOptions, sourcePosition);
@@ -305,16 +359,10 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       const selectedSize = selectedOptions.size['Choose Size'];
       let selectedVariant = null;
       
-      console.log(`Calculating price for selected size: "${selectedSize}"`, {
-        sizeVariantsExist: product.sizeVariants && Array.isArray(product.sizeVariants),
-        sizeVariantsCount: product.sizeVariants ? product.sizeVariants.length : 0
-      });
-      
       // First check in sizeVariants
       if (product.sizeVariants && Array.isArray(product.sizeVariants)) {
         selectedVariant = product.sizeVariants.find(variant => {
           const variantName = variant.name || variant.size || variant.label || variant.title;
-          console.log(`Checking variant: "${variantName}" against selected: "${selectedSize}"`);
           return variantName === selectedSize;
         });
       }
@@ -328,7 +376,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       }
       
       if (selectedVariant && selectedVariant.price) {
-        console.log(`Found variant with price: ${selectedVariant.price} for "${selectedSize}"`, selectedVariant);
         // Replace the base price with the variant price
         basePrice = parseFloat(selectedVariant.price);
       }
@@ -426,8 +473,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
       case "size":
         // Check for sizeVariants first and ensure they're properly formatted
         if (product.sizeVariants && Array.isArray(product.sizeVariants) && product.sizeVariants.length > 0) {
-          console.log("Rendering sizeVariants:", product.sizeVariants);
-          
           // Check variant structure for debugging
           if (typeof product.sizeVariants[0] !== 'object') {
             console.error("Invalid sizeVariants structure:", product.sizeVariants);
@@ -435,17 +480,12 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           
           // Transform sizeVariants to the format expected by renderOptionSection
           const sizeOptions = product.sizeVariants.map(variant => {
-            // Debug each variant
-            console.log("Processing variant:", variant);
-            
             return {
               value: variant.name || variant.size || variant.label || variant.title,
               price: parseFloat(variant.price) || 0,
               description: variant.description || null
             };
           });
-          
-          console.log("Transformed size options:", sizeOptions);
           
           return renderOptionSection(
             "size",
@@ -456,7 +496,6 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         }
         // Then check for variants
         else if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
-          console.log("Rendering variants:", product.variants);
           // Transform variants to the format expected by renderOptionSection
           const sizeOptions = product.variants.map(variant => ({
             value: variant.name || variant.size || variant.label || variant.title,
@@ -791,13 +830,13 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         style={{
           backgroundColor: theme.colors.card,
           borderRadius: theme.borderRadius.xl,
-          padding: isDesktop ? "24px" : "20px",
+          padding: isMobileCompact ? "12px" : isDesktop ? "24px" : "20px",
           boxShadow: theme.shadows.md,
           display: "flex",
           flexDirection: "column",
           userSelect: "none",
           cursor: "default",
-          minWidth: isTablet ? "auto" : "180px",
+          minWidth: isMobileCompact ? "150px" : isTablet ? "auto" : "180px",
           maxWidth: "100%",
           transition: `all ${theme.transitions.medium}`,
           border: `1px solid ${theme.colors.border}`,
@@ -840,7 +879,15 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           style={{ position: "absolute", top: "14px", right: "14px", zIndex: 2 }}
         >
           <motion.button
-            aria-label="Add to favorites"
+            onClick={handleFavoritesClick}
+            disabled={favoriteLoading}
+            aria-label={
+              isAuthenticated
+                ? isFavorite(product?.id) 
+                  ? "Remove from favorites" 
+                  : "Add to favorites"
+                : "Login to add to favorites"
+            }
             style={{
               backgroundColor: "rgba(255,255,255,0.85)",
               border: "none",
@@ -850,44 +897,64 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: "pointer",
-              color: theme.colors.text.muted,
+              cursor: favoriteLoading ? "not-allowed" : "pointer",
+              color: isAuthenticated && isFavorite(product?.id) 
+                ? theme.colors.danger 
+                : theme.colors.text.muted,
               boxShadow: theme.shadows.sm,
+              opacity: favoriteLoading ? 0.7 : 1,
             }}
-            whileHover={{ scale: 1.1, color: theme.colors.primary }}
-            whileTap={{ scale: 0.9 }}
+            whileHover={{ 
+              scale: favoriteLoading ? 1 : 1.1, 
+              color: isAuthenticated && isFavorite(product?.id) 
+                ? theme.colors.danger 
+                : theme.colors.primary 
+            }}
+            whileTap={{ scale: favoriteLoading ? 1 : 0.9 }}
           >
-            <span className="material-icons" style={{ fontSize: "18px" }}>
-              favorite_border
-            </span>
+            {favoriteLoading ? (
+              <motion.span
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="material-icons"
+                style={{ fontSize: "18px" }}
+              >
+                refresh
+              </motion.span>
+            ) : (
+              <span className="material-icons" style={{ fontSize: "18px" }}>
+                {isAuthenticated && isFavorite(product?.id) ? "favorite" : "favorite_border"}
+              </span>
+            )}
           </motion.button>
         </div>
 
         <div
           style={{
-            marginBottom: theme.spacing.md,
+            marginBottom: isMobileCompact ? theme.spacing.sm : theme.spacing.md,
             borderRadius: theme.borderRadius.lg,
             backgroundColor: theme.colors.background,
-            padding: theme.spacing.md,
+            padding: isMobileCompact ? theme.spacing.sm : theme.spacing.md,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
             aspectRatio: isDesktop ? "auto" : "1/1",
-            maxHeight: isDesktop ? "160px" : "auto",
+            maxHeight: isMobileCompact ? "120px" : isDesktop ? "160px" : "auto",
           }}
         >
           <motion.img
             whileHover={{ scale: 1.08, rotate: 5 }}
-            src={product.image}
+            src={imageError ? defaultImage : product.image}
             alt={product.title}
             loading="lazy"
+            onError={handleImageError}
             style={{
               width: "100%",
-              height: isDesktop ? "130px" : "100%",
-              objectFit: "contain",
+              height: isMobileCompact ? "100px" : isDesktop ? "130px" : "100%",
+              objectFit: imageError ? "cover" : "contain",
               userSelect: "none",
-              filter: "drop-shadow(0px 8px 16px rgba(0,0,0,0.1))",
-              maxHeight: "140px",
+              filter: imageError ? "none" : "drop-shadow(0px 8px 16px rgba(0,0,0,0.1))",
+              maxHeight: isMobileCompact ? "120px" : "140px",
             }}
             draggable={false}
           />
@@ -896,7 +963,9 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           <h2
             style={{
-              fontSize: isDesktop
+              fontSize: isMobileCompact 
+                ? theme.typography.sizes.md
+                : isDesktop
                 ? theme.typography.sizes.xl
                 : theme.typography.sizes.lg,
               fontWeight: theme.typography.fontWeights.bold,
@@ -910,10 +979,16 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
 
           <p
             style={{
-              fontSize: theme.typography.sizes.sm,
+              fontSize: isMobileCompact 
+                ? theme.typography.sizes.xs
+                : theme.typography.sizes.sm,
               color: theme.colors.text.secondary,
               margin: "0 0 16px 0",
               fontWeight: theme.typography.fontWeights.medium,
+              display: isMobileCompact ? "-webkit-box" : "block",
+              WebkitLineClamp: isMobileCompact ? 2 : "none",
+              WebkitBoxOrient: isMobileCompact ? "vertical" : "initial",
+              overflow: isMobileCompact ? "hidden" : "visible",
             }}
           >
             {product.subtitle}
@@ -924,7 +999,7 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              marginBottom: theme.spacing.md,
+              marginBottom: isMobileCompact ? theme.spacing.sm : theme.spacing.md,
             }}
           >
             {[1, 2, 3, 4, 5].map((star) => (
@@ -932,7 +1007,11 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                 key={star}
                 className="material-icons"
                 style={{
-                  fontSize: isDesktop ? "18px" : "16px",
+                  fontSize: isMobileCompact 
+                    ? "14px"
+                    : isDesktop 
+                    ? "18px" 
+                    : "16px",
                   color:
                     star <= 4
                       ? theme.colors.accent
@@ -945,7 +1024,9 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
             <span
               style={{
                 color: theme.colors.text.secondary,
-                fontSize: theme.typography.sizes.xs,
+                fontSize: isMobileCompact 
+                  ? "10px"
+                  : theme.typography.sizes.xs,
                 marginLeft: "4px",
               }}
             >
@@ -965,7 +1046,9 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                   <span
                     style={{
                       fontWeight: theme.typography.fontWeights.bold,
-                      fontSize: isDesktop
+                      fontSize: isMobileCompact
+                        ? theme.typography.sizes.md
+                        : isDesktop
                         ? theme.typography.sizes.xl
                         : theme.typography.sizes.lg,
                       color: theme.colors.secondary,
@@ -987,7 +1070,9 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                     if (hasSizeVariants || hasVariants) {
                       return (
                         <div style={{ 
-                          fontSize: theme.typography.sizes.xs, 
+                          fontSize: isMobileCompact 
+                            ? "10px" 
+                            : theme.typography.sizes.xs, 
                           color: theme.colors.text.secondary,
                           marginTop: "2px"
                         }}>
@@ -1091,12 +1176,13 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
                     }}
                   >
                     <img
-                      src={product.image}
+                      src={imageError ? defaultImage : product.image}
                       alt={product.title}
+                      onError={handleImageError}
                       style={{
                         width: "100%",
                         height: "100%",
-                        objectFit: "contain",
+                        objectFit: imageError ? "cover" : "contain",
                       }}
                     />
                   </div>                  <div>
@@ -1348,6 +1434,13 @@ const ProductCard = ({ product, isTablet, isDesktop }) => {
           </>
         )}
       </AnimatePresence>
+
+      {/* Login Prompt Modal */}
+      <LoginPromptModal
+        isOpen={showLoginPrompt}
+        onClose={handleLoginPromptClose}
+        onLogin={handleLoginPromptLogin}
+      />
     </>
   );
 };

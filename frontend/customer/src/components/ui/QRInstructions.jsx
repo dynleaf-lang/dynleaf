@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import { useRestaurant } from '../../context/RestaurantContext';
 import { theme } from '../../data/theme';
 import QRDebugger from './QRDebugger';
-import { debugRestaurantData } from '../../utils/debugUtils';
 
 const QRInstructions = () => {
   const { 
@@ -35,7 +34,7 @@ const QRInstructions = () => {
   // Debug restaurant data in development mode only
   useEffect(() => {
     if (isDev && (restaurant || branch)) {
-      debugRestaurantData(restaurant, branch);
+      // Development logging removed
     }
   }, [restaurant, branch, isDev]);
   
