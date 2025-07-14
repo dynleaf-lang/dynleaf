@@ -402,7 +402,8 @@ router.post('/', async (req, res) => {
                     tableId, 
                     { 
                         status: 'occupied',
-                        currentOrderId: savedOrder._id,
+                        currentOrder: savedOrder._id,  // Use currentOrder instead of currentOrderId
+                        isOccupied: true,
                         lastOrderTime: new Date()
                     }
                 );
@@ -552,7 +553,8 @@ router.post('/reset-table/:tableId', async (req, res) => {
             tableId,
             { 
                 status: 'available',
-                currentOrderId: null,
+                currentOrder: null,
+                isOccupied: false,
                 lastOrderTime: null
             },
             { new: true }
@@ -584,7 +586,8 @@ router.post('/reset-all-tables', async (req, res) => {
             {},
             { 
                 status: 'available',
-                currentOrderId: null,
+                currentOrder: null,
+                isOccupied: false,
                 lastOrderTime: null
             }
         );

@@ -3,6 +3,7 @@ import {
   Card,
   CardHeader,
   CardBody,
+  CardFooter,
   Container,
   Row,
   Col,
@@ -22,12 +23,16 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupText,
-  UncontrolledTooltip
+  UncontrolledTooltip,
+  Pagination,
+  PaginationItem,
+  PaginationLink,
+  Collapse
 } from 'reactstrap';
 import { useCustomer } from '../../context/CustomerContext';
 import { AuthContext } from '../../context/AuthContext';
 import Header from '../../components/Headers/Header';
-import { FaSearch, FaEllipsisV, FaPhoneAlt, FaEnvelope, FaMapMarkerAlt, FaStore, FaFilter } from 'react-icons/fa';
+import { FaSearch, FaEllipsisV, FaPhoneAlt, FaEnvelope, FaMapMarkerAlt, FaStore, FaFilter, FaSortAmountDown, FaSortAmountUp, FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 
 const CustomerManagement = () => {
   const [modal, setModal] = useState(false);
@@ -49,6 +54,20 @@ const CustomerManagement = () => {
   const [selectedRestaurant, setSelectedRestaurant] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  
+  // Enhanced filter states
+  const [filterOptions, setFilterOptions] = useState({
+    sortBy: 'name',
+    sortOrder: 'asc',
+    dateRange: 'all',
+    hasEmail: 'all',
+    registrationDate: ''
+  });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  
   const {
     customers,
     loading,
@@ -63,21 +82,131 @@ const CustomerManagement = () => {
   const { user } = useContext(AuthContext);
   const { createCustomer, updateCustomer, deleteCustomer } = useCustomer();
 
-  // Filter customers when search term or customers list changes
-  useEffect(() => {
-    if (customers && Array.isArray(customers)) {
-      const filtered = customers.filter(
-        customer =>
-          (customer.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (customer.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (customer.phone || '').includes(searchTerm) ||
-          (customer.address || '').toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredCustomers(filtered);
-    } else {
-      setFilteredCustomers([]);
+  // Enhanced filtering and sorting logic
+  const getFilteredAndSortedCustomers = () => {
+    if (!customers || !Array.isArray(customers)) {
+      return [];
     }
-  }, [searchTerm, customers]);
+
+    let filtered = customers.filter(customer => {
+      // Basic search filter
+      const searchMatch = searchTerm === '' || 
+        (customer.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.phone || '').includes(searchTerm) ||
+        (customer.address || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+      // Email filter
+      const emailMatch = filterOptions.hasEmail === 'all' ||
+        (filterOptions.hasEmail === 'yes' && customer.email && customer.email.trim() !== '') ||
+        (filterOptions.hasEmail === 'no' && (!customer.email || customer.email.trim() === ''));
+
+      // Date range filter (if registration date is available)
+      let dateMatch = true;
+      if (filterOptions.dateRange !== 'all' && customer.createdAt) {
+        const customerDate = new Date(customer.createdAt);
+        const now = new Date();
+        
+        switch (filterOptions.dateRange) {
+          case 'today':
+            dateMatch = customerDate.toDateString() === now.toDateString();
+            break;
+          case 'week':
+            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            dateMatch = customerDate >= weekAgo;
+            break;
+          case 'month':
+            const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            dateMatch = customerDate >= monthAgo;
+            break;
+          case 'year':
+            const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+            dateMatch = customerDate >= yearAgo;
+            break;
+          default:
+            dateMatch = true;
+        }
+      }
+
+      return searchMatch && emailMatch && dateMatch;
+    });
+
+    // Sort the filtered results
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (filterOptions.sortBy) {
+        case 'name':
+          aValue = (a.name || '').toLowerCase();
+          bValue = (b.name || '').toLowerCase();
+          break;
+        case 'email':
+          aValue = (a.email || '').toLowerCase();
+          bValue = (b.email || '').toLowerCase();
+          break;
+        case 'phone':
+          aValue = a.phone || '';
+          bValue = b.phone || '';
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt || 0);
+          bValue = new Date(b.createdAt || 0);
+          break;
+        default:
+          aValue = (a.name || '').toLowerCase();
+          bValue = (b.name || '').toLowerCase();
+      }
+
+      if (aValue < bValue) return filterOptions.sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return filterOptions.sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  };
+
+  // Get paginated customers
+  const getPaginatedCustomers = () => {
+    const filtered = getFilteredAndSortedCustomers();
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filtered.slice(startIndex, endIndex);
+  };
+
+  // Calculate pagination info
+  const getPaginationInfo = () => {
+    const filtered = getFilteredAndSortedCustomers();
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startItem = totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+    return {
+      totalItems,
+      totalPages,
+      startItem,
+      endItem,
+      currentPage
+    };
+  };
+
+  // Update filtered customers and reset pagination when filters change
+  useEffect(() => {
+    const filtered = getFilteredAndSortedCustomers();
+    setFilteredCustomers(filtered);
+    
+    // Reset to page 1 if current page is beyond the new total pages
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [searchTerm, customers, filterOptions, itemsPerPage]);
+
+  // Update paginated results when page changes
+  useEffect(() => {
+    const paginated = getPaginatedCustomers();
+    // We don't need to set filteredCustomers here as it's calculated in render
+  }, [currentPage]);
 
   // Handle restaurant selection change
   const handleRestaurantChange = async (e) => {
@@ -251,11 +380,77 @@ const CustomerManagement = () => {
   // Handle search input change
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
+  // Handle filter option changes
+  const handleFilterChange = (filterType, value) => {
+    setFilterOptions(prev => ({
+      ...prev,
+      [filterType]: value
+    }));
+    setCurrentPage(1); // Reset to first page when filtering
+  };
+
+  // Handle items per page change
+  const handleItemsPerPageChange = (e) => {
+    setItemsPerPage(Number(e.target.value));
+    setCurrentPage(1);
+  };
+
+  // Handle page change
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  // Generate page numbers for pagination
+  const generatePageNumbers = () => {
+    const { totalPages } = getPaginationInfo();
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      let startPage = Math.max(1, currentPage - 2);
+      let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+      
+      if (endPage - startPage < maxVisiblePages - 1) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
+  // Reset all filters
+  const resetAllFilters = () => {
+    setSearchTerm('');
+    setFilterOptions({
+      sortBy: 'name',
+      sortOrder: 'asc',
+      dateRange: 'all',
+      hasEmail: 'all',
+      registrationDate: ''
+    });
+    setCurrentPage(1);
+    resetFilters(); // Also reset restaurant/branch filters
   };
   
   // Refresh customers list
   const handleRefresh = () => {
     applyFilters(); // Apply current filters when refreshing
+  };
+
+  // Toggle advanced filters
+  const toggleAdvancedFilters = () => {
+    setShowAdvancedFilters(!showAdvancedFilters);
   };
 
   // Toggle filter section visibility
@@ -409,8 +604,9 @@ return (
                                 </Card>
                             )}
 
+                            {/* Enhanced Search and Filter Section */}
                             <Row className="mb-4">
-                                <Col md="4">
+                                <Col md="5">
                                     <InputGroup>
                                         <InputGroupAddon addonType="prepend">
                                             <InputGroupText>
@@ -418,41 +614,222 @@ return (
                                             </InputGroupText>
                                         </InputGroupAddon>
                                         <Input
-                                            placeholder="Search customers..."
+                                            placeholder="Search customers by name, email, phone, or address..."
                                             value={searchTerm}
                                             onChange={handleSearchChange}
                                         />
                                     </InputGroup>
                                 </Col>
+                                <Col md="2">
+                                    <Input
+                                        type="select"
+                                        value={filterOptions.sortBy}
+                                        onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+                                    >
+                                        <option value="name">Sort by Name</option>
+                                        <option value="email">Sort by Email</option>
+                                        <option value="phone">Sort by Phone</option>
+                                        <option value="createdAt">Sort by Date</option>
+                                    </Input>
+                                </Col>
+                                <Col md="2">
+                                    <Button
+                                        color="light"
+                                        block
+                                        onClick={() => handleFilterChange('sortOrder', filterOptions.sortOrder === 'asc' ? 'desc' : 'asc')}
+                                    >
+                                        {filterOptions.sortOrder === 'asc' ? (
+                                            <><FaSortAmountUp className="mr-1" /> Ascending</>
+                                        ) : (
+                                            <><FaSortAmountDown className="mr-1" /> Descending</>
+                                        )}
+                                    </Button>
+                                </Col>
+                                <Col md="2">
+                                    <Button
+                                        color="info"
+                                        outline
+                                        block
+                                        onClick={toggleAdvancedFilters}
+                                    >
+                                        <FaFilter className="mr-1" />
+                                        {showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
+                                    </Button>
+                                </Col>
+                                <Col md="1">
+                                    <Button
+                                        color="secondary"
+                                        outline
+                                        block
+                                        onClick={resetAllFilters}
+                                        title="Reset all filters"
+                                    >
+                                        <i className="fas fa-sync-alt"></i>
+                                    </Button>
+                                </Col>
                             </Row>
-                            
-                            {loading ? (
-                                <div className="text-center py-4">
-                                    <Spinner color="primary" />
-                                </div>
-                            ) : filteredCustomers.length === 0 ? (
-                                <div className="text-center py-4">
-                                    {searchTerm ? (
-                                        <p className="text-muted">No customers found matching your search. Try different keywords or <Button color="link" onClick={() => setSearchTerm('')}>clear search</Button></p>
-                                    ) : (
-                                        <p className="text-muted">No customers found. Click "Add New Customer" to create one.</p>
-                                    )}
-                                </div>
-                            ) : (
-                                <Table className="align-items-center table-flush" responsive hover>
-                                    <thead className="thead-light">
-                                        <tr>
-                                            <th scope="col">Name</th>
-                                            <th scope="col">Contact Information</th>
-                                            <th scope="col">Address</th>
-                                            {user.role === 'Super_Admin' && (
-                                                <th scope="col">Restaurant/Branch</th>
-                                            )}
-                                            {user.role !== 'Super_Admin' && ( <th scope="col">Actions</th> )}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredCustomers.map((customer) => (
+
+                            {/* Advanced Filters Collapse */}
+                            <Collapse isOpen={showAdvancedFilters}>
+                                <Card className="mb-4 bg-light border">
+                                    <CardBody>
+                                        <h5 className="mb-3">
+                                            <FaFilter className="mr-2 text-primary" />
+                                            Advanced Filters
+                                        </h5>
+                                        <Row>
+                                            <Col md="3">
+                                                <FormGroup>
+                                                    <Label for="emailFilter">Email Status</Label>
+                                                    <Input
+                                                        type="select"
+                                                        id="emailFilter"
+                                                        value={filterOptions.hasEmail}
+                                                        onChange={(e) => handleFilterChange('hasEmail', e.target.value)}
+                                                    >
+                                                        <option value="all">All Customers</option>
+                                                        <option value="yes">With Email</option>
+                                                        <option value="no">Without Email</option>
+                                                    </Input>
+                                                </FormGroup>
+                                            </Col>
+                                            <Col md="3">
+                                                <FormGroup>
+                                                    <Label for="dateRangeFilter">Registration Period</Label>
+                                                    <Input
+                                                        type="select"
+                                                        id="dateRangeFilter"
+                                                        value={filterOptions.dateRange}
+                                                        onChange={(e) => handleFilterChange('dateRange', e.target.value)}
+                                                    >
+                                                        <option value="all">All Time</option>
+                                                        <option value="today">Today</option>
+                                                        <option value="week">Last Week</option>
+                                                        <option value="month">Last Month</option>
+                                                        <option value="year">Last Year</option>
+                                                    </Input>
+                                                </FormGroup>
+                                            </Col>
+                                            <Col md="3">
+                                                <FormGroup>
+                                                    <Label for="itemsPerPage">Items per Page</Label>
+                                                    <Input
+                                                        type="select"
+                                                        id="itemsPerPage"
+                                                        value={itemsPerPage}
+                                                        onChange={handleItemsPerPageChange}
+                                                    >
+                                                        <option value="5">5 per page</option>
+                                                        <option value="10">10 per page</option>
+                                                        <option value="25">25 per page</option>
+                                                        <option value="50">50 per page</option>
+                                                        <option value="100">100 per page</option>
+                                                    </Input>
+                                                </FormGroup>
+                                            </Col>
+                                            <Col md="3" className="d-flex align-items-end">
+                                                <Button
+                                                    color="primary"
+                                                    outline
+                                                    block
+                                                    onClick={resetAllFilters}
+                                                    className="mb-3"
+                                                >
+                                                    <i className="fas fa-eraser mr-1"></i>
+                                                    Clear All Filters
+                                                </Button>
+                                            </Col>
+                                        </Row>
+                                    </CardBody>
+                                </Card>
+                            </Collapse>
+
+                            {/* Results Summary */}
+                            {(() => {
+                                const paginationInfo = getPaginationInfo();
+                                const paginatedCustomers = getPaginatedCustomers();
+                                
+                                return (
+                                    <>
+                                        {paginationInfo.totalItems > 0 && (
+                                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                                <div>
+                                                    <Badge color="primary" pill className="mr-2">
+                                                        {paginationInfo.totalItems} total customers
+                                                    </Badge>
+                                                    <small className="text-muted">
+                                                        Showing {paginationInfo.startItem}-{paginationInfo.endItem} of {paginationInfo.totalItems} customers
+                                                    </small>
+                                                </div>
+                                                <div>
+                                                    <small className="text-muted">
+                                                        Page {paginationInfo.currentPage} of {paginationInfo.totalPages}
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {loading ? (
+                                            <div className="text-center py-5">
+                                                <Spinner color="primary" style={{ width: '3rem', height: '3rem' }} />
+                                                <p className="mt-3 text-muted">Loading customers...</p>
+                                            </div>
+                                        ) : paginationInfo.totalItems === 0 ? (
+                                            <div className="text-center py-5">
+                                                <div className="mb-3">
+                                                    <i className="fas fa-users text-muted" style={{ fontSize: '3rem' }}></i>
+                                                </div>
+                                                {searchTerm || filterOptions.hasEmail !== 'all' || filterOptions.dateRange !== 'all' ? (
+                                                    <>
+                                                        <h4 className="text-muted">No customers match your filters</h4>
+                                                        <p className="text-muted">
+                                                            Try adjusting your search criteria or{' '}
+                                                            <Button color="link" onClick={resetAllFilters} className="p-0">
+                                                                clear all filters
+                                                            </Button>
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <h4 className="text-muted">No customers found</h4>
+                                                        <p className="text-muted">
+                                                            Get started by adding your first customer
+                                                        </p>
+                                                        {user.role !== 'Super_Admin' && (
+                                                            <Button color="primary" onClick={toggle}>
+                                                                <i className="fas fa-user-plus mr-2"></i>
+                                                                Add First Customer
+                                                            </Button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <Table className="align-items-center table-flush" responsive hover>
+                                                    <thead className="thead-light">
+                                                        <tr>
+                                                            <th scope="col" className="sort-header" onClick={() => handleFilterChange('sortBy', 'name')} style={{ cursor: 'pointer' }}>
+                                                                Name
+                                                                {filterOptions.sortBy === 'name' && (
+                                                                    <i className={`fas fa-sort-${filterOptions.sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>
+                                                                )}
+                                                            </th>
+                                                            <th scope="col" className="sort-header" onClick={() => handleFilterChange('sortBy', 'email')} style={{ cursor: 'pointer' }}>
+                                                                Contact Information
+                                                                {filterOptions.sortBy === 'email' && (
+                                                                    <i className={`fas fa-sort-${filterOptions.sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>
+                                                                )}
+                                                            </th>
+                                                            <th scope="col">Address</th>
+                                                            {user.role === 'Super_Admin' && (
+                                                                <th scope="col">Restaurant/Branch</th>
+                                                            )}
+                                                            {user.role !== 'Super_Admin' && <th scope="col">Actions</th>}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {paginatedCustomers.map((customer) => (
                                             <tr key={customer._id}>
                                                 <td>
                                                     <div className="font-weight-bold">{customer.name}</div>
@@ -526,10 +903,84 @@ return (
                                                 </td>
                                                 )}
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </Table>
-                            )}
+                                                        ))}
+                                                    </tbody>
+                                                </Table>
+                                                
+                                                {/* Pagination Section */}
+                                                {(() => {
+                                                    const paginationInfo = getPaginationInfo();
+                                                    const pageNumbers = generatePageNumbers();
+                                                    
+                                                    return paginationInfo.totalPages > 1 && (
+                                                        <CardFooter className="py-4">
+                                                            <div className="d-flex justify-content-between align-items-center">
+                                                                <div>
+                                                                    <small className="text-muted">
+                                                                        Showing {paginationInfo.startItem}-{paginationInfo.endItem} of {paginationInfo.totalItems} customers
+                                                                    </small>
+                                                                </div>
+                                                                <nav aria-label="Customer pagination">
+                                                                    <Pagination
+                                                                        className="pagination justify-content-end mb-0"
+                                                                        listClassName="justify-content-end mb-0"
+                                                                    >
+                                                                        {/* Previous Button */}
+                                                                        <PaginationItem className={currentPage === 1 ? 'disabled' : ''}>
+                                                                            <PaginationLink
+                                                                                href="#"
+                                                                                onClick={(e) => {
+                                                                                    e.preventDefault();
+                                                                                    if (currentPage > 1) handlePageChange(currentPage - 1);
+                                                                                }}
+                                                                                tabIndex={currentPage === 1 ? '-1' : '0'}
+                                                                            >
+                                                                                <FaChevronLeft />
+                                                                                <span className="sr-only">Previous</span>
+                                                                            </PaginationLink>
+                                                                        </PaginationItem>
+                                                                        
+                                                                        {/* Page Numbers */}
+                                                                        {pageNumbers.map(page => (
+                                                                            <PaginationItem key={page} className={currentPage === page ? 'active' : ''}>
+                                                                                <PaginationLink
+                                                                                    href="#"
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault();
+                                                                                        handlePageChange(page);
+                                                                                    }}
+                                                                                >
+                                                                                    {page}
+                                                                                    {currentPage === page && <span className="sr-only">(current)</span>}
+                                                                                </PaginationLink>
+                                                                            </PaginationItem>
+                                                                        ))}
+                                                                        
+                                                                        {/* Next Button */}
+                                                                        <PaginationItem className={currentPage === paginationInfo.totalPages ? 'disabled' : ''}>
+                                                                            <PaginationLink
+                                                                                href="#"
+                                                                                onClick={(e) => {
+                                                                                    e.preventDefault();
+                                                                                    if (currentPage < paginationInfo.totalPages) handlePageChange(currentPage + 1);
+                                                                                }}
+                                                                                tabIndex={currentPage === paginationInfo.totalPages ? '-1' : '0'}
+                                                                            >
+                                                                                <FaChevronRight />
+                                                                                <span className="sr-only">Next</span>
+                                                                            </PaginationLink>
+                                                                        </PaginationItem>
+                                                                    </Pagination>
+                                                                </nav>
+                                                            </div>
+                                                        </CardFooter>
+                                                    );
+                                                })()}
+                                            </>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </CardBody>
                     </Card>
                 </Col>

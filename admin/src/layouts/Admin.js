@@ -64,14 +64,29 @@ const Admin = (props) => {
     // Skip if no user or verification has been checked already
     if (!user || hasCheckedVerification.current) return;
 
-    // If user exists and email is not verified
-    if (user && !isEmailVerified) {
-      setShowVerificationAlert(true);
+    // Check if verification should be bypassed
+    const bypassVerification = localStorage.getItem('bypassVerification') === 'true';
+    
+    // If user exists, email is not verified, and bypass is not set
+    if (user && !isEmailVerified && !bypassVerification) {
+      console.log('User email not verified, showing OTP modal automatically');
+      
+      // Small delay to let the user see they've successfully logged in
+      setTimeout(() => {
+        setShowOTPModal(true);
+        setShowVerificationAlert(true);
+      }, 1000); // 1 second delay
     }
     
     // Mark as checked for this session - won't run again
     hasCheckedVerification.current = true;
   }, [user, isEmailVerified]);
+
+  // Handle when user closes the modal (but keeps alert visible)
+  const handleCloseOTPModal = () => {
+    setShowOTPModal(false);
+    // Keep the alert visible so they can verify later
+  };
 
   // Handle when user chooses to verify email from alert
   const handleVerifyEmail = () => {
@@ -158,7 +173,7 @@ const Admin = (props) => {
       {/* Simplified Direct OTP verification modal */}
       <DirectOTPModal
         isOpen={showOTPModal}
-        toggle={() => setShowOTPModal(false)}
+        toggle={handleCloseOTPModal}
         onVerified={handleVerificationSuccess}
       />
       

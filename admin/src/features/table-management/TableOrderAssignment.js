@@ -65,19 +65,50 @@ const TableOrderAssignment = () => {
   // Effect to filter available and occupied tables whenever tables array changes
   useEffect(() => {
     if (tables && tables.length > 0) {
+      // Available tables: tables that are available or reserved AND don't have current orders AND are not occupied
       setAvailableTables(tables.filter(table => 
-        table.status === 'available' || table.status === 'reserved'
+        (table.status === 'available' || table.status === 'reserved') && 
+        !table.currentOrder && 
+        !table.currentOrderId && 
+        !table.isOccupied &&
+        table.status !== 'maintenance'
       ));
       
+      // Occupied tables: any table with a current order OR occupied status OR isOccupied flag
       setOccupiedTables(tables.filter(table => 
-        (table.status === 'occupied' || table.isOccupied) && table.currentOrder
+        table.currentOrder || 
+        table.currentOrderId || 
+        table.isOccupied || 
+        table.status === 'occupied'
       ));
+    } else {
+      setAvailableTables([]);
+      setOccupiedTables([]);
     }
+    
+    console.log('Tables filtering update:', {
+      totalTables: tables?.length || 0,
+      availableTables: tables?.filter(table => 
+        (table.status === 'available' || table.status === 'reserved') && 
+        !table.currentOrder && 
+        !table.currentOrderId && 
+        !table.isOccupied &&
+        table.status !== 'maintenance'
+      ).length || 0,
+      occupiedTables: tables?.filter(table => 
+        table.currentOrder || 
+        table.currentOrderId || 
+        table.isOccupied || 
+        table.status === 'occupied'
+      ).length || 0
+    });
   }, [tables]);
   
   // Load tables data with order information
   const loadTables = async () => {
     try {
+      setError(null);
+      
       // First fetch all tables
       await fetchTables();
       
@@ -85,13 +116,15 @@ const TableOrderAssignment = () => {
       const result = await getTablesWithOrders();
       
       if (!result.success) {
-        console.error('Error fetching tables with orders:', result.message);
+        console.warn('Warning fetching tables with orders:', result.message);
+        // Don't throw error, continue with basic table data
       }
       
       // After tables are loaded, load pending orders
-      loadPendingOrders();
+      await loadPendingOrders();
     } catch (err) {
       console.error('Error in loadTables:', err);
+      setError('Failed to load table data. Please try refreshing the page.');
     }
   };
 
@@ -104,22 +137,31 @@ const TableOrderAssignment = () => {
       // Get the branch ID from the authenticated user
       const branchId = user?.branchId;
       if (!branchId) {
-        throw new Error('No branch ID available');
-      }
-      
-      const response = await api.get(`/orders?status=pending,processing,ready&branchId=${branchId}`);
-      
-      if (response.data && response.data.data) {
-        setOrders(response.data.data);
-      } else if (Array.isArray(response.data)) {
-        // Handle case where the API returns the array directly
-        setOrders(response.data);
+        // For super admin or when no branch ID, get all orders
+        const response = await api.get(`/orders?status=pending,processing,ready`);
+        
+        if (response.data && response.data.data) {
+          setOrders(response.data.data);
+        } else if (Array.isArray(response.data)) {
+          setOrders(response.data);
+        } else {
+          setOrders([]);
+        }
       } else {
-        setOrders([]);
+        const response = await api.get(`/orders?status=pending,processing,ready&branchId=${branchId}`);
+        
+        if (response.data && response.data.data) {
+          setOrders(response.data.data);
+        } else if (Array.isArray(response.data)) {
+          setOrders(response.data);
+        } else {
+          setOrders([]);
+        }
       }
     } catch (err) {
       console.error('Error fetching orders:', err);
       setOrderError(err.response?.data?.message || err.message || 'Failed to fetch pending orders');
+      setOrders([]); // Set empty array on error
     } finally {
       setOrderLoading(false);
     }
@@ -261,14 +303,27 @@ const TableOrderAssignment = () => {
       
       if (searchQuery) {
         const searchLower = searchQuery.toLowerCase();
-        matchesSearch = table.TableName.toLowerCase().includes(searchLower) || 
-                        (table.tableId && table.tableId.toLowerCase().includes(searchLower)) ||
-                        (table.currentOrder && typeof table.currentOrder === 'object' && 
-                         table.currentOrder.orderNumber && table.currentOrder.orderNumber.toString().includes(searchQuery));
+        const tableNameMatch = table.TableName?.toLowerCase().includes(searchLower);
+        const tableIdMatch = table.tableId?.toLowerCase().includes(searchLower);
+        
+        let orderNumberMatch = false;
+        if (table.currentOrder) {
+          if (typeof table.currentOrder === 'string') {
+            orderNumberMatch = table.currentOrder.toLowerCase().includes(searchLower);
+          } else if (table.currentOrder.orderNumber) {
+            orderNumberMatch = table.currentOrder.orderNumber.toString().toLowerCase().includes(searchLower);
+          }
+        }
+        
+        matchesSearch = tableNameMatch || tableIdMatch || orderNumberMatch;
       }
       
       if (selectedFloor && table.location) {
-        matchesFloor = table.location.floor === selectedFloor;
+        // Handle both string and object floor references
+        const tableFloorId = typeof table.location.floor === 'object' && table.location.floor !== null
+          ? table.location.floor._id || table.location.floor.id
+          : table.location.floor;
+        matchesFloor = tableFloorId === selectedFloor;
       }
       
       if (selectedZone && table.location) {
@@ -289,12 +344,21 @@ const TableOrderAssignment = () => {
     const floors = tables
       .filter(table => table.location && table.location.floor)
       .map(table => {
-        return {
-          id: table.location.floor,
-          name: typeof table.location.floor === 'object' ? table.location.floor.name : table.location.floor
-        };
+        const floor = table.location.floor;
+        if (typeof floor === 'object' && floor !== null) {
+          return {
+            id: floor._id || floor.id,
+            name: floor.name || `Floor ${floor.level || floor._id || floor.id}`
+          };
+        } else {
+          return {
+            id: floor,
+            name: `Floor ${floor}`
+          };
+        }
       });
       
+    // Remove duplicates based on id
     return [...new Map(floors.map(item => [item.id, item])).values()];
   };
   
@@ -358,16 +422,34 @@ const TableOrderAssignment = () => {
               disabled={!availableTables.length || orderLoading || tableLoading}
             >
               <i className="fas fa-link mr-2"></i> 
-              Assign Order to Table
+              {availableTables.length === 0 ? `No Available Tables (${tables ? tables.length : 0} total)` : `Assign Order to Table (${availableTables.length} available)`}
               {(orderLoading || tableLoading) && <Spinner size="sm" className="ml-2" />}
             </Button>
           </div>
         </CardHeader>
         
         <CardBody>
+          {/* Global Error/Success Messages */}
+          {error && (
+            <Alert color="danger" className="mb-4">
+              <i className="fas fa-exclamation-triangle mr-2"></i>
+              {error}
+            </Alert>
+          )}
+          
+          {success && (
+            <Alert color="success" className="mb-4">
+              <i className="fas fa-check-circle mr-2"></i>
+              {success}
+            </Alert>
+          )}
+          
           <h4 className="mb-3">
             <i className="fas fa-chair mr-2"></i>
             Tables with Active Orders
+            {occupiedTables.length > 0 && (
+              <Badge color="info" className="ml-2">{occupiedTables.length}</Badge>
+            )}
           </h4>
           
           {/* Filters */}
@@ -395,7 +477,7 @@ const TableOrderAssignment = () => {
               >
                 <option value="">All Floors</option>
                 {getUniqueFloors().map(floor => (
-                  <option key={floor.id} value={floor.id}>{floor.name || floor.id}</option>
+                  <option key={floor.id} value={floor.id}>{floor.name}</option>
                 ))}
               </Input>
             </Col>
@@ -438,21 +520,61 @@ const TableOrderAssignment = () => {
           ) : filteredOccupiedTables.length === 0 ? (
             <div className="text-center my-5 py-5 bg-light rounded">
               <i className="fas fa-coffee text-muted" style={{ fontSize: '3rem' }}></i>
-              <h5 className="mt-3 text-muted">No tables are currently assigned to orders</h5>
+              <h5 className="mt-3 text-muted">
+                {occupiedTables.length === 0 
+                  ? "No tables are currently assigned to orders" 
+                  : "No tables match your current filters"}
+              </h5>
               <p className="text-muted">
-                {occupiedTables.length > 0 
-                  ? "Try clearing your filters to see all assigned tables"
-                  : "Assign a table to an order to get started"}
+                {occupiedTables.length === 0 
+                  ? "Assign orders to tables to see them here. Click the button above to get started."
+                  : "Try adjusting your search terms or clearing the filters to see assigned tables"}
               </p>
-              {occupiedTables.length > 0 && (
+              <div className="mt-3">
+                {occupiedTables.length > 0 ? (
+                  <Button
+                    color="primary"
+                    size="sm"
+                    outline
+                    onClick={resetFilters}
+                    className="mr-2"
+                  >
+                    <i className="fas fa-sync-alt mr-1"></i> Clear Filters
+                  </Button>
+                ) : (
+                  <Button
+                    color="primary"
+                    size="sm"
+                    onClick={toggleModal}
+                    disabled={!availableTables.length || orderLoading || tableLoading}
+                  >
+                    <i className="fas fa-link mr-2"></i> 
+                    Assign First Order
+                  </Button>
+                )}
                 <Button
-                  color="primary"
+                  color="info"
                   size="sm"
                   outline
-                  onClick={resetFilters}
+                  onClick={handleRefresh}
+                  disabled={tableLoading}
                 >
-                  <i className="fas fa-sync-alt mr-1"></i> Clear Filters
+                  <i className={`fas fa-sync-alt ${tableLoading ? 'fa-spin' : ''} mr-1`}></i> 
+                  Refresh Data
                 </Button>
+              </div>
+              {tables && tables.length > 0 && (
+                <div className="mt-3 p-3 bg-white rounded border">
+                  <small className="text-muted">
+                    <strong>Debug Info:</strong><br/>
+                    Total tables: {tables.length} | 
+                    Available: {availableTables.length} | 
+                    With orders: {occupiedTables.length} | 
+                    Pending orders: {orders.length}<br/>
+                    <strong>Table Status Breakdown:</strong><br/>
+                    {tables.map(table => `${table.tableId}(${table.TableName}): status=${table.status}, currentOrder=${!!table.currentOrder}, isOccupied=${table.isOccupied}`).join(' | ')}
+                  </small>
+                </div>
               )}
             </div>
           ) : (
@@ -495,7 +617,11 @@ const TableOrderAssignment = () => {
                             {table.location.floor && (
                               <div className="mt-1">
                                 <small className="text-muted mr-1">Floor:</small>
-                                <Badge color="secondary" pill>{table.location.floor}</Badge>
+                                <Badge color="secondary" pill>
+                                  {typeof table.location.floor === 'object' && table.location.floor !== null
+                                    ? (table.location.floor.name || table.location.floor._id || table.location.floor.id)
+                                    : table.location.floor}
+                                </Badge>
                               </div>
                             )}
                           </>
@@ -505,8 +631,8 @@ const TableOrderAssignment = () => {
                         {table.currentOrder ? (
                           <span className="font-weight-bold">
                             {typeof table.currentOrder === 'string' 
-                              ? "Order #" + table.currentOrder.substring(0, 8)
-                              : `#${table.currentOrder.orderNumber || 'Unknown'}`}
+                              ? `#${table.currentOrder.substring(0, 8)}...`
+                              : `#${table.currentOrder.orderNumber || table.currentOrder._id?.substring(0, 8) || 'Unknown'}`}
                           </span>
                         ) : (
                           <span className="text-muted">N/A</span>
@@ -583,11 +709,25 @@ const TableOrderAssignment = () => {
                       {table.tableId} - {table.TableName} ({table.capacity} persons)
                       {table.isVIP ? ' - VIP' : ''}
                       {table.location?.zone ? ` - ${table.location.zone}` : ''}
+                      {table.location?.floor ? ` - Floor: ${
+                        typeof table.location.floor === 'object' && table.location.floor !== null
+                          ? (table.location.floor.name || table.location.floor._id)
+                          : table.location.floor
+                      }` : ''}
                     </option>
                   ))}
                 </Input>
                 <small className="form-text text-muted">
-                  Only showing available and reserved tables
+                  Only showing available and reserved tables without current orders (Found: {availableTables.length})
+                  {tables && tables.length > 0 && availableTables.length === 0 && (
+                    <div className="mt-2 p-2 bg-warning text-dark rounded">
+                      <strong>No tables available because:</strong><br/>
+                      {tables.filter(t => t.status === 'maintenance').length > 0 && `${tables.filter(t => t.status === 'maintenance').length} in maintenance | `}
+                      {tables.filter(t => t.currentOrder || t.currentOrderId).length > 0 && `${tables.filter(t => t.currentOrder || t.currentOrderId).length} have orders | `}
+                      {tables.filter(t => t.isOccupied).length > 0 && `${tables.filter(t => t.isOccupied).length} marked occupied | `}
+                      {tables.filter(t => t.status === 'occupied').length > 0 && `${tables.filter(t => t.status === 'occupied').length} status occupied`}
+                    </div>
+                  )}
                 </small>
               </FormGroup>
               

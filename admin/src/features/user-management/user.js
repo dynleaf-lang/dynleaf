@@ -1131,11 +1131,7 @@ const UserManagement = () => {
                       value={formData.role}
                       onChange={handleInputChange}
                     >
-                      <option value="Branch_Manager">Branch Manager</option>
-                      <option value="Kitchen">Kitchen</option>
-                      <option value="Delivery">Delivery</option>
-                      <option value="POS_Operator">POS Operator</option>
-                      <option value="admin">Admin</option>
+                      <option value="Branch_Manager">Branch Manager</option> 
                       {isSuperAdmin() && <option value="Super_Admin">Super Admin</option>}
                     </Input>
                     <small className="form-text text-muted">

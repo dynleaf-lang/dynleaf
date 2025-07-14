@@ -130,12 +130,15 @@ const FloorPlan = () => {
     const uniqueZones = [...new Set(
       tablesRef.current
         .filter(table => {
-          if (!table.location) return false;
+          if (!table || !table.location || !table.location.floor) return false;
           
           // Handle both string IDs and object references
-          const tableFloorId = typeof table.location.floor === 'object' 
-            ? table.location.floor._id 
-            : table.location.floor;
+          let tableFloorId = null;
+          if (typeof table.location.floor === 'object' && table.location.floor !== null) {
+            tableFloorId = table.location.floor._id;
+          } else if (typeof table.location.floor === 'string') {
+            tableFloorId = table.location.floor;
+          }
           
           return tableFloorId === currentFloorId;
         })
@@ -192,9 +195,9 @@ const FloorPlan = () => {
         
         // Match by floor - handling both string and object IDs
         let matchesFloor = false;
-        if (typeof table.location.floor === 'object' && table.location.floor) {
+        if (typeof table.location.floor === 'object' && table.location.floor !== null) {
           matchesFloor = table.location.floor._id === currentFloorId;
-        } else {
+        } else if (typeof table.location.floor === 'string') {
           matchesFloor = table.location.floor === currentFloorId;
         }
         
@@ -622,7 +625,7 @@ const FloorPlan = () => {
                 <p><strong>Name:</strong> {selectedTable.TableName}</p>
                 <p><strong>Floor:</strong> {floors.find(f => {
                   // Check if floor is an object or string ID
-                  if (typeof selectedTable.location?.floor === 'object') {
+                  if (typeof selectedTable.location?.floor === 'object' && selectedTable.location?.floor !== null) {
                     return f._id === selectedTable.location?.floor._id;
                   }
                   return f._id === selectedTable.location?.floor;

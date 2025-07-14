@@ -58,7 +58,8 @@ const TableReservations = ({ tableId, tableName }) => {
     findCustomerByPhone,
     findCustomerByEmail,
     getCustomers,
-    getTable
+    getTable,
+    updateTable
   } = useContext(TableContext);
   const { customers, createCustomer } = useContext(CustomerContext);
   
@@ -77,6 +78,7 @@ const TableReservations = ({ tableId, tableName }) => {
   const [localError, setLocalError] = useState(null);
   const [localSuccess, setLocalSuccess] = useState(null);
   const [tableCapacity, setTableCapacity] = useState(null); // Added for table capacity
+  const [tableData, setTableData] = useState(null); // Added for full table data including status
  
  
   // Form state
@@ -109,6 +111,7 @@ const TableReservations = ({ tableId, tableName }) => {
         const result = await getTable(tableId);
         if (result.success && result.table) {  
           setTableCapacity(result.table?.data?.capacity);
+          setTableData(result.table?.data); // Store full table data
         } else {
           console.log('Could not fetch table capacity:', result.message);
           // Don't show error to user, just continue without capacity validation
@@ -155,6 +158,23 @@ const TableReservations = ({ tableId, tableName }) => {
     } catch (err) {
       setLocalError('Error fetching reservations');
       console.error('Error fetching reservations:', err);
+    }
+  };
+  
+  // Update table status
+  const handleUpdateTableStatus = async (newStatus) => {
+    try {
+      const result = await updateTable(tableId, { status: newStatus });
+      if (result.success) {
+        setTableData(prev => prev ? {...prev, status: newStatus} : null);
+        setLocalSuccess(`Table status updated to ${newStatus}`);
+        setTimeout(() => setLocalSuccess(null), 3000);
+      } else {
+        setLocalError(result.message || 'Failed to update table status');
+      }
+    } catch (err) {
+      console.error('Error updating table status:', err);
+      setLocalError('Failed to update table status');
     }
   };
 
@@ -525,6 +545,23 @@ const TableReservations = ({ tableId, tableName }) => {
         setLocalSuccess(isEditMode ? 'Reservation updated successfully' : 'Reservation created successfully');
         setIsModalOpen(false);
         fetchReservations(); // Refresh the reservations list
+        
+        // If creating a new reservation for current time, consider updating table status to reserved
+        if (!isEditMode && reservationData.status === 'confirmed') {
+          const now = new Date();
+          const reservationStart = new Date(reservationData.startTime);
+          const reservationEnd = new Date(reservationData.endTime);
+          
+          // If the reservation time overlaps with current time and table is available
+          if (reservationStart <= now && reservationEnd >= now && 
+              tableData && tableData.status === 'available') {
+            try {
+              await handleUpdateTableStatus('reserved');
+            } catch (err) {
+              console.log('Could not auto-update table status:', err);
+            }
+          }
+        }
       } else {
         setLocalError(result.message || 'Failed to save reservation');
       }
@@ -681,6 +718,88 @@ const TableReservations = ({ tableId, tableName }) => {
           {localSuccess && <Alert color="success" toggle={() => setLocalSuccess(null)}>{localSuccess}</Alert>}
           {error && <Alert color="danger">{error}</Alert>}
           
+          {/* Table Status Display */}
+          {tableData && (
+            <div className="mb-3 p-3 bg-light rounded">
+              <Row className="align-items-center">
+                <Col md="6">
+                  <h6 className="mb-1">
+                    <i className="fas fa-table mr-2"></i>Table Status
+                  </h6>
+                  <div className="d-flex align-items-center">
+                    <Badge 
+                      color={
+                        tableData.status === 'available' ? 'success' :
+                        tableData.status === 'occupied' ? 'danger' :
+                        tableData.status === 'reserved' ? 'warning' :
+                        tableData.status === 'maintenance' ? 'secondary' : 'light'
+                      }
+                      className="px-3 py-2 mr-3"
+                    >
+                      {tableData.status === 'available' ? 'Available' :
+                       tableData.status === 'occupied' ? 'Occupied' :
+                       tableData.status === 'reserved' ? 'Reserved' :
+                       tableData.status === 'maintenance' ? 'Maintenance' : 
+                       tableData.status || 'Unknown'}
+                    </Badge>
+                    
+                    <UncontrolledDropdown>
+                      <DropdownToggle caret size="sm" color="secondary">
+                        Change Status
+                      </DropdownToggle>
+                      <DropdownMenu>
+                        <DropdownItem 
+                          onClick={() => handleUpdateTableStatus('available')}
+                          className={tableData.status === 'available' ? 'active' : ''}
+                        >
+                          <Badge color="success" className="mr-2">Available</Badge>
+                          Available
+                        </DropdownItem>
+                        <DropdownItem 
+                          onClick={() => handleUpdateTableStatus('reserved')}
+                          className={tableData.status === 'reserved' ? 'active' : ''}
+                        >
+                          <Badge color="warning" className="mr-2">Reserved</Badge>
+                          Reserved
+                        </DropdownItem>
+                        <DropdownItem 
+                          onClick={() => handleUpdateTableStatus('occupied')}
+                          className={tableData.status === 'occupied' ? 'active' : ''}
+                        >
+                          <Badge color="danger" className="mr-2">Occupied</Badge>
+                          Occupied
+                        </DropdownItem>
+                        <DropdownItem 
+                          onClick={() => handleUpdateTableStatus('maintenance')}
+                          className={tableData.status === 'maintenance' ? 'active' : ''}
+                        >
+                          <Badge color="secondary" className="mr-2">Maintenance</Badge>
+                          Maintenance
+                        </DropdownItem>
+                      </DropdownMenu>
+                    </UncontrolledDropdown>
+                  </div>
+                  {tableData.status === 'reserved' && (
+                    <div className="mt-2">
+                      <small className="text-muted">
+                        <i className="fas fa-info-circle mr-1"></i>
+                        This table is manually marked as reserved. Check reservations below for details.
+                      </small>
+                    </div>
+                  )}
+                </Col>
+                <Col md="6" className="text-right">
+                  <small className="text-muted">
+                    Capacity: {tableCapacity} persons
+                    {tableData.isVIP && (
+                      <Badge color="info" pill className="ml-2">VIP</Badge>
+                    )}
+                  </small>
+                </Col>
+              </Row>
+            </div>
+          )}
+          
           <div className="mb-3 d-flex justify-content-between">
             <Button 
               color="light" 
@@ -799,50 +918,43 @@ const TableReservations = ({ tableId, tableName }) => {
                         </Badge>
                       </td>
                       <td>
-                        <div className="d-flex align-items-center">
-                          {/* Direct buttons instead of dropdown for better visibility */}
+                        <div className="d-flex align-items-center flex-wrap">
+                          {/* Edit button - always visible */}
                           <Button
                             color="primary"
                             size="sm"
-                            className="btn-icon mr-1"
+                            className="mr-1 mb-1"
                             title="Edit Reservation"
                             onClick={() => openReservationModal(reservation)}
                           >
-                            <i className="fas fa-edit"></i>
+                            <i className="fas fa-edit mr-1"></i>
+                            Edit
                           </Button>
                           
-                          {reservation.status !== 'cancelled' && (
+                          {/* Cancel button - only for non-cancelled reservations */}
+                          {reservation.status !== 'cancelled' && reservation.status !== 'noShow' && (
                             <Button
                               color="warning"
                               size="sm"
-                              className="btn-icon mr-1"
+                              className="mr-1 mb-1"
                               title="Cancel Reservation"
                               onClick={() => handleCancelReservation(reservation._id)}
                             >
-                              <i className="fas fa-ban"></i>
+                              <i className="fas fa-ban mr-1"></i>
+                              Cancel
                             </Button>
                           )}
                           
-                          {/* {reservation.status !== 'noShow' && (
-                            <Button
-                              color="dark"
-                              size="sm"
-                              className="btn-icon mr-1"
-                              title="Mark as No-Show"
-                              onClick={() => handleMarkNoShow(reservation._id)}
-                            >
-                              <i className="fas fa-user-slash"></i>
-                            </Button>
-                          )} */}
-                          
+                          {/* Delete button */}
                           <Button
                             color="danger"
                             size="sm"
-                            className="btn-icon"
+                            className="mb-1"
                             title="Delete Reservation"
                             onClick={() => handleDeleteReservation(reservation._id)}
                           >
-                            <i className="fas fa-trash"></i>
+                            <i className="fas fa-trash mr-1"></i>
+                            Delete
                           </Button>
                         </div>
                       </td>

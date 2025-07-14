@@ -12,16 +12,23 @@ import {
   Spinner
 } from "reactstrap";
 import { AuthContext } from "../../context/AuthContext";
+import axios from 'axios';
 
-const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
-  const { user, confirmVerification, resendVerificationEmail } = useContext(AuthContext);
+const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setError: setExternalError }) => {
+  const { user, confirmVerification } = useContext(AuthContext);
   const [verificationCode, setVerificationCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [showToast, setShowToast] = useState(false);
+  // Add shake animation state
+  const [shake, setShake] = useState(false);
+
+  // Use external error state if provided
+  const error = typeof externalError === 'string' ? externalError : '';
+  const setError = typeof setExternalError === 'function' ? setExternalError : () => {};
 
   // Get the email to use for verification
   const getEmailToVerify = () => {
@@ -39,6 +46,48 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
     };
   }, [countdown]);
 
+  // Local function to send verification email without affecting global state
+  const sendVerificationEmailLocal = async (email) => {
+    try {
+      // Get base API URL from environment or use default
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+      
+      console.log('Attempting to send verification email to:', email);
+      
+      // Try both endpoints to maximize chance of success
+      let response;
+      
+      try {
+        // First try the resend-otp endpoint
+        response = await axios.post(`${apiUrl}/api/users/resend-otp`, { email });
+        console.log('Verification email sent successfully via resend-otp');
+      } catch (resendError) {
+        console.log('Could not use resend-otp, falling back to verify-email endpoint:', resendError.message);
+        // Fallback to verify-email endpoint
+        response = await axios.post(`${apiUrl}/api/users/verify-email`, { email });
+        console.log('Verification email sent successfully via verify-email');
+      }
+      
+      return { success: true, response: response.data };
+    } catch (error) {
+      console.error('Error sending verification email:', error);
+      
+      // Provide more detailed error messages
+      let errorMsg = 'Failed to send verification email';
+      if (error.response?.data?.message) {
+        errorMsg = error.response.data.message;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      return { 
+        success: false, 
+        error: error,
+        message: errorMsg
+      };
+    }
+  };
+
   // Send verification email
   const handleSendVerificationEmail = async () => {
     const email = getEmailToVerify();
@@ -52,18 +101,36 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
     
     try {
       console.log("Sending verification email to:", email);
-      const result = await resendVerificationEmail(email);
+      const result = await sendVerificationEmailLocal(email);
       
-      if (result && result.success) {
+      console.log("Verification email result:", result); // Debug log
+      
+      // Check for success - be more flexible with response format
+      if (result && (
+        result.success === true || 
+        result.status === 'success' || 
+        result.message === 'OTP sent successfully' ||
+        (result.response && result.response.message) ||
+        !result.success === false // If success is not explicitly false
+      )) {
         console.log("Email verification sent successfully");
         setEmailSent(true);
         setCountdown(60); // Set 60 second cooldown for resend
+        setError(""); // Clear any previous errors
+        
+        // Force a re-render to ensure state change is applied
+        setTimeout(() => {
+          console.log("Email sent state updated, emailSent should be:", true);
+        }, 100);
       } else {
-        throw new Error(result?.error?.response?.data?.message || "Failed to send verification email");
+        console.log("Email send failed, result:", result);
+        const errorMessage = result?.message || result?.error?.response?.data?.message || "Failed to send verification email";
+        throw new Error(errorMessage);
       }
     } catch (err) {
       console.error("Error sending verification email:", err);
       setError(err.message || "Failed to send verification email. Please try again.");
+      setEmailSent(false); // Ensure we stay on the send email screen
     } finally {
       setSendingEmail(false);
     }
@@ -71,25 +138,23 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
 
   // Handle verification code submission
   const handleSubmitVerification = async (e) => {
-    if (e) e.preventDefault();
-    
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation(); // Prevent bubbling up
+    }
     if (!verificationCode || verificationCode.length !== 6) {
       setError("Please enter a valid 6-digit verification code");
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
       return;
     }
-    
     setLoading(true);
     setError("");
-    
     try {
-      console.log("Submitting verification code:", verificationCode);
       const result = await confirmVerification(verificationCode);
-      
       if (result && result.success) {
-        console.log("OTP verification successful!");
         setSuccess(true);
-        
-        // Update localStorage directly
+        setShowToast(true);
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
           try {
@@ -101,22 +166,29 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
             console.error("Error updating localStorage:", parseError);
           }
         }
-        
-        // Call onVerified callback after delay
-        setTimeout(() => {
-          if (typeof onVerified === 'function') {
-            onVerified();
-          }
-        }, 2000);
+        setTimeout(() => { setShowToast(false); }, 3000);
+        setTimeout(() => { if (typeof onVerified === 'function') { onVerified(); } }, 2000);
       } else {
-        setError("Invalid or expired verification code. Please try again.");
+        setSuccess(false);
+        setShowToast(false);
+        setLoading(false);
+        setError("The code you entered is incorrect or expired. Please check your email and try again. If you did not receive a code, you can resend it.");
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        // Do NOT call onVerified or close modal
+        return;
       }
     } catch (error) {
-      console.error("Error verifying email:", error);
-      setError(error.response?.data?.message || "Verification failed. Please try again.");
-    } finally {
+      setSuccess(false);
+      setShowToast(false);
       setLoading(false);
+      setError(error.response?.data?.message || "Verification failed. Please try again.");
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+      // Do NOT call onVerified or close modal
+      return;
     }
+    setLoading(false);
   };
 
   // Handle resending verification email
@@ -135,15 +207,23 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
   // Send verification email when modal opens - REMOVED automatic sending
   useEffect(() => {
     if (isOpen) {
-      // Reset states when modal opens
       setVerificationCode("");
       setError("");
       setSuccess(false);
       setEmailSent(false);
-      
-      // Automatic email sending removed
+      setSendingEmail(false);
+      setCountdown(0);
+      setShowToast(false);
+    } else {
+      setVerificationCode("");
+      setError("");
+      setSuccess(false);
+      setEmailSent(false);
+      setSendingEmail(false);
+      setCountdown(0);
+      setShowToast(false);
     }
-  }, [isOpen]);
+  }, [isOpen, setError]);
 
   // Render appropriate content based on whether email has been sent
   const renderVerificationContent = () => {
@@ -158,7 +238,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
             We'll send a verification code to <strong>{getEmailToVerify()}</strong>
           </p>
           {error && (
-            <Alert color="danger" toggle={() => setError("")}>
+            <Alert color="danger" isOpen={!!error} toggle={() => setError("")}> 
               {error}
             </Alert>
           )}
@@ -167,6 +247,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
             onClick={handleSendVerificationEmail}
             disabled={sendingEmail}
             className="mt-3"
+            size="lg"
           >
             {sendingEmail ? (
               <><Spinner size="sm" className="mr-1" /> Sending...</>
@@ -180,7 +261,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
     
     return (
       <Form onSubmit={handleSubmitVerification} id="otp-verification-form">
-        <div className="text-center mb-4">
+        <div className={`text-center mb-4${shake ? ' shake' : ''}`}>
           <div className="icon icon-shape icon-shape-info rounded-circle mb-3 shadow">
             <i className="fas fa-shield-alt fa-2x"></i>
           </div>
@@ -194,9 +275,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
         </div>
 
         {error && (
-          <Alert color="danger" toggle={() => setError("")}>
-            {error}
-          </Alert>
+          <Alert color="danger" isOpen={!!error} toggle={() => setError("")}> {error} </Alert>
         )}
 
         <FormGroup>
@@ -213,6 +292,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
             autoComplete="off"
             autoFocus
             onKeyDown={handleKeyDown}
+            disabled={loading}
           />
           <small className="form-text text-muted">
             <i className="fas fa-info-circle mr-1"></i>
@@ -221,8 +301,8 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
         </FormGroup>
 
         <div className="text-center mt-4">
-          <Button color="secondary" className="mr-2" onClick={toggle} type="button">
-            <i className="fas fa-times mr-1"></i> Cancel
+          <Button color="secondary" className="mr-2" onClick={() => setEmailSent(false)} type="button" disabled={loading}>
+            <i className="fas fa-arrow-left mr-1"></i> Back
           </Button>
           <Button 
             type="submit"
@@ -242,7 +322,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
             color="link" 
             size="sm"
             onClick={handleResendVerification}
-            disabled={sendingEmail || countdown > 0}
+            disabled={sendingEmail || countdown > 0 || loading}
             type="button"
           >
             <i className="fas fa-paper-plane mr-1"></i> 
@@ -254,43 +334,147 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified }) => {
   };
 
   return (
-    <Modal 
-      isOpen={isOpen} 
-      toggle={toggle} 
-      size="md" 
-      zIndex={1050}
-      backdrop="static" 
-      keyboard={false}
-      className="direct-otp-modal"
-    >
-      <ModalHeader toggle={toggle} className="bg-gradient-info text-white">
-        <div>
-          <h4 className="mb-0 text-white font-weight-bold">
-            <i className="fas fa-envelope mr-2"></i>
-            {success ? "Verification Complete" : "Verify Your Email"}
-          </h4>
-          <p className="text-white-50 mb-0 small">
-            {!success && "Enter the code we sent to your email"}
-          </p>
-        </div>
-      </ModalHeader>
-      <ModalBody className="pt-4 pb-3">
-        {success ? (
-          <div className="text-center py-4">
-            <div className="icon icon-shape icon-shape-success rounded-circle mb-3">
-              <i className="fas fa-check-circle fa-2x"></i>
-            </div>
-            <h4>Email Verified Successfully!</h4>
-            <p className="text-muted">Your email has been verified and your account is now fully activated.</p>
-            <Button color="success" onClick={toggle}>
-              <i className="fas fa-check mr-1"></i> Continue
-            </Button>
+    <>
+      <Modal 
+        isOpen={isOpen} 
+        toggle={toggle} 
+        size="md" 
+        zIndex={1050}
+        backdrop="static" 
+        keyboard={false}
+        className="direct-otp-modal"
+      >
+        <ModalHeader toggle={toggle} className="bg-gradient-info text-white">
+          <div>
+            <h4 className="mb-0 text-white font-weight-bold">
+              <i className="fas fa-envelope mr-2"></i>
+              {success ? "Verification Complete" : "Verify Your Email"}
+            </h4>
+            <p className="text-white-50 mb-0 small">
+              {!success && "Enter the code we sent to your email"}
+            </p>
           </div>
-        ) : (
-          renderVerificationContent()
-        )}
-      </ModalBody>
-    </Modal>
+        </ModalHeader>
+        <ModalBody className="pt-4 pb-3">
+          {success ? (
+            <div className="text-center py-4">
+              <div className="icon icon-shape icon-shape-success rounded-circle mb-3">
+                <i className="fas fa-check-circle fa-2x"></i>
+              </div>
+              <h4>Email Verified Successfully!</h4>
+              <p className="text-muted">Your email has been verified and your account is now fully activated.</p>
+              <Button color="success" onClick={toggle}>
+                <i className="fas fa-check mr-1"></i> Continue
+              </Button>
+            </div>
+          ) : (
+            renderVerificationContent()
+          )}
+        </ModalBody>
+      </Modal>
+
+      {/* Success Toast Notification */}
+      {showToast && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: '80px',
+            right: '20px',
+            zIndex: 10000,
+            minWidth: '350px',
+            maxWidth: '450px'
+          }}
+        >
+          <Alert 
+            color="success" 
+            isOpen={showToast}
+            toggle={() => setShowToast(false)}
+            className="shadow-lg border-0 mb-0 notification-slide-in"
+            style={{
+              borderRadius: '12px',
+              boxShadow: '0 15px 35px rgba(0,0,0,0.1), 0 5px 15px rgba(0,0,0,0.07)',
+              border: '2px solid #2dce89'
+            }}
+          >
+            <div className="d-flex align-items-start">
+              <div 
+                className="mr-3 mt-1 p-2 rounded-circle bg-white"
+                style={{ color: '#2dce89' }}
+              >
+                <i className="fas fa-check-circle" />
+              </div>
+              <div className="flex-1">
+                <h6 className="mb-1 font-weight-bold text-white">
+                  🎉 Email Verified Successfully!
+                </h6>
+                <p className="mb-0 text-white" style={{ opacity: 0.9, fontSize: '0.875rem' }}>
+                  Your email has been verified and your account is now fully activated.
+                </p>
+              </div>
+              <Button 
+                close 
+                onClick={() => setShowToast(false)}
+                className="ml-2 text-white"
+                style={{ 
+                  fontSize: '1.2rem', 
+                  opacity: 0.8,
+                  background: 'none',
+                  border: 'none'
+                }}
+              />
+            </div>
+            
+            {/* Auto-close progress bar */}
+            <div 
+              className="progress mt-2"
+              style={{ height: '2px', background: 'rgba(255,255,255,0.2)' }}
+            >
+              <div 
+                className="progress-bar bg-white"
+                style={{
+                  animation: 'shrinkWidth 3s linear',
+                  width: '100%'
+                }}
+              ></div>
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      {/* CSS for toast animations */}
+      <style>
+        {`
+          @keyframes shrinkWidth {
+            from { width: 100%; }
+            to { width: 0%; }
+          }
+          .notification-slide-in {
+            animation: slideInRight 0.4s ease-out;
+          }
+          @keyframes slideInRight {
+            from {
+              transform: translateX(100%);
+              opacity: 0;
+            }
+            to {
+              transform: translateX(0);
+              opacity: 1;
+            }
+          }
+          .shake {
+            animation: shake 0.5s;
+          }
+          @keyframes shake {
+            0% { transform: translateX(0); }
+            20% { transform: translateX(-10px); }
+            40% { transform: translateX(10px); }
+            60% { transform: translateX(-10px); }
+            80% { transform: translateX(10px); }
+            100% { transform: translateX(0); }
+          }
+        `}
+      </style>
+    </>
   );
 };
 

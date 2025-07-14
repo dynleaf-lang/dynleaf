@@ -147,6 +147,7 @@ const TableManagementWidget = React.memo(({ tables, reservations, loading }) => 
       occupied: 0,
       available: 0,
       reserved: 0,
+      maintenance: 0,
     };
     
     // Return default stats if no tables data
@@ -156,32 +157,40 @@ const TableManagementWidget = React.memo(({ tables, reservations, loading }) => 
     
     console.log('Processing tables for stats:', tablesData);
     
-    // Count tables by status
+    // Count tables by status using MUTUALLY EXCLUSIVE logic to prevent double counting
     const stats = {...defaultStats, total: tablesData.length};
     
-    for (const table of tablesData) {
-      // Check for specific status indicators first
-      const hasCurrentOrder = Boolean(table.currentOrder) || 
-                              (Array.isArray(table.orders) && table.orders.length > 0);
-                              
-      const hasReservation = Boolean(table.isReserved) || 
-                            (Array.isArray(table.reservations) && table.reservations.length > 0) ||
-                            Boolean(table.currentReservation);
-                            
-      // Get the status string (converted to lowercase for case insensitive comparison)
-      const tableStatus = String(table.status || '').toLowerCase();
- 
-      
-      // Determine table status with priority for orders over reservations
-      if (hasCurrentOrder || tableStatus === 'occupied') {
-        stats.occupied++;
-      } else if (hasReservation || tableStatus === 'reserved') {
-        stats.reserved++;
-      } else {
-        stats.available++;
-      }
-    }
-     
+    // First priority: Occupied tables (takes precedence over all other statuses)
+    const occupiedTables = tablesData.filter(t => 
+      t.currentOrder || t.currentOrderId || t.isOccupied || t.status === 'occupied'
+    );
+    stats.occupied = occupiedTables.length;
+    
+    // Second priority: Reserved tables (excluding already occupied tables)
+    const reservedTables = tablesData.filter(t => 
+      t.status === 'reserved' && !occupiedTables.includes(t)
+    );
+    stats.reserved = reservedTables.length;
+    
+    // Third priority: Maintenance tables (excluding occupied and reserved tables)
+    const maintenanceTables = tablesData.filter(t => 
+      t.status === 'maintenance' && !occupiedTables.includes(t) && !reservedTables.includes(t)
+    );
+    stats.maintenance = maintenanceTables.length;
+    
+    // Fourth priority: Available tables (all remaining tables)
+    const availableTables = tablesData.filter(t => 
+      !occupiedTables.includes(t) && !reservedTables.includes(t) && !maintenanceTables.includes(t)
+    );
+    stats.available = availableTables.length;
+    
+    console.log('Table stats calculated (mutually exclusive):', stats);
+    console.log('Verification - Total should equal sum:', {
+      total: stats.total,
+      sum: stats.occupied + stats.reserved + stats.maintenance + stats.available,
+      matches: stats.total === (stats.occupied + stats.reserved + stats.maintenance + stats.available)
+    });
+    
     return stats;
   }, [tables, directFetchedTables]);
 
@@ -189,8 +198,16 @@ const TableManagementWidget = React.memo(({ tables, reservations, loading }) => 
   const getTableAvailability = () => {
     if (tableStats.total === 0) return 0;
     
-    // Calculate percentage of available tables
-    const availabilityPercentage = Math.round((tableStats.available / tableStats.total) * 100);
+    // Calculate percentage of available tables out of total operational tables
+    // (excluding maintenance tables from the calculation base)
+    const operationalTables = tableStats.available + tableStats.occupied + tableStats.reserved;
+    
+    if (operationalTables === 0) {
+      // All tables are in maintenance
+      return 0;
+    }
+    
+    const availabilityPercentage = Math.round((tableStats.available / operationalTables) * 100);
     return availabilityPercentage;
   };
   
@@ -343,25 +360,33 @@ const TableManagementWidget = React.memo(({ tables, reservations, loading }) => 
                     </h6>
                   </div>
                 </div>
-                <div className="d-flex justify-content-around mt-3">
-                  <div className="text-center">
+                <div className="d-flex justify-content-around mt-3 flex-wrap">
+                  <div className="text-center mb-2">
                     <div className="h4 font-weight-bold mb-0">
                       {loading ? <Spinner size="sm" /> : tableStats.occupied}
                     </div>
                     <Badge color="danger" pill>Occupied</Badge>
                   </div>
-                  <div className="text-center">
+                  <div className="text-center mb-2">
                     <div className="h4 font-weight-bold mb-0">
                       {loading ? <Spinner size="sm" /> : tableStats.available}
                     </div>
                     <Badge color="success" pill>Available</Badge>
                   </div>
-                  <div className="text-center">
+                  <div className="text-center mb-2">
                     <div className="h4 font-weight-bold mb-0">
                       {loading ? <Spinner size="sm" /> : tableStats.reserved}
                     </div>
                     <Badge color="warning" pill>Reserved</Badge>
                   </div>
+                  {tableStats.maintenance > 0 && (
+                    <div className="text-center mb-2">
+                      <div className="h4 font-weight-bold mb-0">
+                        {loading ? <Spinner size="sm" /> : tableStats.maintenance}
+                      </div>
+                      <Badge color="secondary" pill>Maintenance</Badge>
+                    </div>
+                  )}
                 </div>
               </CardBody>
             </Card>

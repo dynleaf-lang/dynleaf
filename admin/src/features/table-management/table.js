@@ -69,6 +69,40 @@ const TableManagement = () => {
   });
   const [selectedTable, setSelectedTable] = useState(null);
   const [reservationsModalOpen, setReservationsModalOpen] = useState(false);
+  const [testMode, setTestMode] = useState(false); // Hidden test mode for debugging
+
+  // Test function to manually set table statuses (for debugging)
+  const setTestStatuses = async () => {
+    if (!tables || tables.length === 0) return;
+    
+    try {
+      // Set different statuses for testing
+      const updates = [
+        { index: 0, update: { status: 'occupied', isOccupied: true } },
+        { index: 1, update: { status: 'occupied' } },
+        { index: 2, update: { status: 'reserved' } },
+        { index: 3, update: { status: 'maintenance' } },
+      ];
+      
+      for (const { index, update } of updates) {
+        if (tables[index]) {
+          await updateTable(tables[index]._id, update);
+        }
+      }
+      
+      // Refresh data after updates
+      if (isSuperAdmin()) {
+        await fetchTables();
+      } else if (user && user.restaurantId && user.branchId) {
+        await fetchTables({
+          restaurantId: user.restaurantId,
+          branchId: user.branchId
+        });
+      }
+    } catch (err) {
+      console.error('Error setting test statuses:', err);
+    }
+  };
 
   // Form state
   const [formData, setFormData] = useState({
@@ -82,7 +116,8 @@ const TableManagement = () => {
       floor: null
     },
     isVIP: false,
-    notes: ''
+    notes: '',
+    status: 'available'
   });
 
   // Fetch tables and zones when component mounts
@@ -136,7 +171,8 @@ const TableManagement = () => {
         floor: null
       },
       isVIP: false,
-      notes: ''
+      notes: '',
+      status: 'available'
     });
   };
   
@@ -154,7 +190,8 @@ const TableManagement = () => {
         floor: table.location?.floor || null
       },
       isVIP: table.isVIP || false,
-      notes: table.notes || ''
+      notes: table.notes || '',
+      status: table.status || 'available'
     });
     setModalOpen(true);
   };
@@ -265,18 +302,24 @@ const TableManagement = () => {
     );
   }
 
-  // Get status badge
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'occupied':
-        return <Badge color="danger">Occupied</Badge>;
-      case 'reserved':
-        return <Badge color="warning">Reserved</Badge>;
-      case 'maintenance':
-        return <Badge color="secondary">Maintenance</Badge>;
-      case 'available':
-      default:
-        return <Badge color="success">Available</Badge>;
+  // Get status badge with mutually exclusive logic (matches badge counts)
+  const getStatusBadge = (table) => {
+    // Use the same priority-based logic as badge counts
+    // 1. Occupied (highest priority)
+    if (table.currentOrder || table.currentOrderId || table.isOccupied || table.status === 'occupied') {
+      return <Badge color="danger">Occupied</Badge>;
+    }
+    // 2. Reserved (if not occupied)
+    else if (table.status === 'reserved') {
+      return <Badge color="warning">Reserved</Badge>;
+    }
+    // 3. Maintenance (if not occupied or reserved)
+    else if (table.status === 'maintenance') {
+      return <Badge color="secondary">Maintenance</Badge>;
+    }
+    // 4. Available (all remaining)
+    else {
+      return <Badge color="success">Available</Badge>;
     }
   };
 
@@ -350,9 +393,74 @@ const TableManagement = () => {
                     </h3>
                     <p className="mb-0 small">
                       <i className="fas fa-info-circle mr-1"></i>Manage your restaurant's tables
+                      {tables && tables.length > 0 && (() => {
+                        // Calculate mutually exclusive counts
+                        const occupiedTables = tables.filter(t => 
+                          t.currentOrder || t.currentOrderId || t.isOccupied || t.status === 'occupied'
+                        );
+                        const reservedTables = tables.filter(t => 
+                          t.status === 'reserved' && !occupiedTables.includes(t)
+                        );
+                        const maintenanceTables = tables.filter(t => 
+                          t.status === 'maintenance' && !occupiedTables.includes(t) && !reservedTables.includes(t)
+                        );
+                        const availableTables = tables.filter(t => 
+                          !occupiedTables.includes(t) && !reservedTables.includes(t) && !maintenanceTables.includes(t)
+                        );
+                        
+                        // Verification: Ensure counts are consistent
+                        const totalCount = availableTables.length + occupiedTables.length + reservedTables.length + maintenanceTables.length;
+                        const isConsistent = totalCount === tables.length;
+                        
+                        return (
+                          <span className="ml-2">
+                            <Badge color="success" className="mr-1">
+                              {availableTables.length} Available
+                            </Badge>
+                            <Badge color="danger" className="mr-1">
+                              {occupiedTables.length} Occupied
+                            </Badge>
+                            <Badge color="warning" className="mr-1">
+                              {reservedTables.length} Reserved
+                            </Badge>
+                            <Badge color="secondary" className="mr-1">
+                              {maintenanceTables.length} Maintenance
+                            </Badge>
+                            {!isConsistent && (
+                              <Badge color="danger" className="ml-1">
+                                <i className="fas fa-exclamation-triangle mr-1"></i>
+                                Count Mismatch ({totalCount}/{tables.length})
+                              </Badge>
+                            )}
+                          </span>
+                        );
+                      })()}
                     </p>
                   </div>
                   <div>
+                    <Button color="info" size="sm" className="mr-2" onDoubleClick={() => setTestMode(!testMode)} onClick={async () => {
+                      // Force a complete data refresh
+                      try {
+                        // Refresh tables to get latest status
+                        if (isSuperAdmin()) {
+                          await fetchTables();
+                        } else if (user && user.restaurantId && user.branchId) {
+                          await fetchTables({
+                            restaurantId: user.restaurantId,
+                            branchId: user.branchId
+                          });
+                        }
+                      } catch (err) {
+                        console.error('Error refreshing table status:', err);
+                      }
+                    }}>
+                      <i className="fas fa-sync-alt mr-1"></i> Refresh Status
+                    </Button>
+                    {testMode && (
+                      <Button color="warning" size="sm" className="mr-2" onClick={setTestStatuses}>
+                        <i className="fas fa-vial mr-1"></i> Set Test Statuses
+                      </Button>
+                    )}
                     <Button color="primary" className="font-weight-bold" onClick={() => {
                       setCurrentEditItem(null);
                       setModalOpen(true);
@@ -459,6 +567,7 @@ const TableManagement = () => {
                       <th scope="col">Zone</th>
                       <th scope="col">Floor</th>
                       <th scope="col">Status</th>
+                      <th scope="col">Current Order</th>
                       <th scope="col">QR Code</th>
                       <th scope="col">Actions</th>
                     </tr>
@@ -466,7 +575,7 @@ const TableManagement = () => {
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td colSpan="8" className="text-center py-4">
+                        <td colSpan="9" className="text-center py-4">
                           <div className="spinner-border text-primary" role="status">
                             <span className="sr-only">Loading...</span>
                           </div>
@@ -474,7 +583,7 @@ const TableManagement = () => {
                       </tr>
                     ) : error ? (
                       <tr>
-                        <td colSpan="8" className="text-center py-4">
+                        <td colSpan="9" className="text-center py-4">
                           <p className="text-danger mb-0">Error loading tables: {error}</p>
                         </td>
                       </tr>
@@ -505,7 +614,24 @@ const TableManagement = () => {
                           )}
                         </td>
                         <td>
-                          {getStatusBadge(table.status || (table.isOccupied ? 'occupied' : 'available'))}
+                          {getStatusBadge(table)}
+                        </td>
+                        <td>
+                          {table.currentOrder || table.currentOrderId ? (
+                            <div>
+                              <Badge color="info" className="mb-1">
+                                <i className="fas fa-utensils mr-1"></i>
+                                Active Order
+                              </Badge>
+                              {table.currentOrder && table.currentOrder.orderNumber && (
+                                <div className="small text-muted">
+                                  #{table.currentOrder.orderNumber}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted small">No active order</span>
+                          )}
                         </td>
                         <td>
                           <Button
@@ -600,7 +726,7 @@ const TableManagement = () => {
                                 deleteTable(table._id);
                               }
                             }}
-                            disabled={table.isOccupied || table.status === 'occupied'}
+                            disabled={table.isOccupied || table.status === 'occupied' || table.currentOrder || table.currentOrderId}
                           >
                             <i className="fas fa-trash"></i>
                           </Button>
@@ -608,7 +734,7 @@ const TableManagement = () => {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="8" className="text-center py-4">
+                        <td colSpan="9" className="text-center py-4">
                           <p className="font-italic text-muted mb-0">No tables available</p>
                         </td>
                       </tr>
@@ -790,6 +916,26 @@ const TableManagement = () => {
                       <option value="" disabled>Loading floors...</option>
                     )}
                   </Input>
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label for="status">Table Status</Label>
+                  <Input
+                    type="select"
+                    name="status"
+                    id="status"
+                    value={formData.status || 'available'}
+                    onChange={handleInputChange}
+                  >
+                    <option value="available">Available</option>
+                    <option value="occupied">Occupied</option>
+                    <option value="reserved">Reserved</option>
+                    <option value="maintenance">Maintenance</option>
+                  </Input>
+                  <small className="form-text text-muted">
+                    Current status of the table
+                  </small>
                 </FormGroup>
               </Col>
             </Row>

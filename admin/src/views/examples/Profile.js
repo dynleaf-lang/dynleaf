@@ -21,7 +21,8 @@ import {
 import UserHeader from "components/Headers/UserHeader.js";
 import { useContext, useState, useEffect, useRef } from "react";
 import { AuthContext } from "../../context/AuthContext"; 
-import EmailVerificationModal from "../../components/Modals/EmailVerificationModal";import OTPVerificationModal from "../../components/Modals/OTPVerificationModal"; // Add OTP modal import
+import EmailVerificationModal from "../../components/Modals/EmailVerificationModal";
+import DirectOTPModal from "../../components/Modals/DirectOTPModal"; // Add OTP modal import
 import axios from "axios";
 
 
@@ -275,6 +276,7 @@ const Profile = () => {
     newPassword: "",
     confirmPassword: ""
   });
+  const [otpError, setOtpError] = useState("");
   const fileInputRef = useRef(null);
      
   
@@ -597,8 +599,6 @@ const Profile = () => {
   
   // Add verification warning banner at the top of profile page when user is unverified
   const renderVerificationWarning = () => { 
-    
-
     // Only show the warning if user exists and is explicitly not verified
     if (user && !isEmailVerified) {
       return (
@@ -613,7 +613,7 @@ const Profile = () => {
               <Button
                 color="warning"
                 size="sm"
-                onClick={handleVerifyEmail}
+                onClick={() => setShowOtpVerificationModal(true)}
                 className="mt-2"
               >
                 <i className="fas fa-envelope mr-1"></i> Verify Email to Enable Editing
@@ -1634,26 +1634,28 @@ const Profile = () => {
       </Modal>
 
       {/* OTP Verification Modal */}
-      <OTPVerificationModal
+      <DirectOTPModal
         isOpen={showOtpVerificationModal}
-        toggle={() => setShowOtpVerificationModal(false)}
-        email={user?.email}
-        onVerified={() => {
-          // Close the modal
+        toggle={() => {
           setShowOtpVerificationModal(false);
-          
-          // Show success message
+          setOtpError("");
+        }}
+        onVerified={() => {
+          setShowOtpVerificationModal(false);
+          setOtpError("");
           setAlert({
             show: true,
             color: "success",
             message: "Email verified successfully! You can now edit your profile."
           });
-          
-          // Refresh user data to update verification status
           if (user) {
             refreshUserData(user.id || user._id);
           }
         }}
+        error={otpError}
+        setError={setOtpError}
+        backdrop="static"
+        keyboard={false}
       />
     </>
   );

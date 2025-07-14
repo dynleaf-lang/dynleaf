@@ -110,6 +110,60 @@ const OrderManagement = () => {
   const [availableTables, setAvailableTables] = useState([]);
   const [updatingStatus, setUpdatingStatus] = useState(false); // Track status update loading
   
+  // Enhanced Smart Filtering State
+  const [smartFilters, setSmartFilters] = useState({
+    amountRange: {
+      min: '',
+      max: '',
+      enabled: false
+    },
+    timeRange: {
+      timeFrom: '',
+      timeTo: '',
+      enabled: false
+    },
+    paymentMethod: '',
+    itemCount: {
+      min: '',
+      max: '',
+      enabled: false
+    },
+    customerType: '', // new, returning, vip
+    location: {
+      city: '',
+      area: '',
+      enabled: false
+    },
+    orderSource: '', // web, mobile, pos, phone
+    quickFilters: {
+      highValue: false, // orders above certain amount
+      recent: false, // last 24 hours
+      largeOrders: false, // more than X items
+      urgentOrders: false, // pending/processing orders older than X minutes
+      problematicOrders: false, // cancelled or problematic orders
+      repeatCustomers: false, // customers with multiple orders
+      firstTimeCustomers: false, // customers with only one order
+      noEmail: false, // customers without email
+      noPhone: false // customers without phone
+    },
+    advancedSearch: {
+      exactMatch: false,
+      searchFields: {
+        orderId: true,
+        customerName: true,
+        customerPhone: true,
+        customerEmail: true,
+        items: false,
+        notes: false,
+        address: false
+      }
+    }
+  });
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [savedFilters, setSavedFilters] = useState([]); // Save/load filter presets
+  const [filterPresetName, setFilterPresetName] = useState('');
+  const [showSaveFilterModal, setShowSaveFilterModal] = useState(false);
+  
   // Notification state for better UX
   const [notification, setNotification] = useState({
     show: false,
@@ -299,7 +353,7 @@ const OrderManagement = () => {
     return { startItem, endItem, totalItems: filteredOrders.length };
   }, [currentPage, itemsPerPage, filteredOrders.length]);
 
-  // Client-side filtering and sorting
+  // Enhanced Smart Client-side filtering and sorting
   const filterOrders = useCallback(() => {
     let filtered = [...orders];
     
@@ -349,48 +403,284 @@ const OrderManagement = () => {
       });
     }
 
-    // Apply search term filter
+    // Enhanced Search Term Filter with Field-Specific Search
     if (searchTerm) {
       const lowercasedTerm = searchTerm.toLowerCase();
+      const searchFields = smartFilters.advancedSearch.searchFields;
+      const exactMatch = smartFilters.advancedSearch.exactMatch;
+      
       filtered = filtered.filter(order => {
+        let matches = false;
+        
         // Search in order ID
-        if (order.orderId && order.orderId.toLowerCase().includes(lowercasedTerm)) {
-          return true;
+        if (searchFields.orderId && order.orderId) {
+          const orderIdMatch = exactMatch 
+            ? order.orderId.toLowerCase() === lowercasedTerm
+            : order.orderId.toLowerCase().includes(lowercasedTerm);
+          if (orderIdMatch) matches = true;
         }
         
         // Search in customer data (object format)
-        if (order.customerId && typeof order.customerId === 'object' && order.customerId !== null) {
-          const customerName = order.customerId.name || order.customerId.firstName || '';
-          const customerPhone = order.customerId.phone || order.customerId.contactNumber || '';
-          const customerEmail = order.customerId.email || '';
-          
-          if (customerName.toLowerCase().includes(lowercasedTerm) ||
-              customerPhone.toLowerCase().includes(lowercasedTerm) ||
-              customerEmail.toLowerCase().includes(lowercasedTerm)) {
-            return true;
+        if (!matches && (searchFields.customerName || searchFields.customerPhone || searchFields.customerEmail)) {
+          if (order.customerId && typeof order.customerId === 'object' && order.customerId !== null) {
+            const customerName = order.customerId.name || order.customerId.firstName || '';
+            const customerPhone = order.customerId.phone || order.customerId.contactNumber || '';
+            const customerEmail = order.customerId.email || '';
+            
+            if (searchFields.customerName && customerName) {
+              const nameMatch = exactMatch 
+                ? customerName.toLowerCase() === lowercasedTerm
+                : customerName.toLowerCase().includes(lowercasedTerm);
+              if (nameMatch) matches = true;
+            }
+            
+            if (searchFields.customerPhone && customerPhone) {
+              const phoneMatch = exactMatch 
+                ? customerPhone.toLowerCase() === lowercasedTerm
+                : customerPhone.toLowerCase().includes(lowercasedTerm);
+              if (phoneMatch) matches = true;
+            }
+            
+            if (searchFields.customerEmail && customerEmail) {
+              const emailMatch = exactMatch 
+                ? customerEmail.toLowerCase() === lowercasedTerm
+                : customerEmail.toLowerCase().includes(lowercasedTerm);
+              if (emailMatch) matches = true;
+            }
           }
         }
         
-        // Search in customer data (string format)
-        if (order.customerId && typeof order.customerId === 'string' && 
-            order.customerId.toLowerCase().includes(lowercasedTerm)) {
-          return true;
-        }
-        
         // Search in direct customer fields
-        if (order.customerName && order.customerName.toLowerCase().includes(lowercasedTerm)) {
-          return true;
+        if (!matches && searchFields.customerName && order.customerName) {
+          const nameMatch = exactMatch 
+            ? order.customerName.toLowerCase() === lowercasedTerm
+            : order.customerName.toLowerCase().includes(lowercasedTerm);
+          if (nameMatch) matches = true;
         }
         
-        if (order.customerPhone && order.customerPhone.toLowerCase().includes(lowercasedTerm)) {
-          return true;
+        if (!matches && searchFields.customerPhone && order.customerPhone) {
+          const phoneMatch = exactMatch 
+            ? order.customerPhone.toLowerCase() === lowercasedTerm
+            : order.customerPhone.toLowerCase().includes(lowercasedTerm);
+          if (phoneMatch) matches = true;
         }
         
-        if (order.customerEmail && order.customerEmail.toLowerCase().includes(lowercasedTerm)) {
-          return true;
+        if (!matches && searchFields.customerEmail && order.customerEmail) {
+          const emailMatch = exactMatch 
+            ? order.customerEmail.toLowerCase() === lowercasedTerm
+            : order.customerEmail.toLowerCase().includes(lowercasedTerm);
+          if (emailMatch) matches = true;
         }
         
-        return false;
+        // Search in order items
+        if (!matches && searchFields.items && order.items && Array.isArray(order.items)) {
+          matches = order.items.some(item => {
+            const itemName = item.name || item.itemName || '';
+            return exactMatch 
+              ? itemName.toLowerCase() === lowercasedTerm
+              : itemName.toLowerCase().includes(lowercasedTerm);
+          });
+        }
+        
+        // Search in notes/special instructions
+        if (!matches && searchFields.notes) {
+          const notes = order.notes || order.specialInstructions || order.comments || '';
+          if (notes) {
+            const notesMatch = exactMatch 
+              ? notes.toLowerCase() === lowercasedTerm
+              : notes.toLowerCase().includes(lowercasedTerm);
+            if (notesMatch) matches = true;
+          }
+        }
+        
+        // Search in delivery address
+        if (!matches && searchFields.address) {
+          const address = order.deliveryAddress || order.address || '';
+          if (address) {
+            const addressMatch = exactMatch 
+              ? address.toLowerCase() === lowercasedTerm
+              : address.toLowerCase().includes(lowercasedTerm);
+            if (addressMatch) matches = true;
+          }
+        }
+        
+        return matches;
+      });
+    }
+
+    // Smart Filter: Amount Range
+    if (smartFilters.amountRange.enabled && (smartFilters.amountRange.min || smartFilters.amountRange.max)) {
+      filtered = filtered.filter(order => {
+        const amount = parseFloat(order.totalAmount || order.total || 0);
+        const min = parseFloat(smartFilters.amountRange.min) || 0;
+        const max = parseFloat(smartFilters.amountRange.max) || Infinity;
+        return amount >= min && amount <= max;
+      });
+    }
+
+    // Smart Filter: Time Range (order time within day)
+    if (smartFilters.timeRange.enabled && (smartFilters.timeRange.timeFrom || smartFilters.timeRange.timeTo)) {
+      filtered = filtered.filter(order => {
+        const orderDate = new Date(order.createdAt || order.orderDate || order.timestamp);
+        if (isNaN(orderDate.getTime())) return false;
+        
+        const orderTime = orderDate.getHours() * 60 + orderDate.getMinutes(); // minutes since midnight
+        const timeFrom = smartFilters.timeRange.timeFrom ? 
+          parseInt(smartFilters.timeRange.timeFrom.split(':')[0]) * 60 + parseInt(smartFilters.timeRange.timeFrom.split(':')[1]) : 0;
+        const timeTo = smartFilters.timeRange.timeTo ? 
+          parseInt(smartFilters.timeRange.timeTo.split(':')[0]) * 60 + parseInt(smartFilters.timeRange.timeTo.split(':')[1]) : 1440;
+        
+        return orderTime >= timeFrom && orderTime <= timeTo;
+      });
+    }
+
+    // Smart Filter: Payment Method
+    if (smartFilters.paymentMethod) {
+      filtered = filtered.filter(order => {
+        const paymentMethod = order.paymentMethod || order.paymentType || '';
+        return paymentMethod.toLowerCase() === smartFilters.paymentMethod.toLowerCase();
+      });
+    }
+
+    // Smart Filter: Item Count Range
+    if (smartFilters.itemCount.enabled && (smartFilters.itemCount.min || smartFilters.itemCount.max)) {
+      filtered = filtered.filter(order => {
+        const itemCount = order.items ? order.items.length : 0;
+        const min = parseInt(smartFilters.itemCount.min) || 0;
+        const max = parseInt(smartFilters.itemCount.max) || Infinity;
+        return itemCount >= min && itemCount <= max;
+      });
+    }
+
+    // Smart Filter: Customer Type
+    if (smartFilters.customerType) {
+      filtered = filtered.filter(order => {
+        // This would require customer order history data
+        // For now, implement basic logic
+        const customerId = order.customerId?._id || order.customerId;
+        if (!customerId) return smartFilters.customerType === 'new';
+        
+        if (smartFilters.customerType === 'new') {
+          // Check if this is customer's first order (simplified)
+          const customerOrders = orders.filter(o => 
+            (o.customerId?._id || o.customerId) === customerId
+          );
+          return customerOrders.length === 1;
+        } else if (smartFilters.customerType === 'returning') {
+          const customerOrders = orders.filter(o => 
+            (o.customerId?._id || o.customerId) === customerId
+          );
+          return customerOrders.length > 1;
+        } else if (smartFilters.customerType === 'vip') {
+          // Could be based on total spent, frequency, etc.
+          return order.customerId?.isVIP || false;
+        }
+        
+        return true;
+      });
+    }
+
+    // Smart Filter: Order Source
+    if (smartFilters.orderSource) {
+      filtered = filtered.filter(order => {
+        const source = order.orderSource || order.source || order.platform || '';
+        return source.toLowerCase() === smartFilters.orderSource.toLowerCase();
+      });
+    }
+
+    // Quick Filters
+    const quickFilters = smartFilters.quickFilters;
+    
+    // High Value Orders (top 20% by amount)
+    if (quickFilters.highValue && orders.length > 0) {
+      const amounts = orders.map(o => parseFloat(o.totalAmount || o.total || 0)).sort((a, b) => b - a);
+      const threshold = amounts[Math.floor(amounts.length * 0.2)] || 0;
+      filtered = filtered.filter(order => parseFloat(order.totalAmount || order.total || 0) >= threshold);
+    }
+
+    // Recent Orders (last 24 hours)
+    if (quickFilters.recent) {
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      filtered = filtered.filter(order => {
+        const orderDate = new Date(order.createdAt || order.orderDate || order.timestamp);
+        return orderDate >= yesterday;
+      });
+    }
+
+    // Large Orders (more than average item count + 1 standard deviation)
+    if (quickFilters.largeOrders && orders.length > 0) {
+      const itemCounts = orders.map(o => o.items ? o.items.length : 0);
+      const avgItems = itemCounts.reduce((a, b) => a + b, 0) / itemCounts.length;
+      const stdDev = Math.sqrt(itemCounts.reduce((sq, n) => sq + Math.pow(n - avgItems, 2), 0) / itemCounts.length);
+      const threshold = Math.max(5, avgItems + stdDev); // At least 5 items
+      
+      filtered = filtered.filter(order => {
+        const itemCount = order.items ? order.items.length : 0;
+        return itemCount >= threshold;
+      });
+    }
+
+    // Urgent Orders (pending/processing orders older than 30 minutes)
+    if (quickFilters.urgentOrders) {
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      filtered = filtered.filter(order => {
+        const status = (order.orderStatus || order.status || '').toLowerCase();
+        const isUrgentStatus = status === 'pending' || status === 'processing' || status === 'new' || status === 'placed';
+        const orderDate = new Date(order.createdAt || order.orderDate || order.timestamp);
+        return isUrgentStatus && orderDate <= thirtyMinutesAgo;
+      });
+    }
+
+    // Problematic Orders (cancelled, refunded, or with complaints)
+    if (quickFilters.problematicOrders) {
+      filtered = filtered.filter(order => {
+        const status = (order.orderStatus || order.status || '').toLowerCase();
+        const isProblematic = status === 'cancelled' || status === 'canceled' || 
+                              status === 'refunded' || status === 'disputed' ||
+                              order.hasComplaint || order.isProblematic;
+        return isProblematic;
+      });
+    }
+
+    // Repeat Customers
+    if (quickFilters.repeatCustomers) {
+      filtered = filtered.filter(order => {
+        const customerId = order.customerId?._id || order.customerId;
+        if (!customerId) return false;
+        
+        const customerOrders = orders.filter(o => 
+          (o.customerId?._id || o.customerId) === customerId
+        );
+        return customerOrders.length > 1;
+      });
+    }
+
+    // First Time Customers
+    if (quickFilters.firstTimeCustomers) {
+      filtered = filtered.filter(order => {
+        const customerId = order.customerId?._id || order.customerId;
+        if (!customerId) return true; // Guest orders count as first-time
+        
+        const customerOrders = orders.filter(o => 
+          (o.customerId?._id || o.customerId) === customerId
+        );
+        return customerOrders.length === 1;
+      });
+    }
+
+    // Customers without Email
+    if (quickFilters.noEmail) {
+      filtered = filtered.filter(order => {
+        const email = order.customerId?.email || order.customerEmail || '';
+        return !email || email.trim() === '';
+      });
+    }
+
+    // Customers without Phone
+    if (quickFilters.noPhone) {
+      filtered = filtered.filter(order => {
+        const phone = order.customerId?.phone || order.customerPhone || '';
+        return !phone || phone.trim() === '';
       });
     }
     
@@ -426,7 +716,7 @@ const OrderManagement = () => {
     }
     
     setFilteredOrders(filtered);
-  }, [orders, activeTab, activeOrderType, selectedTable, searchTerm, sortConfig]);
+  }, [orders, activeTab, activeOrderType, selectedTable, searchTerm, sortConfig, smartFilters]);
 
   // Initialize and load data - prevent multiple calls
   useEffect(() => {
@@ -745,6 +1035,169 @@ const OrderManagement = () => {
     
     return () => clearTimeout(timeoutId);
   }, [orders.length, getAllOrders]); // Only depend on orders length to avoid excessive checks
+
+  // Smart Filter Helper Functions
+  const updateSmartFilter = useCallback((category, field, value) => {
+    setSmartFilters(prev => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        [field]: value
+      }
+    }));
+  }, []);
+
+  const updateQuickFilter = useCallback((filterName, value) => {
+    setSmartFilters(prev => ({
+      ...prev,
+      quickFilters: {
+        ...prev.quickFilters,
+        [filterName]: value
+      }
+    }));
+  }, []);
+
+  const updateSearchField = useCallback((field, value) => {
+    setSmartFilters(prev => ({
+      ...prev,
+      advancedSearch: {
+        ...prev.advancedSearch,
+        searchFields: {
+          ...prev.advancedSearch.searchFields,
+          [field]: value
+        }
+      }
+    }));
+  }, []);
+
+  const resetAllSmartFilters = useCallback(() => {
+    setSmartFilters({
+      amountRange: { min: '', max: '', enabled: false },
+      timeRange: { timeFrom: '', timeTo: '', enabled: false },
+      paymentMethod: '',
+      itemCount: { min: '', max: '', enabled: false },
+      customerType: '',
+      location: { city: '', area: '', enabled: false },
+      orderSource: '',
+      quickFilters: {
+        highValue: false,
+        recent: false,
+        largeOrders: false,
+        urgentOrders: false,
+        problematicOrders: false,
+        repeatCustomers: false,
+        firstTimeCustomers: false,
+        noEmail: false,
+        noPhone: false
+      },
+      advancedSearch: {
+        exactMatch: false,
+        searchFields: {
+          orderId: true,
+          customerName: true,
+          customerPhone: true,
+          customerEmail: true,
+          items: false,
+          notes: false,
+          address: false
+        }
+      }
+    });
+    setShowAdvancedFilters(false);
+  }, []);
+
+  const saveFilterPreset = useCallback(() => {
+    if (!filterPresetName.trim()) {
+      showNotification('warning', 'Filter Name Required', 'Please enter a name for your filter preset.');
+      return;
+    }
+
+    const preset = {
+      id: Date.now(),
+      name: filterPresetName,
+      filters: { ...smartFilters },
+      searchTerm,
+      activeTab,
+      activeOrderType,
+      selectedTable,
+      sortConfig,
+      createdAt: new Date().toISOString()
+    };
+
+    setSavedFilters(prev => [...prev, preset]);
+    setFilterPresetName('');
+    setShowSaveFilterModal(false);
+    
+    // Save to localStorage
+    try {
+      const existingPresets = JSON.parse(localStorage.getItem('orderFilterPresets') || '[]');
+      existingPresets.push(preset);
+      localStorage.setItem('orderFilterPresets', JSON.stringify(existingPresets));
+      showNotification('success', 'Filter Saved', `Filter preset "${preset.name}" has been saved.`);
+    } catch (error) {
+      console.error('Error saving filter preset:', error);
+      showNotification('danger', 'Save Failed', 'Failed to save filter preset to local storage.');
+    }
+  }, [filterPresetName, smartFilters, searchTerm, activeTab, activeOrderType, selectedTable, sortConfig, showNotification]);
+
+  const loadFilterPreset = useCallback((preset) => {
+    setSmartFilters(preset.filters || {});
+    setSearchTerm(preset.searchTerm || '');
+    setActiveTab(preset.activeTab || 'all');
+    setActiveOrderType(preset.activeOrderType || 'all');
+    setSelectedTable(preset.selectedTable || '');
+    setSortConfig(preset.sortConfig || { key: 'orderDate', direction: 'desc' });
+    
+    showNotification('success', 'Filter Loaded', `Filter preset "${preset.name}" has been applied.`);
+  }, [showNotification]);
+
+  const deleteFilterPreset = useCallback((presetId) => {
+    setSavedFilters(prev => prev.filter(p => p.id !== presetId));
+    
+    try {
+      const existingPresets = JSON.parse(localStorage.getItem('orderFilterPresets') || '[]');
+      const updatedPresets = existingPresets.filter(p => p.id !== presetId);
+      localStorage.setItem('orderFilterPresets', JSON.stringify(updatedPresets));
+      showNotification('success', 'Filter Deleted', 'Filter preset has been deleted.');
+    } catch (error) {
+      console.error('Error deleting filter preset:', error);
+    }
+  }, [showNotification]);
+
+  // Load saved filter presets on component mount
+  useEffect(() => {
+    try {
+      const savedPresets = JSON.parse(localStorage.getItem('orderFilterPresets') || '[]');
+      setSavedFilters(savedPresets);
+    } catch (error) {
+      console.error('Error loading saved filter presets:', error);
+    }
+  }, []);
+
+  const getActiveFiltersCount = useCallback(() => {
+    let count = 0;
+    
+    // Basic filters
+    if (searchTerm) count++;
+    if (activeTab !== 'all') count++;
+    if (activeOrderType !== 'all') count++;
+    if (selectedTable) count++;
+    
+    // Smart filters
+    if (smartFilters.amountRange.enabled) count++;
+    if (smartFilters.timeRange.enabled) count++;
+    if (smartFilters.paymentMethod) count++;
+    if (smartFilters.itemCount.enabled) count++;
+    if (smartFilters.customerType) count++;
+    if (smartFilters.location.enabled) count++;
+    if (smartFilters.orderSource) count++;
+    
+    // Quick filters
+    const activeQuickFilters = Object.values(smartFilters.quickFilters).filter(Boolean).length;
+    count += activeQuickFilters;
+    
+    return count;
+  }, [searchTerm, activeTab, activeOrderType, selectedTable, smartFilters]);
 
   // Handle restaurant selection change
   const handleRestaurantChange = async (e) => {
@@ -1951,6 +2404,356 @@ const OrderManagement = () => {
                   </Card>
                 </Collapse>
 
+                {/* Enhanced Smart Filters */}
+                <Card className="mb-4">
+                  <CardHeader className="bg-gradient-primary text-white py-3">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div>
+                        <h5 className="mb-0 text-white">
+                          <FaFilter className="mr-2" />
+                          Smart Filters
+                          {getActiveFiltersCount() > 0 && (
+                            <Badge color="warning" pill className="ml-2">
+                              {getActiveFiltersCount()}
+                            </Badge>
+                          )}
+                        </h5>
+                        <small className="text-white-50">
+                          Use intelligent filters to find exactly what you're looking for
+                        </small>
+                      </div>
+                      <div>
+                        {savedFilters.length > 0 && (
+                          <UncontrolledDropdown>
+                            <DropdownToggle color="light" size="sm" className="mr-2">
+                              <i className="fas fa-bookmark mr-1"></i>
+                              Saved Filters
+                            </DropdownToggle>
+                            <DropdownMenu right>
+                              {savedFilters.map(preset => (
+                                <div key={preset.id}>
+                                  <DropdownItem 
+                                    onClick={() => loadFilterPreset(preset)}
+                                    className="d-flex justify-content-between align-items-center"
+                                  >
+                                    <span>{preset.name}</span>
+                                    <Button
+                                      color="danger"
+                                      size="sm"
+                                      outline
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteFilterPreset(preset.id);
+                                      }}
+                                      style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    >
+                                      ×
+                                    </Button>
+                                  </DropdownItem>
+                                </div>
+                              ))}
+                            </DropdownMenu>
+                          </UncontrolledDropdown>
+                        )}
+                        <Button
+                          color="light"
+                          size="sm"
+                          onClick={() => setShowSaveFilterModal(true)}
+                          className="mr-2"
+                        >
+                          <i className="fas fa-save mr-1"></i>
+                          Save
+                        </Button>
+                        <Button
+                          color="warning"
+                          size="sm"
+                          onClick={resetAllSmartFilters}
+                          className="mr-2"
+                        >
+                          <i className="fas fa-eraser mr-1"></i>
+                          Reset
+                        </Button>
+                        <Button
+                          color="info"
+                          size="sm"
+                          onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                        >
+                          <i className={`fas fa-chevron-${showAdvancedFilters ? 'up' : 'down'} mr-1`}></i>
+                          {showAdvancedFilters ? 'Hide' : 'Show'} Advanced
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardBody>
+                    {/* Quick Filters */}
+                    <div className="mb-4">
+                      <h6 className="text-primary mb-3">
+                        <i className="fas fa-bolt mr-2"></i>
+                        Quick Filters
+                      </h6>
+                      <Row>
+                        <Col md="6">
+                          <div className="d-flex flex-wrap">
+                            <Button
+                              color={smartFilters.quickFilters.recent ? 'primary' : 'outline-primary'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('recent', !smartFilters.quickFilters.recent)}
+                            >
+                              <FaClock className="mr-1" />
+                              Recent (24h)
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.highValue ? 'success' : 'outline-success'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('highValue', !smartFilters.quickFilters.highValue)}
+                            >
+                              <i className="fas fa-dollar-sign mr-1"></i>
+                              High Value
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.largeOrders ? 'info' : 'outline-info'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('largeOrders', !smartFilters.quickFilters.largeOrders)}
+                            >
+                              <FaShoppingBag className="mr-1" />
+                              Large Orders
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.urgentOrders ? 'warning' : 'outline-warning'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('urgentOrders', !smartFilters.quickFilters.urgentOrders)}
+                            >
+                              <i className="fas fa-exclamation-triangle mr-1"></i>
+                              Urgent
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.problematicOrders ? 'danger' : 'outline-danger'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('problematicOrders', !smartFilters.quickFilters.problematicOrders)}
+                            >
+                              <i className="fas fa-exclamation-circle mr-1"></i>
+                              Problematic
+                            </Button>
+                          </div>
+                        </Col>
+                        <Col md="6">
+                          <div className="d-flex flex-wrap">
+                            <Button
+                              color={smartFilters.quickFilters.repeatCustomers ? 'info' : 'outline-info'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('repeatCustomers', !smartFilters.quickFilters.repeatCustomers)}
+                            >
+                              <i className="fas fa-user-friends mr-1"></i>
+                              Repeat Customers
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.firstTimeCustomers ? 'secondary' : 'outline-secondary'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('firstTimeCustomers', !smartFilters.quickFilters.firstTimeCustomers)}
+                            >
+                              <i className="fas fa-user-plus mr-1"></i>
+                              First Time
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.noEmail ? 'warning' : 'outline-warning'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('noEmail', !smartFilters.quickFilters.noEmail)}
+                            >
+                              <i className="fas fa-envelope-open mr-1"></i>
+                              No Email
+                            </Button>
+                            <Button
+                              color={smartFilters.quickFilters.noPhone ? 'warning' : 'outline-warning'}
+                              size="sm"
+                              className="mr-2 mb-2"
+                              onClick={() => updateQuickFilter('noPhone', !smartFilters.quickFilters.noPhone)}
+                            >
+                              <i className="fas fa-phone-slash mr-1"></i>
+                              No Phone
+                            </Button>
+                          </div>
+                        </Col>
+                      </Row>
+                    </div>
+
+                    {/* Advanced Filters */}
+                    <Collapse isOpen={showAdvancedFilters}>
+                      <hr />
+                      <Row>
+                        {/* Amount Range */}
+                        <Col md="3" className="mb-3">
+                          <FormGroup>
+                            <div className="d-flex align-items-center mb-2">
+                              <Input
+                                type="checkbox"
+                                checked={smartFilters.amountRange.enabled}
+                                onChange={(e) => updateSmartFilter('amountRange', 'enabled', e.target.checked)}
+                                className="mr-2"
+                              />
+                              <Label className="mb-0">Amount Range</Label>
+                            </div>
+                            <div className="d-flex">
+                              <Input
+                                type="number"
+                                placeholder="Min"
+                                value={smartFilters.amountRange.min}
+                                onChange={(e) => updateSmartFilter('amountRange', 'min', e.target.value)}
+                                disabled={!smartFilters.amountRange.enabled}
+                                className="mr-1"
+                              />
+                              <Input
+                                type="number"
+                                placeholder="Max"
+                                value={smartFilters.amountRange.max}
+                                onChange={(e) => updateSmartFilter('amountRange', 'max', e.target.value)}
+                                disabled={!smartFilters.amountRange.enabled}
+                              />
+                            </div>
+                          </FormGroup>
+                        </Col>
+
+                        {/* Time Range */}
+                        <Col md="3" className="mb-3">
+                          <FormGroup>
+                            <div className="d-flex align-items-center mb-2">
+                              <Input
+                                type="checkbox"
+                                checked={smartFilters.timeRange.enabled}
+                                onChange={(e) => updateSmartFilter('timeRange', 'enabled', e.target.checked)}
+                                className="mr-2"
+                              />
+                              <Label className="mb-0">Time Range</Label>
+                            </div>
+                            <div className="d-flex">
+                              <Input
+                                type="time"
+                                value={smartFilters.timeRange.timeFrom}
+                                onChange={(e) => updateSmartFilter('timeRange', 'timeFrom', e.target.value)}
+                                disabled={!smartFilters.timeRange.enabled}
+                                className="mr-1"
+                              />
+                              <Input
+                                type="time"
+                                value={smartFilters.timeRange.timeTo}
+                                onChange={(e) => updateSmartFilter('timeRange', 'timeTo', e.target.value)}
+                                disabled={!smartFilters.timeRange.enabled}
+                              />
+                            </div>
+                          </FormGroup>
+                        </Col>
+
+                        {/* Payment Method */}
+                        <Col md="3" className="mb-3">
+                          <FormGroup>
+                            <Label>Payment Method</Label>
+                            <Input
+                              type="select"
+                              value={smartFilters.paymentMethod}
+                              onChange={(e) => updateSmartFilter('paymentMethod', '', e.target.value)}
+                            >
+                              <option value="">All Methods</option>
+                              <option value="cash">Cash</option>
+                              <option value="card">Card</option>
+                              <option value="digital">Digital Wallet</option>
+                              <option value="online">Online Payment</option>
+                            </Input>
+                          </FormGroup>
+                        </Col>
+
+                        {/* Customer Type */}
+                        <Col md="3" className="mb-3">
+                          <FormGroup>
+                            <Label>Customer Type</Label>
+                            <Input
+                              type="select"
+                              value={smartFilters.customerType}
+                              onChange={(e) => updateSmartFilter('customerType', '', e.target.value)}
+                            >
+                              <option value="">All Customers</option>
+                              <option value="new">New Customers</option>
+                              <option value="returning">Returning Customers</option>
+                              <option value="vip">VIP Customers</option>
+                            </Input>
+                          </FormGroup>
+                        </Col>
+                      </Row>
+
+                      {/* Search Field Selection */}
+                      <Row>
+                        <Col md="6">
+                          <FormGroup>
+                            <Label>Search Fields</Label>
+                            <div className="d-flex flex-wrap">
+                              {Object.entries(smartFilters.advancedSearch.searchFields).map(([field, enabled]) => (
+                                <div key={field} className="mr-3 mb-2">
+                                  <Input
+                                    type="checkbox"
+                                    checked={enabled}
+                                    onChange={(e) => updateSearchField(field, e.target.checked)}
+                                    className="mr-1"
+                                  />
+                                  <Label className="mb-0 text-capitalize">
+                                    {field.replace(/([A-Z])/g, ' $1')}
+                                  </Label>
+                                </div>
+                              ))}
+                            </div>
+                          </FormGroup>
+                        </Col>
+                        <Col md="6">
+                          <FormGroup>
+                            <Label>Search Options</Label>
+                            <div>
+                              <Input
+                                type="checkbox"
+                                checked={smartFilters.advancedSearch.exactMatch}
+                                onChange={(e) => updateSmartFilter('advancedSearch', 'exactMatch', e.target.checked)}
+                                className="mr-2"
+                              />
+                              <Label className="mb-0">Exact Match Only</Label>
+                            </div>
+                          </FormGroup>
+                        </Col>
+                      </Row>
+                    </Collapse>
+                  </CardBody>
+                </Card>
+
+                {/* Save Filter Modal */}
+                <Modal isOpen={showSaveFilterModal} toggle={() => setShowSaveFilterModal(false)}>
+                  <ModalHeader toggle={() => setShowSaveFilterModal(false)}>
+                    Save Filter Preset
+                  </ModalHeader>
+                  <ModalBody>
+                    <FormGroup>
+                      <Label for="filterPresetName">Filter Name</Label>
+                      <Input
+                        type="text"
+                        id="filterPresetName"
+                        value={filterPresetName}
+                        onChange={(e) => setFilterPresetName(e.target.value)}
+                        placeholder="Enter a name for this filter preset"
+                      />
+                    </FormGroup>
+                  </ModalBody>
+                  <ModalFooter>
+                    <Button color="secondary" onClick={() => setShowSaveFilterModal(false)}>
+                      Cancel
+                    </Button>
+                    <Button color="primary" onClick={saveFilterPreset}>
+                      Save Filter
+                    </Button>
+                  </ModalFooter>
+                </Modal>
+
                 {/* Debug Panel - Development Only */}
                 {process.env.NODE_ENV === 'development' && (
                   <Card className="mb-4 border-warning" style={{ backgroundColor: '#fff3cd' }}>
@@ -2007,9 +2810,9 @@ const OrderManagement = () => {
                   </Card>
                 )}
 
-                {/* Search Bar */}
+                {/* Enhanced Search Bar */}
                 <Row className="mb-4">
-                  <Col md="4">
+                  <Col md="6">
                     <InputGroup>
                       <InputGroupAddon addonType="prepend">
                         <InputGroupText>
@@ -2017,13 +2820,52 @@ const OrderManagement = () => {
                         </InputGroupText>
                       </InputGroupAddon>
                       <Input
-                        placeholder="Search by order ID or customer name..."
+                        placeholder={`Search ${
+                          Object.entries(smartFilters.advancedSearch.searchFields)
+                            .filter(([field, enabled]) => enabled)
+                            .map(([field]) => field.replace(/([A-Z])/g, ' $1').toLowerCase())
+                            .join(', ')
+                        }...`}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
+                      <InputGroupAddon addonType="append">
+                        <InputGroupText 
+                          className={`cursor-pointer ${smartFilters.advancedSearch.exactMatch ? 'bg-primary text-white' : 'bg-light'}`}
+                          onClick={() => updateSmartFilter('advancedSearch', 'exactMatch', !smartFilters.advancedSearch.exactMatch)}
+                          title={smartFilters.advancedSearch.exactMatch ? 'Exact match enabled' : 'Partial match enabled'}
+                        >
+                          {smartFilters.advancedSearch.exactMatch ? '="' : '≈'}
+                        </InputGroupText>
+                      </InputGroupAddon>
                     </InputGroup>
+                    {searchTerm && (
+                      <small className="text-muted mt-1">
+                        Searching in: {Object.entries(smartFilters.advancedSearch.searchFields)
+                          .filter(([field, enabled]) => enabled)
+                          .map(([field]) => field.replace(/([A-Z])/g, ' $1'))
+                          .join(', ')}
+                        {smartFilters.advancedSearch.exactMatch && ' (exact match)'}
+                      </small>
+                    )}
                   </Col>
-                  <Col md="8" className="text-right d-flex align-items-center justify-content-end">
+                  <Col md="6" className="text-right d-flex align-items-center justify-content-end">
+                    {/* Active filters indicator */}
+                    {getActiveFiltersCount() > 0 && (
+                      <div className="mr-3">
+                        <Badge color="primary" pill className="mr-2">
+                          {getActiveFiltersCount()} active filters
+                        </Badge>
+                        <Button
+                          color="outline-secondary"
+                          size="sm"
+                          onClick={resetAllSmartFilters}
+                        >
+                          Clear All
+                        </Button>
+                      </div>
+                    )}
+                    
                     {/* Items per page selector */}
                     <div className="mr-3">
                       <small className="text-muted mr-2">Show:</small>

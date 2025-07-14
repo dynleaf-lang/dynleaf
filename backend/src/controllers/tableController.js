@@ -288,13 +288,22 @@ exports.deleteTable = async (req, res) => {
 // Update table status (occupied/available)
 exports.updateTableStatus = async (req, res) => {
     try {
-        const { isOccupied, currentOrder } = req.body;
+        const { isOccupied, currentOrder, status } = req.body;
         const tableId = req.params.id;
         const branchId = req.user.branchId;
 
+        // Prepare update data
+        const updateData = {};
+        if (isOccupied !== undefined) {
+            updateData.isOccupied = isOccupied;
+            updateData.status = isOccupied ? 'occupied' : 'available';
+        }
+        if (currentOrder !== undefined) updateData.currentOrder = currentOrder;
+        if (status !== undefined) updateData.status = status;
+
         const table = await DiningTable.findOneAndUpdate(
             { _id: tableId, branchId },
-            { isOccupied, currentOrder },
+            updateData,
             { new: true }
         );
 
