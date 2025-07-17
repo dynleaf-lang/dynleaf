@@ -1,4 +1,5 @@
 import React, { useState, useContext, useEffect } from "react";
+import ReactDOM from "react-dom";
 import {
   Button,
   Modal,
@@ -16,15 +17,28 @@ import axios from 'axios';
 
 const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setError: setExternalError }) => {
   const { user, confirmVerification } = useContext(AuthContext);
+  
+  console.log('🏭 DirectOTPModal component rendered with props:', {
+    isOpen,
+    userEmail: user?.email,
+    timestamp: new Date().toISOString()
+  });
   const [verificationCode, setVerificationCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [success, setSuccess] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [showToast, setShowToast] = useState(false);
-  // Add shake animation state
   const [shake, setShake] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+
+  // Component mount/unmount logging
+  useEffect(() => {
+    console.log('🚀 DirectOTPModal component MOUNTED');
+    return () => {
+      console.log('💭 DirectOTPModal component UNMOUNTED');
+    };
+  }, []);
 
   // Use external error state if provided
   const error = typeof externalError === 'string' ? externalError : '';
@@ -32,8 +46,32 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
 
   // Get the email to use for verification
   const getEmailToVerify = () => {
-    return user?.email || '';
+    const email = user?.email || '';
+    console.log('📧 getEmailToVerify called, returning:', email);
+    return email;
   };
+
+  // Reset modal state when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      console.log('🔓 DirectOTPModal OPENED - Resetting state');
+      console.log('📊 Modal opened with user:', user?.email);
+      setEmailSent(false);
+      setVerificationCode("");
+      setError("");
+      setSuccess(false);
+      setShake(false);
+      setCountdown(0);
+    } else {
+      console.log('🔒 DirectOTPModal CLOSED - Clearing state');
+      setEmailSent(false);
+      setVerificationCode("");
+      setError("");
+      setSuccess(false);
+      setShake(false);
+      setCountdown(0);
+    }
+  }, [isOpen, user?.email]);
 
   // Countdown timer for resend button
   useEffect(() => {
@@ -48,6 +86,11 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
 
   // Local function to send verification email without affecting global state
   const sendVerificationEmailLocal = async (email) => {
+    console.log('🚀 sendVerificationEmailLocal CALLED with email:', email);
+    console.log('🔍 Call stack trace:');
+    console.trace();
+    console.log('🕰️ Timestamp:', new Date().toISOString());
+    
     try {
       // Get base API URL from environment or use default
       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -90,12 +133,17 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
 
   // Send verification email
   const handleSendVerificationEmail = async () => {
+    console.log('📧 handleSendVerificationEmail CALLED - User clicked Send button');
+    console.log('🕰️ Button click timestamp:', new Date().toISOString());
+    
     const email = getEmailToVerify();
     if (!email) {
+      console.log('⚠️ No email available for verification');
       setError("No email address available for verification");
       return;
     }
     
+    console.log('📨 About to send email to:', email);
     setSendingEmail(true);
     setError("");
     
@@ -142,19 +190,31 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
       e.preventDefault();
       e.stopPropagation(); // Prevent bubbling up
     }
+    
+    // Validate OTP format
     if (!verificationCode || verificationCode.length !== 6) {
       setError("Please enter a valid 6-digit verification code");
       setShake(true);
       setTimeout(() => setShake(false), 500);
       return;
     }
+    
     setLoading(true);
     setError("");
+    
     try {
+      console.log('Attempting to verify OTP:', verificationCode);
       const result = await confirmVerification(verificationCode);
-      if (result && result.success) {
+      console.log('Verification result:', result);
+      
+      // Check if verification was successful
+      if (result && result.success === true) {
+        console.log('OTP verification successful');
         setSuccess(true);
         setShowToast(true);
+        console.log('SUCCESS TOAST STATE SET TO TRUE - should show toast now');
+        
+        // Update localStorage with verified status
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
           try {
@@ -166,34 +226,77 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
             console.error("Error updating localStorage:", parseError);
           }
         }
-        setTimeout(() => { setShowToast(false); }, 3000);
-        setTimeout(() => { if (typeof onVerified === 'function') { onVerified(); } }, 2000);
+        
+        // Show persistent success toast that survives re-renders
+        console.log('Showing persistent success toast for OTP verification');
+        
+        // Store toast state in localStorage to persist across re-renders
+        const toastData = {
+          show: true,
+          message: 'Email Verified Successfully!',
+          type: 'success',
+          timestamp: Date.now()
+        };
+        localStorage.setItem('otpSuccessToast', JSON.stringify(toastData));
+        
+        // Trigger a custom event to show toast globally
+        window.dispatchEvent(new CustomEvent('showOTPSuccessToast', { detail: toastData }));
+        
+        // Close modal after short delay
+        setTimeout(() => { 
+          if (typeof onVerified === 'function') { 
+            console.log('Calling onVerified callback - closing modal');
+            onVerified(); 
+          } 
+        }, 1000);
       } else {
+        // Verification failed - show error and keep modal open
+        console.log('OTP verification failed:', result);
         setSuccess(false);
         setShowToast(false);
-        setLoading(false);
-        setError("The code you entered is incorrect or expired. Please check your email and try again. If you did not receive a code, you can resend it.");
+        
+        // Set error message
+        const errorMessage = result?.message || "The code you entered is incorrect or expired. Please check your email and try again. If you did not receive a code, you can resend it.";
+        setError(errorMessage);
+        
+        // Add shake animation
         setShake(true);
         setTimeout(() => setShake(false), 500);
-        // Do NOT call onVerified or close modal
-        return;
+        
+        // Clear the OTP input for retry
+        setVerificationCode("");
+        
+        // Do NOT call onVerified or close modal - keep it open for retry
       }
     } catch (error) {
+      console.error('OTP verification error:', error);
       setSuccess(false);
       setShowToast(false);
-      setLoading(false);
-      setError(error.response?.data?.message || "Verification failed. Please try again.");
+      
+      // Set error message from server response or default
+      const errorMessage = error.response?.data?.message || error.message || "Verification failed. Please try again.";
+      setError(errorMessage);
+      
+      // Add shake animation
       setShake(true);
       setTimeout(() => setShake(false), 500);
-      // Do NOT call onVerified or close modal
-      return;
+      
+      // Clear the OTP input for retry
+      setVerificationCode("");
+      
+      // Do NOT call onVerified or close modal - keep it open for retry
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Handle resending verification email
   const handleResendVerification = async () => {
+    console.log('🔄 handleResendVerification CALLED - User clicked Resend button');
+    console.log('🕰️ Resend click timestamp:', new Date().toISOString());
+    
     setVerificationCode("");
+    console.log('🔁 About to call handleSendVerificationEmail from resend');
     await handleSendVerificationEmail();
   };
 
@@ -206,7 +309,9 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
 
   // Send verification email when modal opens - REMOVED automatic sending
   useEffect(() => {
+    console.log('🔄 Modal state useEffect triggered - isOpen:', isOpen);
     if (isOpen) {
+      console.log('📝 Resetting modal state for open modal');
       setVerificationCode("");
       setError("");
       setSuccess(false);
@@ -215,6 +320,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
       setCountdown(0);
       setShowToast(false);
     } else {
+      console.log('📝 Clearing modal state for closed modal');
       setVerificationCode("");
       setError("");
       setSuccess(false);
@@ -344,7 +450,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
         keyboard={false}
         className="direct-otp-modal"
       >
-        <ModalHeader toggle={toggle} className="bg-gradient-info text-white">
+        <ModalHeader className="bg-gradient-info text-white">
           <div>
             <h4 className="mb-0 text-white font-weight-bold">
               <i className="fas fa-envelope mr-2"></i>
@@ -354,6 +460,9 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
               {!success && "Enter the code we sent to your email"}
             </p>
           </div>
+          <button type="button" className="close btn-clipboard" aria-label="Close" onClick={toggle}>
+            <span aria-hidden="true">&times;</span>
+          </button>
         </ModalHeader>
         <ModalBody className="pt-4 pb-3">
           {success ? (
@@ -373,73 +482,7 @@ const DirectOTPModal = ({ isOpen, toggle, onVerified, error: externalError, setE
         </ModalBody>
       </Modal>
 
-      {/* Success Toast Notification */}
-      {showToast && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: '80px',
-            right: '20px',
-            zIndex: 10000,
-            minWidth: '350px',
-            maxWidth: '450px'
-          }}
-        >
-          <Alert 
-            color="success" 
-            isOpen={showToast}
-            toggle={() => setShowToast(false)}
-            className="shadow-lg border-0 mb-0 notification-slide-in"
-            style={{
-              borderRadius: '12px',
-              boxShadow: '0 15px 35px rgba(0,0,0,0.1), 0 5px 15px rgba(0,0,0,0.07)',
-              border: '2px solid #2dce89'
-            }}
-          >
-            <div className="d-flex align-items-start">
-              <div 
-                className="mr-3 mt-1 p-2 rounded-circle bg-white"
-                style={{ color: '#2dce89' }}
-              >
-                <i className="fas fa-check-circle" />
-              </div>
-              <div className="flex-1">
-                <h6 className="mb-1 font-weight-bold text-white">
-                  🎉 Email Verified Successfully!
-                </h6>
-                <p className="mb-0 text-white" style={{ opacity: 0.9, fontSize: '0.875rem' }}>
-                  Your email has been verified and your account is now fully activated.
-                </p>
-              </div>
-              <Button 
-                close 
-                onClick={() => setShowToast(false)}
-                className="ml-2 text-white"
-                style={{ 
-                  fontSize: '1.2rem', 
-                  opacity: 0.8,
-                  background: 'none',
-                  border: 'none'
-                }}
-              />
-            </div>
-            
-            {/* Auto-close progress bar */}
-            <div 
-              className="progress mt-2"
-              style={{ height: '2px', background: 'rgba(255,255,255,0.2)' }}
-            >
-              <div 
-                className="progress-bar bg-white"
-                style={{
-                  animation: 'shrinkWidth 3s linear',
-                  width: '100%'
-                }}
-              ></div>
-            </div>
-          </Alert>
-        </div>
-      )}
+      {/* Toast is now handled by GlobalToast component */}
 
       {/* CSS for toast animations */}
       <style>

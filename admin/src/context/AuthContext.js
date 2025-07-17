@@ -587,16 +587,20 @@ const AuthProvider = ({ children }) => {
         }
     };
     
-    // Enhance the confirmVerification function to ensure it properly updates user state
+    // Isolated confirmVerification function that prevents AuthContext re-renders on failure
     const confirmVerification = async (otp) => {
+        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+        
         try {
-            setLoading(true);
-            setError(null);
-            
-            const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+            console.log('Attempting OTP verification without AuthContext state updates');
             
             // Confirm the email verification
             const response = await axios.post(`${apiUrl}/api/users/confirm-verification`, { otp });
+            
+            // Only update AuthContext state on SUCCESS to prevent modal re-rendering
+            console.log('OTP verification successful - updating AuthContext state');
+            setLoading(true);
+            setError(null);
             
             // Get fresh user data from the server to ensure verification status is accurate
             const profileResponse = await axios.get(`${apiUrl}/api/users/profile`, {
@@ -610,17 +614,17 @@ const AuthProvider = ({ children }) => {
             
             // Update user in state and localStorage with the fresh data from server
             localStorage.setItem('user', JSON.stringify(freshUserData));
-            setUser(freshUserData);
+            setUser(freshUserData); 
             
             // Reset verification states to prevent further popups
             setRequiresVerification(false);
             setEmailToVerify('');
+            setLoading(false);
             
             console.log('Email verification successful - user data updated from server');
-            
             return { success: true };
         } catch (error) {
-            console.error('Verification error:', error);
+            console.error('OTP verification failed - NOT updating AuthContext state:', error);
             
             // Provide more detailed error messages
             let errorMsg = 'Failed to verify email';
@@ -630,14 +634,13 @@ const AuthProvider = ({ children }) => {
                 errorMsg = error.message;
             }
             
-            setError(errorMsg);
+            // CRITICAL: Do NOT update ANY AuthContext state on failure
+            // This prevents the modal from re-rendering and closing
             return { 
                 success: false, 
                 error: error,
                 message: errorMsg
             };
-        } finally {
-            setLoading(false);
         }
     };
 

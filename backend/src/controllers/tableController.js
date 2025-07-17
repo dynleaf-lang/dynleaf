@@ -125,8 +125,7 @@ exports.getTables = async (req, res) => {
                 query.capacity = { $lte: parseInt(maxCapacity) };
             }
         }
-        
-        console.log('Fetching tables with query:', JSON.stringify(query));
+         
         
         const tables = await DiningTable.find(query)
             .sort({ tableId: 1 })
