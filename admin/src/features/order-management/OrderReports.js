@@ -419,6 +419,103 @@ const OrderReports = () => {
     return statusCounts;
   };
 
+  // Get order status distribution with null safety
+  const getOrderStatusDistribution = () => {
+    const filteredOrders = getFilteredOrders();
+    if (!Array.isArray(filteredOrders) || filteredOrders.length === 0) {
+      return {};
+    }
+
+    const statusCounts = {};
+    filteredOrders.forEach(order => {
+      const status = order.orderStatus || order.status || 'pending';
+      const normalizedStatus = status.toLowerCase();
+      statusCounts[normalizedStatus] = (statusCounts[normalizedStatus] || 0) + 1;
+    });
+
+    return statusCounts;
+  };
+
+  // Get order completion rate for performance analytics
+  const getOrderCompletionRate = () => {
+    const filteredOrders = getFilteredOrders();
+    if (!Array.isArray(filteredOrders) || filteredOrders.length === 0) {
+      return '0%';
+    }
+
+    // Debug: Log actual order statuses to understand the data structure
+    console.log('getOrderCompletionRate: Sample order statuses:', 
+      filteredOrders.slice(0, 3).map(order => ({
+        orderStatus: order.orderStatus,
+        status: order.status,
+        orderState: order.orderState,
+        state: order.state
+      }))
+    );
+
+    const completedOrders = filteredOrders.filter(order => {
+      // Check multiple possible status field names and values
+      const status1 = (order.orderStatus || '').toLowerCase();
+      const status2 = (order.status || '').toLowerCase();
+      const status3 = (order.orderState || '').toLowerCase();
+      const status4 = (order.state || '').toLowerCase();
+      
+      const completedStatuses = ['completed', 'delivered', 'complete', 'done', 'finished'];
+      
+      return completedStatuses.some(completedStatus => 
+        status1.includes(completedStatus) || 
+        status2.includes(completedStatus) || 
+        status3.includes(completedStatus) || 
+        status4.includes(completedStatus)
+      );
+    });
+    
+    console.log(`getOrderCompletionRate: Found ${completedOrders.length} completed orders out of ${filteredOrders.length} total`);
+    
+    const rate = (completedOrders.length / filteredOrders.length) * 100;
+    return `${rate.toFixed(1)}%`;
+  };
+
+  // Get revenue by order status with comprehensive analytics
+  const getRevenueByOrderStatus = () => {
+    const filteredOrders = getFilteredOrders();
+    if (!Array.isArray(filteredOrders) || filteredOrders.length === 0) {
+      return [];
+    }
+
+    const statusData = {};
+    let totalRevenue = 0;
+    let totalOrders = filteredOrders.length;
+
+    filteredOrders.forEach(order => {
+      const status = order.orderStatus || order.status || 'pending';
+      const normalizedStatus = status.toLowerCase();
+      const revenue = parseFloat(order.totalAmount || order.total || 0);
+      totalRevenue += revenue;
+
+      if (!statusData[normalizedStatus]) {
+        statusData[normalizedStatus] = {
+          revenue: 0,
+          count: 0,
+          orders: []
+        };
+      }
+
+      statusData[normalizedStatus].revenue += revenue;
+      statusData[normalizedStatus].count += 1;
+      statusData[normalizedStatus].orders.push(order);
+    });
+
+    return Object.entries(statusData).map(([status, data]) => ({
+      status,
+      revenue: data.revenue,
+      count: data.count,
+      averageValue: data.count > 0 ? data.revenue / data.count : 0,
+      revenuePercentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0,
+      orderPercentage: totalOrders > 0 ? (data.count / totalOrders) * 100 : 0
+    })).sort((a, b) => b.revenue - a.revenue);
+  };
+
   // Get revenue by payment status with comprehensive analytics
   const getRevenueByPaymentStatus = () => {
     const filteredOrders = getFilteredOrders();
@@ -792,11 +889,54 @@ const OrderReports = () => {
     // Calculate revenue by category
     const categoryRevenue = {};
     
+    // Debug: Log sample order structure to understand data format
+    if (filteredOrders.length > 0) {
+      console.log('getCategoryRevenueChart: Sample order structure:', {
+        order: filteredOrders[0],
+        items: filteredOrders[0].items || filteredOrders[0].orderItems || [],
+        sampleItem: (filteredOrders[0].items || filteredOrders[0].orderItems || [])[0]
+      });
+    }
+    
     filteredOrders.forEach(order => {
-      const items = order.items || order.orderItems || [];
+      const items = order.items || order.orderItems || order.Items || [];
       items.forEach(item => {
-        const category = item.category || item.menuItem?.category || 'Uncategorized';
-        const revenue = parseFloat(item.price || item.total || 0) * parseInt(item.quantity || 1);
+        // Check multiple possible category field names
+        const category = item.category || 
+                        item.Category || 
+                        item.menuItem?.category || 
+                        item.menuItem?.Category ||
+                        item.menuCategory ||
+                        item.itemCategory ||
+                        item.foodCategory ||
+                        item.type ||
+                        item.Type ||
+                        'Uncategorized';
+        
+        // Check multiple possible price and quantity field names
+        const price = parseFloat(
+          item.price || 
+          item.Price || 
+          item.total || 
+          item.Total || 
+          item.amount || 
+          item.Amount || 
+          item.cost || 
+          item.Cost || 
+          0
+        );
+        
+        const quantity = parseInt(
+          item.quantity || 
+          item.Quantity || 
+          item.qty || 
+          item.Qty || 
+          item.count || 
+          item.Count || 
+          1
+        );
+        
+        const revenue = price * quantity;
         
         if (!categoryRevenue[category]) {
           categoryRevenue[category] = 0;
@@ -804,6 +944,8 @@ const OrderReports = () => {
         categoryRevenue[category] += revenue;
       });
     });
+    
+    console.log('getCategoryRevenueChart: Category revenue breakdown:', categoryRevenue);
 
     // Convert to array and sort by revenue
     const validCategories = Object.entries(categoryRevenue)
@@ -987,11 +1129,11 @@ const OrderReports = () => {
     };
   };
 
-  // Chart data for order status distribution
+  // Advanced order status chart with modern styling
   const getOrderStatusChart = () => {
-    const statusCount = getOrdersByStatus();
-    const labels = Object.keys(statusCount);
-    const data = Object.values(statusCount);
+    const statusDistribution = getOrderStatusDistribution();
+    const labels = Object.keys(statusDistribution);
+    const data = Object.values(statusDistribution);
     
     if (labels.length === 0 || data.every(val => val === 0)) {
       return {
@@ -1004,62 +1146,83 @@ const OrderReports = () => {
         }]
       };
     }
-    
-    // Generate colors for each status
-    const backgroundColors = labels.map((status, index) => {
+
+    // Enhanced color palette for order status
+    const getOrderStatusColor = (status) => {
       switch (status.toLowerCase()) {
         case 'pending':
         case 'preparing':
-          return chartColors.warning;
-        case 'completed':
-        case 'delivered':
-        case 'ready':
-          return chartColors.success;
-        case 'cancelled':
-        case 'canceled':
-          return chartColors.danger;
+          return {
+            bg: 'rgba(245, 158, 11, 0.8)',
+            border: 'rgba(245, 158, 11, 1)',
+            emoji: '⏳'
+          };
         case 'confirmed':
-          return chartColors.info;
-        default:
-          // Use a cycling pattern for other statuses
-          const colorKeys = Object.keys(chartColors);
-          const colorKey = colorKeys[index % colorKeys.length];
-          return chartColors[colorKey];
-      }
-    });
-    
-    const borderColors = labels.map((status, index) => {
-      switch (status.toLowerCase()) {
-        case 'pending':
+        case 'accepted':
+          return {
+            bg: 'rgba(59, 130, 246, 0.8)',
+            border: 'rgba(59, 130, 246, 1)',
+            emoji: '✅'
+          };
+        case 'processing':
+        case 'cooking':
         case 'preparing':
-          return chartColors.warningBorder;
+          return {
+            bg: 'rgba(168, 85, 247, 0.8)',
+            border: 'rgba(168, 85, 247, 1)',
+            emoji: '👨‍🍳'
+          };
+        case 'ready':
+        case 'prepared':
+          return {
+            bg: 'rgba(16, 185, 129, 0.8)',
+            border: 'rgba(16, 185, 129, 1)',
+            emoji: '🍽️'
+          };
         case 'completed':
         case 'delivered':
-        case 'ready':
-          return chartColors.successBorder;
+        case 'complete':
+          return {
+            bg: 'rgba(34, 197, 94, 0.8)',
+            border: 'rgba(34, 197, 94, 1)',
+            emoji: '✨'
+          };
         case 'cancelled':
         case 'canceled':
-          return chartColors.dangerBorder;
-        case 'confirmed':
-          return chartColors.infoBorder;
+        case 'rejected':
+          return {
+            bg: 'rgba(239, 68, 68, 0.8)',
+            border: 'rgba(239, 68, 68, 1)',
+            emoji: '❌'
+          };
+        case 'refunded':
+          return {
+            bg: 'rgba(220, 38, 127, 0.8)',
+            border: 'rgba(220, 38, 127, 1)',
+            emoji: '💰'
+          };
         default:
-          // Use a cycling pattern for other statuses
-          const colorKeys = Object.keys(chartColors);
-          const colorKey = colorKeys[index % colorKeys.length];
-          return chartColors[colorKey + 'Border'] || chartColors[colorKey];
+          return {
+            bg: 'rgba(107, 114, 128, 0.8)',
+            border: 'rgba(107, 114, 128, 1)',
+            emoji: '📋'
+          };
       }
-    });
+    };
+
+    const backgroundColors = labels.map(status => getOrderStatusColor(status).bg);
+    const borderColors = labels.map(status => getOrderStatusColor(status).border);
 
     return {
       labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
-      datasets: [
-        {
-          data,
-          backgroundColor: backgroundColors,
-          borderColor: borderColors,
-          borderWidth: 2
-        }
-      ]
+      datasets: [{
+        data,
+        backgroundColor: backgroundColors,
+        borderColor: borderColors,
+        borderWidth: 3,
+        hoverBorderWidth: 4,
+        hoverBorderColor: '#ffffff'
+      }]
     };
   };
 
@@ -1171,6 +1334,59 @@ const OrderReports = () => {
 
   // Advanced order type chart options
   const orderTypeChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutoutPercentage: 60,
+    animation: {
+      duration: 1000,
+      easing: 'easeOutQuart'
+    },
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        usePointStyle: true,
+        padding: 20,
+        fontSize: 12,
+        fontColor: '#374151'
+      }
+    },
+    tooltips: {
+      enabled: true,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleFontColor: '#ffffff',
+      bodyFontColor: '#ffffff',
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+      borderWidth: 1,
+      cornerRadius: 8,
+      displayColors: true,
+      callbacks: {
+        label: function(tooltipItem, data) {
+          const dataset = data.datasets[tooltipItem.datasetIndex];
+          const total = dataset.data.reduce((sum, value) => sum + value, 0);
+          const currentValue = dataset.data[tooltipItem.index];
+          const percentage = total > 0 ? ((currentValue / total) * 100).toFixed(1) : '0.0';
+          const label = data.labels[tooltipItem.index];
+          return `${label}: ${currentValue} orders (${percentage}%)`;
+        }
+      }
+    },
+    hover: {
+      mode: 'nearest',
+      intersect: true,
+      animationDuration: 200
+    },
+    elements: {
+      arc: {
+        borderWidth: 3,
+        hoverBorderWidth: 4,
+        hoverBorderColor: '#ffffff'
+      }
+    }
+  };
+
+  // Advanced order status chart options with enhanced styling
+  const orderStatusChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     cutoutPercentage: 60,
@@ -2343,21 +2559,262 @@ const OrderReports = () => {
                             </Table>
                           </div>
                         ) : (
-                          // Chart view for performance
-                          <Row>
-                            <Col lg="6" className="mx-auto mb-4">
-                              <Card className="shadow">
-                                <CardHeader className="bg-transparent">
-                                  <h4 className="mb-0">Order Status Distribution</h4>
-                                </CardHeader>
-                                <CardBody>
-                                  <div style={{ height: '350px' }}>
-                                    <Doughnut data={getOrderStatusChart()} options={chartOptions} />
-                                  </div>
-                                </CardBody>
-                              </Card>
-                            </Col>
-                          </Row>
+                          // Advanced Chart view for performance with order status analytics
+                          <>
+                            {/* Check if we have data */}
+                            {getFilteredOrders().length === 0 ? (
+                              <div className="text-center py-5">
+                                <div className="mb-4">
+                                  <FaChartPie size="4rem" className="text-muted" />
+                                </div>
+                                <h4 className="text-muted mb-3">No Performance Data Found</h4>
+                                <p className="text-muted mb-4">
+                                  No orders found for the selected filters and date range.
+                                  <br />
+                                  Try adjusting your filters or selecting a different time period.
+                                </p>
+                                <Button color="primary" onClick={resetFilters}>
+                                  <FaSyncAlt className="mr-2" />
+                                  Reset Filters
+                                </Button>
+                              </div>
+                            ) : (
+                              <>
+                                {/* First Row - Order Status Distribution and Completion Rate */}
+                                <Row className="mb-4">
+                                  <Col lg="6">
+                                    <Card className="shadow h-100">
+                                      <CardHeader className="bg-transparent">
+                                        <div>
+                                          <h4 className="mb-1">
+                                            <FaChartPie className="mr-2 text-primary" />
+                                            Order Status Distribution
+                                          </h4>
+                                          <small className="text-muted">Current order workflow status</small>
+                                        </div>
+                                      </CardHeader>
+                                      <CardBody>
+                                        {Object.keys(getOrderStatusDistribution()).length === 0 ? (
+                                          <div className="text-center py-4">
+                                            <FaChartPie size="2rem" className="text-muted mb-3" />
+                                            <p className="text-muted">No status data available</p>
+                                          </div>
+                                        ) : (
+                                          <div style={{ height: '350px' }}>
+                                            <Doughnut data={getOrderStatusChart()} options={orderStatusChartOptions} />
+                                          </div>
+                                        )}
+                                      </CardBody>
+                                    </Card>
+                                  </Col>
+                                  <Col lg="6">
+                                    <Card className="shadow h-100">
+                                      <CardHeader className="bg-transparent">
+                                        <div>
+                                          <h4 className="mb-1">
+                                            <FaPercentage className="mr-2 text-success" />
+                                            Completion Analytics
+                                          </h4>
+                                          <small className="text-muted">Order completion performance</small>
+                                        </div>
+                                      </CardHeader>
+                                      <CardBody>
+                                        <div className="text-center py-4">
+                                          <div className="mb-4">
+                                            <h1 className="display-3 text-success font-weight-bold">
+                                              {getOrderCompletionRate()}
+                                            </h1>
+                                            <h5 className="text-muted">Orders Completed</h5>
+                                          </div>
+                                          <div className="row text-center">
+                                            <div className="col-4">
+                                              <div className="border-right">
+                                                <h4 className="text-primary">{getFilteredOrders().length}</h4>
+                                                <small className="text-muted">Total Orders</small>
+                                              </div>
+                                            </div>
+                                            <div className="col-4">
+                                              <div className="border-right">
+                                                <h4 className="text-success">
+                                                  {getFilteredOrders().filter(order => {
+                                                    const status = (order.status || 'pending').toLowerCase();
+                                                    return status === 'completed' || status === 'delivered' || status === 'complete';
+                                                  }).length}
+                                                </h4>
+                                                <small className="text-muted">Completed</small>
+                                              </div>
+                                            </div>
+                                            <div className="col-4">
+                                              <h4 className="text-warning">
+                                                {getFilteredOrders().filter(order => {
+                                                  const status = (order.status || 'pending').toLowerCase();
+                                                  return status === 'pending' || status === 'processing' || status === 'preparing';
+                                                }).length}
+                                              </h4>
+                                              <small className="text-muted">In Progress</small>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </CardBody>
+                                    </Card>
+                                  </Col>
+                                </Row>
+
+                                {/* Second Row - Revenue by Order Status Analytics */}
+                                <Row className="mb-4">
+                                  <Col lg="12">
+                                    <Card className="shadow">
+                                      <CardHeader className="bg-transparent">
+                                        <div>
+                                          <h4 className="mb-1">
+                                            <FaChartBar className="mr-2 text-info" />
+                                            Revenue by Order Status
+                                          </h4>
+                                          <small className="text-muted">Detailed order status performance analytics</small>
+                                        </div>
+                                      </CardHeader>
+                                      <CardBody>
+                                        {getRevenueByOrderStatus().length === 0 ? (
+                                          <div className="text-center py-4">
+                                            <FaChartBar size="2rem" className="text-muted mb-3" />
+                                            <p className="text-muted">No revenue data available</p>
+                                          </div>
+                                        ) : (
+                                          <div className="table-responsive" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                            <Table className="table-flush" hover>
+                                              <thead className="thead-light sticky-top">
+                                                <tr>
+                                                  <th>Status</th>
+                                                  <th>Orders</th>
+                                                  <th>Revenue</th>
+                                                  <th>Avg. Value</th>
+                                                  <th>% of Orders</th>
+                                                  <th>% of Revenue</th>
+                                                  <th>Performance</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {getRevenueByOrderStatus().map((item, index) => {
+                                                  const getStatusColor = (status) => {
+                                                    switch (status.toLowerCase()) {
+                                                      case 'completed':
+                                                      case 'delivered':
+                                                      case 'complete':
+                                                        return 'success';
+                                                      case 'pending':
+                                                      case 'preparing':
+                                                        return 'warning';
+                                                      case 'confirmed':
+                                                      case 'accepted':
+                                                        return 'info';
+                                                      case 'processing':
+                                                      case 'cooking':
+                                                        return 'primary';
+                                                      case 'ready':
+                                                      case 'prepared':
+                                                        return 'success';
+                                                      case 'cancelled':
+                                                      case 'canceled':
+                                                      case 'rejected':
+                                                        return 'danger';
+                                                      default:
+                                                        return 'secondary';
+                                                    }
+                                                  };
+
+                                                  const getStatusEmoji = (status) => {
+                                                    switch (status.toLowerCase()) {
+                                                      case 'pending':
+                                                      case 'preparing':
+                                                        return '⏳';
+                                                      case 'confirmed':
+                                                      case 'accepted':
+                                                        return '✅';
+                                                      case 'processing':
+                                                      case 'cooking':
+                                                        return '👨‍🍳';
+                                                      case 'ready':
+                                                      case 'prepared':
+                                                        return '🍽️';
+                                                      case 'completed':
+                                                      case 'delivered':
+                                                      case 'complete':
+                                                        return '✨';
+                                                      case 'cancelled':
+                                                      case 'canceled':
+                                                      case 'rejected':
+                                                        return '❌';
+                                                      default:
+                                                        return '📋';
+                                                    }
+                                                  };
+
+                                                  return (
+                                                    <tr key={index}>
+                                                      <td>
+                                                        <div className="d-flex align-items-center">
+                                                          <span className="mr-2">{getStatusEmoji(item.status)}</span>
+                                                          <Badge color={getStatusColor(item.status)} pill>
+                                                            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                                                          </Badge>
+                                                        </div>
+                                                      </td>
+                                                      <td>
+                                                        <strong>{item.count}</strong>
+                                                      </td>
+                                                      <td>
+                                                        <strong>{formatCurrency(item.revenue)}</strong>
+                                                      </td>
+                                                      <td>
+                                                        {formatCurrency(item.averageValue)}
+                                                      </td>
+                                                      <td>
+                                                        <div className="d-flex align-items-center">
+                                                          <span className="mr-2">{item.orderPercentage.toFixed(1)}%</span>
+                                                          <div className="progress flex-fill" style={{ height: '4px' }}>
+                                                            <div 
+                                                              className={`progress-bar bg-${getStatusColor(item.status)}`}
+                                                              style={{ width: `${item.orderPercentage}%` }}
+                                                            ></div>
+                                                          </div>
+                                                        </div>
+                                                      </td>
+                                                      <td>
+                                                        <div className="d-flex align-items-center">
+                                                          <span className="mr-2">{item.revenuePercentage.toFixed(1)}%</span>
+                                                          <div className="progress flex-fill" style={{ height: '4px' }}>
+                                                            <div 
+                                                              className={`progress-bar bg-${getStatusColor(item.status)}`}
+                                                              style={{ width: `${item.revenuePercentage}%` }}
+                                                            ></div>
+                                                          </div>
+                                                        </div>
+                                                      </td>
+                                                      <td>
+                                                        <div className="progress" style={{ height: '8px' }}>
+                                                          <div 
+                                                            className={`progress-bar bg-${getStatusColor(item.status)}`}
+                                                            style={{ width: `${Math.max(item.orderPercentage, item.revenuePercentage)}%` }}
+                                                          ></div>
+                                                        </div>
+                                                        <small className="text-muted">
+                                                          {Math.max(item.orderPercentage, item.revenuePercentage).toFixed(1)}% efficiency
+                                                        </small>
+                                                      </td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </Table>
+                                          </div>
+                                        )}
+                                      </CardBody>
+                                    </Card>
+                                  </Col>
+                                </Row>
+                              </>
+                            )}
+                          </>
                         )}
                       </TabPane>
                     </TabContent>
