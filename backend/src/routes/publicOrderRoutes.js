@@ -39,6 +39,7 @@ router.get('/', async (req, res) => {
             branchId, 
             orderStatus, 
             OrderType, 
+            paymentStatus,
             startDate, 
             endDate,
             limit = 100 
@@ -61,6 +62,10 @@ router.get('/', async (req, res) => {
         
         if (OrderType) {
             filter.orderType = OrderType;
+        }
+        
+        if (paymentStatus) {
+            filter.paymentStatus = paymentStatus;
         }
         
         // Date range filtering
@@ -835,6 +840,92 @@ router.get('/:id/invoice', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Server error while generating invoice',
+            error: error.message
+        });
+    }
+});
+
+// Update payment status
+router.patch('/:id/payment-status', async (req, res) => {
+    try {
+        const { paymentStatus } = req.body;
+        
+        console.log(`[PUBLIC ORDERS] Updating order ${req.params.id} payment status to: ${paymentStatus}`);
+        
+        if (!paymentStatus) {
+            return res.status(400).json({
+                success: false,
+                message: 'Payment status is required'
+            });
+        }
+        
+        // Validate payment status values
+        const validPaymentStatuses = ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial'];
+        if (!validPaymentStatuses.includes(paymentStatus)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid payment status. Must be one of: ${validPaymentStatuses.join(', ')}`
+            });
+        }
+
+        // Get the current order to track old payment status
+        const currentOrder = await Order.findById(req.params.id);
+        if (!currentOrder) {
+            console.log(`[PUBLIC ORDERS] Order not found: ${req.params.id}`);
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        const oldPaymentStatus = currentOrder.paymentStatus;
+
+        const order = await Order.findByIdAndUpdate(
+            req.params.id,
+            { paymentStatus },
+            { new: true, runValidators: true }
+        ).populate('restaurantId', 'name address country')
+         .populate('branchId', 'name address phone')
+         .populate('customerId', 'name email phone')
+         .populate('items.itemId', 'name description')
+         .populate('items.menuItemId', 'name description')
+         .populate('items.categoryId', 'name');
+        
+        if (!order) {
+            console.log(`[PUBLIC ORDERS] Order not found: ${req.params.id}`);
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+        
+        console.log(`[PUBLIC ORDERS] Order payment status updated successfully: ${order.orderId} → ${paymentStatus}`);
+        
+        // Emit real-time payment status update notification
+        try {
+            const { emitOrderUpdate } = require('../utils/socketUtils');
+            emitOrderUpdate({
+                eventType: 'updated',
+                order: order,
+                message: `Payment status updated to ${paymentStatus}`,
+                oldPaymentStatus,
+                newPaymentStatus: paymentStatus
+            });
+        } catch (socketError) {
+            console.error('[PUBLIC ORDERS] Error emitting payment status update notification:', socketError);
+            // Don't fail the payment status update if socket emission fails
+        }
+        
+        res.status(200).json({
+            success: true,
+            data: order,
+            message: `Payment status updated to ${paymentStatus}`
+        });
+    } catch (error) {
+        console.error(`[PUBLIC ORDERS] Error updating payment status for ${req.params.id}:`, error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error while updating payment status',
             error: error.message
         });
     }

@@ -8,6 +8,7 @@ const {
   createOrder, 
   updateOrder, 
   updateOrderStatus,
+  updatePaymentStatus,
   deleteOrder,
   getOrdersByRestaurant,
   getOrdersByBranch,
@@ -49,6 +50,11 @@ router
 router
   .route('/:id/status')
   .patch(protect, updateOrderStatus);
+
+// Payment status update route
+router
+  .route('/:id/payment-status')
+  .patch(protect, updatePaymentStatus);
 
 // Invoice generation route
 router

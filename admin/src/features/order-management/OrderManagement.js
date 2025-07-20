@@ -58,7 +58,11 @@ import {
   FaSpinner,
   FaTruck,
   FaUtensils,
-  FaShoppingBag
+  FaShoppingBag,
+  FaCreditCard,
+  FaMoneyBillWave,
+  FaExclamationTriangle,
+  FaUndo
 } from 'react-icons/fa';
 import { format, parseISO } from 'date-fns';
 
@@ -75,6 +79,15 @@ const OrderType = {
   'Delivery': { color: 'primary', icon: FaTruck, label: 'Delivery' }
 };
 
+const PaymentStatus = {
+  unpaid: { color: 'danger', icon: FaExclamationTriangle, label: 'Unpaid' },
+  paid: { color: 'success', icon: FaCheck, label: 'Paid' },
+  pending: { color: 'warning', icon: FaClock, label: 'Pending' },
+  failed: { color: 'danger', icon: FaTimes, label: 'Failed' },
+  refunded: { color: 'info', icon: FaUndo, label: 'Refunded' },
+  partial: { color: 'warning', icon: FaMoneyBillWave, label: 'Partial' }
+};
+
 const OrderManagement = () => {
   const navigate = useNavigate();
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -82,6 +95,8 @@ const OrderManagement = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState('');
+  const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
+  const [newPaymentStatus, setNewPaymentStatus] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -89,6 +104,7 @@ const OrderManagement = () => {
   const [selectedBranch, setSelectedBranch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [orderTypeFilter, setOrderTypeFilter] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
   const [dateRange, setDateRange] = useState({
     startDate: '',
     endDate: '',
@@ -109,6 +125,7 @@ const OrderManagement = () => {
   const [selectedTable, setSelectedTable] = useState('');
   const [availableTables, setAvailableTables] = useState([]);
   const [updatingStatus, setUpdatingStatus] = useState(false); // Track status update loading
+  const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState(false); // Track payment status update loading
   
   // Enhanced Smart Filtering State
   const [smartFilters, setSmartFilters] = useState({
@@ -179,6 +196,9 @@ const OrderManagement = () => {
   // Add ref to track initial fetch
   const initialFetchDone = React.useRef(false);
 
+  // Add ref to track tables fetch to prevent infinite calls
+  const tablesFetchDone = React.useRef(false);
+
   // Notification helper function - memoized to prevent re-renders
   const showNotification = useCallback((type, title, message, autoClose = true) => {
     setNotification({
@@ -212,6 +232,7 @@ const OrderManagement = () => {
     getRestaurants,
     getBranchesForRestaurant,
     updateOrderStatus,
+    updatePaymentStatus,
     deleteOrder,
     generateInvoice,
     addNewOrder,
@@ -537,8 +558,9 @@ const OrderManagement = () => {
     // Smart Filter: Payment Method
     if (smartFilters.paymentMethod) {
       filtered = filtered.filter(order => {
-        const paymentMethod = order.paymentMethod || order.paymentType || '';
-        return paymentMethod.toLowerCase() === smartFilters.paymentMethod.toLowerCase();
+        const paymentMethod = String(order.paymentMethod || order.paymentType || '');
+        const filterPaymentMethod = String(smartFilters.paymentMethod || '');
+        return paymentMethod.toLowerCase() === filterPaymentMethod.toLowerCase();
       });
     }
 
@@ -684,6 +706,14 @@ const OrderManagement = () => {
       });
     }
     
+    // Filter by payment status (from regular filters)
+    if (paymentStatusFilter) {
+      filtered = filtered.filter(order => {
+        const paymentStatus = String(order.paymentStatus || 'unpaid').toLowerCase();
+        return paymentStatus === paymentStatusFilter.toLowerCase();
+      });
+    }
+    
     // Sort the filtered orders
     if (sortConfig.key) {
       filtered.sort((a, b) => {
@@ -716,7 +746,7 @@ const OrderManagement = () => {
     }
     
     setFilteredOrders(filtered);
-  }, [orders, activeTab, activeOrderType, selectedTable, searchTerm, sortConfig, smartFilters]);
+  }, [orders, activeTab, activeOrderType, selectedTable, searchTerm, sortConfig, smartFilters, paymentStatusFilter]);
 
   // Initialize and load data - prevent multiple calls
   useEffect(() => {
@@ -766,14 +796,19 @@ const OrderManagement = () => {
 
   // Load tables for filtering - only once when user is available
   useEffect(() => {
-    if (user && getTables && availableTables.length === 0) {
+    if (user && getTables && !tablesFetchDone.current) {
+      console.log('[OrderManagement] Loading tables for filtering...');
+      tablesFetchDone.current = true;
+      
       getTables().then(() => {
-        // Tables will be available from context
+        console.log('[OrderManagement] Tables loaded successfully');
       }).catch(err => {
         console.error('Error loading tables:', err);
+        // Reset the flag on error so it can be retried
+        tablesFetchDone.current = false;
       });
     }
-  }, [user, getTables]); // Removed tables and availableTables from dependency array
+  }, [user]); // Removed getTables from dependency array to prevent infinite loop
 
   // Update available tables when tables from context change
   useEffect(() => {
@@ -1182,6 +1217,9 @@ const OrderManagement = () => {
     if (activeTab !== 'all') count++;
     if (activeOrderType !== 'all') count++;
     if (selectedTable) count++;
+    if (statusFilter) count++;
+    if (orderTypeFilter) count++;
+    if (paymentStatusFilter) count++;
     
     // Smart filters
     if (smartFilters.amountRange.enabled) count++;
@@ -1197,7 +1235,7 @@ const OrderManagement = () => {
     count += activeQuickFilters;
     
     return count;
-  }, [searchTerm, activeTab, activeOrderType, selectedTable, smartFilters]);
+  }, [searchTerm, activeTab, activeOrderType, selectedTable, statusFilter, orderTypeFilter, paymentStatusFilter, smartFilters]);
 
   // Handle restaurant selection change
   const handleRestaurantChange = async (e) => {
@@ -1229,7 +1267,11 @@ const OrderManagement = () => {
     // Status and type filters
     if (statusFilter) filters.orderStatus = statusFilter;
     if (orderTypeFilter) filters.orderType = orderTypeFilter; // Fixed: use orderType not OrderType
-    
+    if (paymentStatusFilter) filters.paymentStatus = paymentStatusFilter;
+    if (smartFilters.paymentMethod) {
+      filters.paymentMethod = String(smartFilters.paymentMethod).toLowerCase();
+    }
+
     // Date range filters
     if (dateRange.startDate) filters.startDate = dateRange.startDate;
     if (dateRange.endDate) filters.endDate = dateRange.endDate;
@@ -1243,6 +1285,7 @@ const OrderManagement = () => {
     setSelectedBranch('');
     setStatusFilter('');
     setOrderTypeFilter('');
+    setPaymentStatusFilter('');
     setSelectedTable(''); // Reset table filter
     setDateRange({
       startDate: '',
@@ -1322,6 +1365,60 @@ const OrderManagement = () => {
       );
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  // Open payment status update modal
+  const handleOpenPaymentStatusModal = (order) => {
+    setSelectedOrder(order);
+    setNewPaymentStatus(order.paymentStatus || 'unpaid');
+    setShowPaymentStatusModal(true);
+  };
+
+  // Update payment status
+  const handleUpdatePaymentStatus = async () => {
+    setUpdatingPaymentStatus(true);
+    
+    try {
+      const result = await updatePaymentStatus(selectedOrder._id, newPaymentStatus);
+      
+      if (result.success) {
+        setShowPaymentStatusModal(false);
+        
+        // Mark order as recently updated for visual feedback
+        setRecentlyUpdatedOrders(prev => new Set([...prev, selectedOrder._id]));
+        setTimeout(() => {
+          setRecentlyUpdatedOrders(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(selectedOrder._id);
+            return newSet;
+          });
+        }, 3000); // Remove highlight after 3 seconds
+        
+        setSelectedOrder(null);
+        // Show success notification
+        showNotification(
+          'success',
+          'Payment Status Updated Successfully!',
+          `Order #${selectedOrder.orderId} payment status has been updated to "${newPaymentStatus}".`
+        );
+      } else {
+        // Show specific error notification
+        showNotification(
+          'danger',
+          'Failed to Update Payment Status',
+          result.message || 'An unknown error occurred while updating the payment status.'
+        );
+      }
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      showNotification(
+        'danger',
+        'Network Error',
+        error.message || 'Unable to connect to the server. Please check your connection and try again.'
+      );
+    } finally {
+      setUpdatingPaymentStatus(false);
     }
   };
 
@@ -1596,6 +1693,65 @@ const OrderManagement = () => {
     );
   };
 
+  // Render payment status badge
+  const renderPaymentStatusBadge = (paymentStatus) => {
+    // Handle different possible payment status formats and values
+    let normalizedStatus = '';
+    
+    if (!paymentStatus) {
+      normalizedStatus = 'unpaid'; // Default to unpaid
+    } else if (typeof paymentStatus === 'string') {
+      // Normalize the status - handle different cases and variations
+      const cleanStatus = paymentStatus.trim().toLowerCase();
+      
+      // Map common variations to standard statuses
+      const statusMap = {
+        'unpaid': 'unpaid',
+        'not_paid': 'unpaid',
+        'not paid': 'unpaid',
+        'pending_payment': 'unpaid',
+        'paid': 'paid',
+        'completed': 'paid',
+        'success': 'paid',
+        'successful': 'paid',
+        'pending': 'pending',
+        'processing': 'pending',
+        'in_progress': 'pending',
+        'failed': 'failed',
+        'failure': 'failed',
+        'error': 'failed',
+        'declined': 'failed',
+        'rejected': 'failed',
+        'refunded': 'refunded',
+        'refund': 'refunded',
+        'returned': 'refunded',
+        'partial': 'partial',
+        'partially_paid': 'partial',
+        'partial_payment': 'partial'
+      };
+      
+      normalizedStatus = statusMap[cleanStatus] || cleanStatus;
+    } else {
+      normalizedStatus = String(paymentStatus).toLowerCase();
+    }
+    
+    // Get payment status info with fallback
+    const statusInfo = PaymentStatus[normalizedStatus] || { 
+      color: 'secondary', 
+      icon: FaCreditCard, 
+      label: normalizedStatus || 'Unpaid' 
+    };
+    
+    const IconComponent = statusInfo.icon;
+    
+    return (
+      <Badge color={statusInfo.color} className="d-flex align-items-center py-1 px-2">
+        {IconComponent && <IconComponent size={12} className="mr-1" />}
+        <span>{statusInfo.label}</span>
+      </Badge>
+    );
+  };
+
   // Add component mount tracking for debugging
   React.useEffect(() => {
     console.log('[OrderManagement] Component mounted at:', new Date().toISOString());
@@ -1761,7 +1917,7 @@ const OrderManagement = () => {
             animation: isConnected ? 'pulse 2s infinite' : 'none'
           }}
         />
-        {isConnected ? 'Live Updates' : 'Disconnected'}
+        {isConnected ? 'Live Updates' : 'Offline'}
       </div>
       
       {/* CSS Animation for pulse effect */}
@@ -2275,7 +2431,42 @@ const OrderManagement = () => {
                               <option value="Cancelled">Cancelled</option>
                             </Input>
                           </FormGroup>
-                        </Col>                        <Col lg="3" md="6" className="mb-3">
+                        </Col>
+                        
+                        <Col lg="3" md="6" className="mb-3">
+                          <FormGroup>
+                            <Label for="paymentStatusFilter">Payment Status</Label>
+                            <InputGroup>
+                              <InputGroupAddon addonType="prepend">
+                                <InputGroupText className="bg-white">
+                                  <FaCreditCard className="text-success" />
+                                </InputGroupText>
+                              </InputGroupAddon>
+                              <Input
+                                type="select"
+                                name="paymentStatusFilter"
+                                id="paymentStatusFilter"
+                                value={paymentStatusFilter}
+                                onChange={(e) => {
+                                  setPaymentStatusFilter(e.target.value);
+                                  // Auto-apply filter when payment status changes
+                                  setTimeout(() => applyFilters(), 100);
+                                }}
+                                className="border-success"
+                              >
+                                <option value="">All Payment Status</option>
+                                <option value="unpaid">Unpaid</option>
+                                <option value="pending">Pending</option>
+                                <option value="paid">Paid</option>
+                                <option value="failed">Failed</option>
+                                <option value="refunded">Refunded</option>
+                                <option value="partial">Partial</option>
+                              </Input>
+                            </InputGroup>
+                          </FormGroup>
+                        </Col>
+                        
+                        <Col lg="3" md="6" className="mb-3">
                           <FormGroup>
                             <Label for="orderTypeFilter">Order Type</Label>
                             <InputGroup>
@@ -2657,7 +2848,7 @@ const OrderManagement = () => {
                             <Input
                               type="select"
                               value={smartFilters.paymentMethod}
-                              onChange={(e) => updateSmartFilter('paymentMethod', '', e.target.value)}
+                              onChange={(e) => setSmartFilters(prev => ({ ...prev, paymentMethod: e.target.value }))}
                             >
                               <option value="">All Methods</option>
                               <option value="cash">Cash</option>
@@ -2675,7 +2866,7 @@ const OrderManagement = () => {
                             <Input
                               type="select"
                               value={smartFilters.customerType}
-                              onChange={(e) => updateSmartFilter('customerType', '', e.target.value)}
+                              onChange={(e) => setSmartFilters(prev => ({ ...prev, customerType: e.target.value }))}
                             >
                               <option value="">All Customers</option>
                               <option value="new">New Customers</option>
@@ -2849,7 +3040,7 @@ const OrderManagement = () => {
                       </small>
                     )}
                   </Col>
-                  <Col md="6" className="text-right d-flex align-items-center justify-content-end">
+                  <Col md="6" className="text-right d-flex align-items-end">
                     {/* Active filters indicator */}
                     {getActiveFiltersCount() > 0 && (
                       <div className="mr-3">
@@ -2955,27 +3146,38 @@ const OrderManagement = () => {
                               {sortConfig.key === 'totalAmount' && (
                                 <span className="ml-1">
                                   {sortConfig.direction === 'asc' ? <FaAngleUp /> : <FaAngleDown />}
-                              </span>
+                                </span>
+                              )}
+                            </th>
+                            <th scope="col">Type</th>
+                            <th scope="col" style={{ cursor: 'pointer' }} onClick={() => handleSort('orderStatus')}>
+                              Status
+                              {sortConfig.key === 'orderStatus' && (
+                                <span className="ml-1">
+                                  {sortConfig.direction === 'asc' ? <FaAngleUp /> : <FaAngleDown />}
+                                </span>
+                              )}
+                            </th>
+                            <th scope="col" style={{ cursor: 'pointer' }} onClick={() => handleSort('paymentStatus')}>
+                              Payment
+                              {sortConfig.key === 'paymentStatus' && (
+                                <span className="ml-1">
+                                  {sortConfig.direction === 'asc' ? <FaAngleUp /> : <FaAngleDown />}
+                                </span>
+                              )}
+                            </th>
+                            {user.role === 'Super_Admin' && (
+                              <th scope="col">Restaurant/Branch</th>
                             )}
-                          </th>
-                          <th scope="col">Type</th>
-                          <th scope="col" style={{ cursor: 'pointer' }} onClick={() => handleSort('orderStatus')}>
-                            Status
-                            {sortConfig.key === 'orderStatus' && (
-                              <span className="ml-1">
-                                {sortConfig.direction === 'asc' ? <FaAngleUp /> : <FaAngleDown />}
-                              </span>
-                            )}
-                          </th>
-                          {user.role === 'Super_Admin' && (
-                            <th scope="col">Restaurant/Branch</th>
-                          )}
-                          <th scope="col">Actions</th>
-                        </tr>                      </thead>                      <tbody>                        {paginatedOrders.map((order, index) => {
-                          // Safety check: Skip orders without valid _id
-                          if (!order._id) {
-                            console.warn('Skipping order without _id:', order);
-                            return null;
+                            <th scope="col">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedOrders.map((order, index) => {
+                            // Safety check: Skip orders without valid _id
+                            if (!order._id) {
+                              console.warn('Skipping order without _id:', order);
+                              return null;
                           }
                           
                           const orderType = getOrderType(order);
@@ -3046,6 +3248,9 @@ const OrderManagement = () => {
                               <td>
                                 {renderStatusBadge(getOrderStatus(order))}
                               </td>
+                              <td>
+                                {renderPaymentStatusBadge(order.paymentStatus || 'unpaid')}
+                              </td>
                               {user.role === 'Super_Admin' && (
                                 <td>
                                   {order.restaurantId && typeof order.restaurantId === 'object' ? (
@@ -3082,6 +3287,9 @@ const OrderManagement = () => {
                                         <FaEdit className="text-info mr-2" /> Update Status
                                       </DropdownItem>
                                     )}
+                                    <DropdownItem onClick={() => handleOpenPaymentStatusModal(order)}>
+                                      <FaCreditCard className="text-success mr-2" /> Update Payment
+                                    </DropdownItem>
                                     <DropdownItem 
                                       onClick={() => handleGenerateInvoice(order)}
                                       disabled={generatingInvoice === order._id}
@@ -3221,7 +3429,9 @@ const OrderManagement = () => {
             </div>
             <div>
               <h4 className="mb-0 text-white">Order Details</h4>
-              <small className="text-white-50">Order #{selectedOrder?.orderId} • {formatDate(selectedOrder?.orderDate)}</small>
+              <small className="text-white-50">
+                Order #{selectedOrder?.orderId} • {formatDate(selectedOrder?.orderDate)}
+              </small>
             </div>
           </div>
         </ModalHeader>
@@ -3393,7 +3603,7 @@ const OrderManagement = () => {
                                     <small>
                                       {selectedOrder.customerId && typeof selectedOrder.customerId === 'object' && selectedOrder.customerId.address 
                                         ? selectedOrder.customerId.address 
-                                        : selectedOrder.deliveryAddress || 'N/A'}
+                                        : selectedOrder.deliveryAddress || 'Address not provided'}
                                     </small>
                                   </div>
                                 </td>
@@ -3573,16 +3783,14 @@ const OrderManagement = () => {
                 <Card className="shadow-sm border-0 mb-4">
                   <CardHeader className="bg-gradient-warning text-white border-0">
                     <div className="d-flex align-items-center justify-content-between">
-                      <div className="d-flex align-items-center">
+                      <div>
                         <div className="icon icon-shape bg-white text-warning rounded-circle shadow mr-3">
                           <i className="fas fa-list"></i>
                         </div>
-                        <div>
-                          <h5 className="mb-0 text-white font-weight-bold">Order Items</h5>
-                          <small className="text-white-75">
-                            {selectedOrder.items?.length || 0} items • Total Qty: {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}
-                          </small>
-                        </div>
+                        <h5 className="mb-0 text-white font-weight-bold">Order Items</h5>
+                        <small className="text-white-75">
+                          {selectedOrder.items?.length || 0} items • Total Qty: {selectedOrder.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}
+                        </small>
                       </div>
                       <Badge color="light" pill className="shadow-sm">
                         <i className="fas fa-utensils mr-1"></i>
@@ -3788,6 +3996,17 @@ const OrderManagement = () => {
             Update Status
           </Button>
           <Button 
+            color="success" 
+            onClick={() => {
+              setShowOrderDetails(false);
+              handleOpenPaymentStatusModal(selectedOrder);
+            }}
+            className="shadow-sm"
+          >
+            <i className="fas fa-credit-card mr-2"></i>
+            Update Payment
+          </Button>
+          <Button 
             color="danger" 
             onClick={() => handleGenerateInvoice(selectedOrder)}
             disabled={generatingInvoice === selectedOrder?._id}
@@ -3905,7 +4124,111 @@ const OrderManagement = () => {
             )}
           </Button>
         </ModalFooter>
-      </Modal>      {/* Delete Confirmation Modal */}
+      </Modal>
+
+      {/* Payment Status Update Modal */}
+      <Modal isOpen={showPaymentStatusModal} toggle={() => setShowPaymentStatusModal(false)}>
+        <ModalHeader toggle={() => setShowPaymentStatusModal(false)} className="bg-success text-white">
+          <i className="fas fa-credit-card mr-2"></i>
+          Update Payment Status
+        </ModalHeader>
+        <ModalBody>
+          {selectedOrder && (
+            <Form>
+              <Alert 
+                color={
+                  getOrderType(selectedOrder) === 'Dine-In' ? 'info' : 
+                  getOrderType(selectedOrder) === 'Takeout' ? 'warning' : 
+                  'primary'
+                }
+                className="mb-3"
+              >
+                <div className="d-flex align-items-center">
+                  {getOrderType(selectedOrder) === 'Dine-In' && <FaUtensils className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Takeout' && <FaShoppingBag className="mr-2" />}
+                  {getOrderType(selectedOrder) === 'Delivery' && <FaTruck className="mr-2" />}
+                  <div>
+                    <strong>{getOrderType(selectedOrder)} Order #{selectedOrder.orderId}</strong>
+                    <div><small>{formatDate(selectedOrder.orderDate)}</small></div>
+                  </div>
+                </div>
+              </Alert>
+              <FormGroup>
+                <Label for="paymentStatus">
+                  <strong>Payment Status</strong>
+                </Label>
+                <Input
+                  type="select"
+                  name="paymentStatus"
+                  id="paymentStatus"
+                  value={newPaymentStatus}
+                  onChange={(e) => setNewPaymentStatus(e.target.value)}
+                  disabled={updatingPaymentStatus}
+                  className={
+                    newPaymentStatus === 'unpaid' ? 'border-warning' : 
+                    newPaymentStatus === 'pending' ? 'border-info' :
+                    newPaymentStatus === 'paid' ? 'border-success' :
+                    newPaymentStatus === 'failed' ? 'border-danger' :
+                    newPaymentStatus === 'refunded' ? 'border-secondary' :
+                    newPaymentStatus === 'partial' ? 'border-warning' : ''
+                  }
+                >
+                  <option value="unpaid">Unpaid</option>
+                  <option value="pending">Pending</option>
+                  <option value="paid">Paid</option>
+                  <option value="failed">Failed</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="partial">Partial</option>
+                </Input>
+              </FormGroup>
+              
+              <div className="d-flex align-items-center mb-3">
+                <span className="mr-2">Current Payment Status:</span> 
+                {renderPaymentStatusBadge(selectedOrder.paymentStatus || 'unpaid')}
+              </div>
+              
+              <Alert 
+                color="secondary"
+                className="mb-0"
+              >
+                <div className="d-flex align-items-center">
+                  <i className="fas fa-info-circle mr-2"></i>
+                  Updating payment status will notify the customer and update financial records.
+                </div>
+              </Alert>
+            </Form>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button 
+            color="secondary" 
+            onClick={() => setShowPaymentStatusModal(false)}
+            disabled={updatingPaymentStatus}
+          >
+            Cancel
+          </Button>
+          <Button 
+            color="success" 
+            onClick={handleUpdatePaymentStatus} 
+            disabled={updatingPaymentStatus || loading}
+            className="px-4"
+          >
+            {updatingPaymentStatus ? (
+              <>
+                <Spinner size="sm" className="mr-2" />
+                Updating Payment...
+              </>
+            ) : (
+              <>
+                <FaCheck className="mr-2" />
+                Update Payment Status
+              </>
+            )}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
       <Modal isOpen={showDeleteConfirm} toggle={() => setShowDeleteConfirm(false)}>
         <ModalHeader toggle={() => setShowDeleteConfirm(false)} className="bg-danger text-white">
           <i className="fas fa-exclamation-triangle mr-2"></i>

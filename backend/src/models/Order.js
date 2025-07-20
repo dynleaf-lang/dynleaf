@@ -170,6 +170,11 @@ const orderSchema = new mongoose.Schema({
         enum: ['cash', 'card', 'online', 'other'],
         default: 'cash',
     },
+    paymentStatus: {
+        type: String,
+        enum: ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial'],
+        default: 'unpaid',
+    },
     // Order notes
     notes: {
         type: String,

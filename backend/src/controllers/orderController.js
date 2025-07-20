@@ -42,6 +42,7 @@ exports.getAllOrdersWithFilters = async (req, res) => {
       branchId, 
       orderStatus, 
       OrderType, 
+      paymentStatus,
       startDate, 
       endDate 
     } = req.query;
@@ -53,6 +54,7 @@ exports.getAllOrdersWithFilters = async (req, res) => {
     if (branchId) filter.branchId = branchId;
     if (orderStatus) filter.orderStatus = orderStatus;
     if (OrderType) filter.OrderType = OrderType;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
     
     // Add date range filters if provided
     if (startDate || endDate) {
@@ -327,6 +329,91 @@ exports.updateOrderStatus = async (req, res) => {
   }
 };
 
+// Update payment status
+exports.updatePaymentStatus = async (req, res) => {
+  try {
+    const { paymentStatus } = req.body;
+    
+    console.log(`Updating order ${req.params.id} payment status to: ${paymentStatus}`);
+    
+    if (!paymentStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment status is required'
+      });
+    }
+    
+    // Validate payment status values
+    const validPaymentStatuses = ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial'];
+    if (!validPaymentStatuses.includes(paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid payment status. Must be one of: ${validPaymentStatuses.join(', ')}`
+      });
+    }
+
+    // Get the current order to track old payment status
+    const currentOrder = await Order.findById(req.params.id);
+    if (!currentOrder) {
+      console.log(`Order not found: ${req.params.id}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    
+    const oldPaymentStatus = currentOrder.paymentStatus;
+
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { paymentStatus },
+      { new: true, runValidators: true }
+    ).populate('restaurantId', 'name address country')
+     .populate('branchId', 'name address phone')
+     .populate('customerId', 'name email phone')
+     .populate('items.itemId', 'name description')
+     .populate('items.menuItemId', 'name description')
+     .populate('items.categoryId', 'name');
+    
+    if (!order) {
+      console.log(`Order not found: ${req.params.id}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    
+    console.log(`Order payment status updated successfully: ${order.orderId} -> ${paymentStatus}`);
+    
+    // Emit real-time payment status update notification
+    try {
+      emitOrderUpdate({
+        eventType: 'updated',
+        order: order,
+        message: `Payment status updated to ${paymentStatus}`,
+        oldPaymentStatus,
+        newPaymentStatus: paymentStatus
+      });
+    } catch (socketError) {
+      console.error('Error emitting payment status update notification:', socketError);
+      // Don't fail the payment status update if socket emission fails
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: order,
+      message: `Payment status updated to ${paymentStatus}`
+    });
+  } catch (error) {
+    console.error(`Error updating payment status for ${req.params.id}:`, error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating payment status',
+      error: error.message
+    });
+  }
+};
+
 // Delete order
 exports.deleteOrder = async (req, res) => {
   try {
@@ -360,6 +447,7 @@ exports.getOrdersByRestaurant = async (req, res) => {
     const { 
       orderStatus, 
       OrderType, 
+      paymentStatus,
       startDate, 
       endDate 
     } = req.query;
@@ -369,6 +457,7 @@ exports.getOrdersByRestaurant = async (req, res) => {
     
     if (orderStatus) filter.orderStatus = orderStatus;
     if (OrderType) filter.OrderType = OrderType;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
     
     // Add date range filters if provided
     if (startDate || endDate) {
@@ -402,6 +491,7 @@ exports.getOrdersByBranch = async (req, res) => {
     const { 
       orderStatus, 
       OrderType, 
+      paymentStatus,
       startDate, 
       endDate 
     } = req.query;
@@ -411,6 +501,7 @@ exports.getOrdersByBranch = async (req, res) => {
     
     if (orderStatus) filter.orderStatus = orderStatus;
     if (OrderType) filter.OrderType = OrderType;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
     
     // Add date range filters if provided
     if (startDate || endDate) {

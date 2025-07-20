@@ -54,6 +54,7 @@ export const OrderProvider = ({ children }) => {
       
       if (filters.orderStatus) queryParams.append('orderStatus', filters.orderStatus);
       if (filters.orderType) queryParams.append('OrderType', filters.orderType); // Backend expects OrderType
+      if (filters.paymentStatus) queryParams.append('paymentStatus', filters.paymentStatus);
       if (filters.startDate) queryParams.append('startDate', filters.startDate);
       if (filters.endDate) queryParams.append('endDate', filters.endDate);
       
@@ -63,7 +64,7 @@ export const OrderProvider = ({ children }) => {
       let endpoint = '/public/orders';
       
       // For Super_Admin with filters, use the specialized endpoint
-      if (user?.role === 'Super_Admin' && (filters.restaurantId || filters.branchId || filters.orderStatus || filters.orderType || filters.startDate || filters.endDate)) {
+      if (user?.role === 'Super_Admin' && (filters.restaurantId || filters.branchId || filters.orderStatus || filters.orderType || filters.paymentStatus || filters.startDate || filters.endDate)) {
         endpoint = '/public/orders/all';
       }
 
@@ -488,6 +489,57 @@ export const OrderProvider = ({ children }) => {
     }
   }, []);
 
+  // Update payment status
+  const updatePaymentStatus = useCallback(async (orderId, paymentStatus) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('Updating payment status:', orderId, 'to:', paymentStatus);
+      
+      const response = await api.patch(`/public/orders/${orderId}/payment-status`, { 
+        paymentStatus: paymentStatus
+      });
+      
+      console.log('Payment status update response:', response.data);
+      
+      // Update orders state with the updated order, ensuring orders is an array
+      setOrders(prevOrders => {
+        if (!Array.isArray(prevOrders)) {
+          return [response.data.data || response.data];
+        }
+        return prevOrders.map(order => 
+          order._id === orderId ? (response.data.data || response.data) : order
+        );
+      });
+      
+      return { success: true, order: response.data.data || response.data };
+    } catch (err) {
+      console.error('Error updating payment status:', err);
+      
+      let errorMsg = 'Failed to update payment status';
+      
+      if (err.response) {
+        console.error('Server error response:', err.response.status, err.response.data);
+        
+        if (err.response.status === 404) {
+          errorMsg = 'Order not found';
+        } else if (err.response.status === 400) {
+          errorMsg = err.response.data?.message || 'Invalid payment status value';
+        } else if (err.response.data?.message) {
+          errorMsg = err.response.data.message;
+        }
+      } else if (err.request) {
+        errorMsg = 'Network error - please check your connection';
+      }
+      
+      setError(errorMsg);
+      return { success: false, message: errorMsg };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Delete an order
   const deleteOrder = useCallback(async (orderId) => {
     setLoading(true);
@@ -790,6 +842,7 @@ export const OrderProvider = ({ children }) => {
     getRestaurants,
     getBranchesForRestaurant,
     updateOrderStatus,
+    updatePaymentStatus,
     deleteOrder,
     generateInvoice,
     setCountryCode,
@@ -814,6 +867,7 @@ export const OrderProvider = ({ children }) => {
     getRestaurants,
     getBranchesForRestaurant,
     updateOrderStatus,
+    updatePaymentStatus,
     deleteOrder,
     generateInvoice,
     addNewOrder,
