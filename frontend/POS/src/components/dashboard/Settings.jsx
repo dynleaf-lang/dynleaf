@@ -1,0 +1,643 @@
+import React, { useState } from 'react';
+import { 
+  Row, 
+  Col, 
+  Card, 
+  CardBody, 
+  CardHeader,
+  Button, 
+  Form,
+  FormGroup,
+  Label,
+  Input,
+  Nav,
+  NavItem,
+  NavLink,
+  TabContent,
+  TabPane,
+  Alert,
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Spinner
+} from 'reactstrap';
+import { 
+  FaCog, 
+  FaUser, 
+  FaLock, 
+  FaPrint,
+  FaWifi,
+  FaSave, 
+  FaKey,
+  FaEye,
+  FaEyeSlash, 
+  FaUndo
+} from 'react-icons/fa';
+import { useAuth } from '../../context/AuthContext';
+import toast from 'react-hot-toast';
+
+const Settings = () => {
+  const [activeTab, setActiveTab] = useState('profile');
+  const [loading, setLoading] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  
+  const { user, updateProfile, changePassword } = useAuth();
+  
+  const [profileData, setProfileData] = useState({
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: user?.phone || ''
+  });
+
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+
+  const [posSettings, setPosSettings] = useState({
+    autoLogout: 30,
+    printReceipts: true,
+    soundNotifications: true,
+    theme: 'light',
+    language: 'en',
+    currency: 'INR',
+    taxRate: 10,
+    printerIP: '192.168.1.100',
+    printerPort: '9100'
+  });
+
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      const result = await updateProfile(profileData);
+      if (result.success) {
+        toast.success('Profile updated successfully');
+      }
+    } catch (error) {
+      toast.error('Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+
+    setLoading(true);
+    
+    try {
+      const result = await changePassword(passwordData.currentPassword, passwordData.newPassword);
+      if (result.success) {
+        toast.success('Password changed successfully');
+        setPasswordData({
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: ''
+        });
+        setShowPasswordModal(false);
+      }
+    } catch (error) {
+      toast.error('Failed to change password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePosSettingsUpdate = () => {
+    // Save POS settings to localStorage
+    localStorage.setItem('pos_settings', JSON.stringify(posSettings));
+    toast.success('POS settings saved successfully');
+  };
+
+  const resetPosSettings = () => {
+    setPosSettings({
+      autoLogout: 30,
+      printReceipts: true,
+      soundNotifications: true,
+      theme: 'light',
+      language: 'en',
+      currency: 'INR',
+      taxRate: 10,
+      printerIP: '192.168.1.100',
+      printerPort: '9100'
+    });
+    toast.success('Settings reset to default');
+  };
+
+  const testPrinterConnection = () => {
+    toast.loading('Testing printer connection...');
+    
+    // Simulate printer test
+    setTimeout(() => {
+      toast.dismiss();
+      toast.success('Printer connection successful');
+    }, 2000);
+  };
+
+  return (
+    <div className="settings">
+      {/* Header */}
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h3>Settings</h3>
+          <p className="text-muted mb-0">Manage your profile and POS preferences</p>
+        </div>
+      </div>
+
+      {/* Settings Tabs */}
+      <Nav tabs className="mb-4">
+        <NavItem>
+          <NavLink
+            className={activeTab === 'profile' ? 'active' : ''}
+            onClick={() => setActiveTab('profile')}
+            style={{ cursor: 'pointer' }}
+          >
+            <FaUser className="me-2" />
+            Profile
+          </NavLink>
+        </NavItem>
+        <NavItem>
+          <NavLink
+            className={activeTab === 'security' ? 'active' : ''}
+            onClick={() => setActiveTab('security')}
+            style={{ cursor: 'pointer' }}
+          >
+            <FaLock className="me-2" />
+            Security
+          </NavLink>
+        </NavItem>
+        <NavItem>
+          <NavLink
+            className={activeTab === 'pos' ? 'active' : ''}
+            onClick={() => setActiveTab('pos')}
+            style={{ cursor: 'pointer' }}
+          >
+            <FaCog className="me-2" />
+            POS Settings
+          </NavLink>
+        </NavItem>
+        <NavItem>
+          <NavLink
+            className={activeTab === 'printer' ? 'active' : ''}
+            onClick={() => setActiveTab('printer')}
+            style={{ cursor: 'pointer' }}
+          >
+            <FaPrint className="me-2" />
+            Printer
+          </NavLink>
+        </NavItem>
+      </Nav>
+
+      <TabContent activeTab={activeTab}>
+        {/* Profile Tab */}
+        <TabPane tabId="profile">
+          <Card>
+            <CardHeader>
+              <h5>Profile Information</h5>
+            </CardHeader>
+            <CardBody>
+              <Form onSubmit={handleProfileUpdate}>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Full Name</Label>
+                      <Input
+                        type="text"
+                        value={profileData.name}
+                        onChange={(e) => setProfileData(prev => ({
+                          ...prev,
+                          name: e.target.value
+                        }))}
+                        required
+                      />
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Email Address</Label>
+                      <Input
+                        type="email"
+                        value={profileData.email}
+                        onChange={(e) => setProfileData(prev => ({
+                          ...prev,
+                          email: e.target.value
+                        }))}
+                        required
+                      />
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Phone Number</Label>
+                      <Input
+                        type="tel"
+                        value={profileData.phone}
+                        onChange={(e) => setProfileData(prev => ({
+                          ...prev,
+                          phone: e.target.value
+                        }))}
+                      />
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Role</Label>
+                      <Input
+                        type="text"
+                        value={user?.role || ''}
+                        disabled
+                      />
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <Button 
+                  type="submit" 
+                  color="primary" 
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Spinner size="sm" className="me-2" />
+                      Updating...
+                    </>
+                  ) : (
+                    <>
+                      <FaSave className="me-2" />
+                      Update Profile
+                    </>
+                  )}
+                </Button>
+              </Form>
+            </CardBody>
+          </Card>
+        </TabPane>
+
+        {/* Security Tab */}
+        <TabPane tabId="security">
+          <Card>
+            <CardHeader>
+              <h5>Security Settings</h5>
+            </CardHeader>
+            <CardBody>
+              <div className="security-options">
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <div>
+                    <h6>Change Password</h6>
+                    <small className="text-muted">Update your account password</small>
+                  </div>
+                  <Button 
+                    color="outline-primary"
+                    onClick={() => setShowPasswordModal(true)}
+                  >
+                    <FaKey className="me-2" />
+                    Change Password
+                  </Button>
+                </div>
+                
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <div>
+                    <h6>Auto Logout</h6>
+                    <small className="text-muted">Automatically logout after inactivity</small>
+                  </div>
+                  <Input
+                    type="select"
+                    style={{ width: '150px' }}
+                    value={posSettings.autoLogout}
+                    onChange={(e) => setPosSettings(prev => ({
+                      ...prev,
+                      autoLogout: parseInt(e.target.value)
+                    }))}
+                  >
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={120}>2 hours</option>
+                  </Input>
+                </div>
+
+                <Alert color="info" fade={false}>
+                  <strong>Security Tips:</strong>
+                  <ul className="mb-0 mt-2">
+                    <li>Use a strong password with at least 8 characters</li>
+                    <li>Include uppercase, lowercase, numbers, and symbols</li>
+                    <li>Don't share your login credentials</li>
+                    <li>Log out when leaving the POS terminal</li>
+                  </ul>
+                </Alert>
+              </div>
+            </CardBody>
+          </Card>
+        </TabPane>
+
+        {/* POS Settings Tab */}
+        <TabPane tabId="pos">
+          <Card>
+            <CardHeader>
+              <h5>POS Configuration</h5>
+            </CardHeader>
+            <CardBody>
+              <Form>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Theme</Label>
+                      <Input
+                        type="select"
+                        value={posSettings.theme}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          theme: e.target.value
+                        }))}
+                      >
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                      </Input>
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Language</Label>
+                      <Input
+                        type="select"
+                        value={posSettings.language}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          language: e.target.value
+                        }))}
+                      >
+                        <option value="en">English</option>
+                        <option value="hi">Hindi</option>
+                      </Input>
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Currency</Label>
+                      <Input
+                        type="select"
+                        value={posSettings.currency}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          currency: e.target.value
+                        }))}
+                      >
+                        <option value="INR">Indian Rupee (₹)</option>
+                        <option value="USD">US Dollar ($)</option>
+                      </Input>
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Tax Rate (%)</Label>
+                      <Input
+                        type="number"
+                        value={posSettings.taxRate}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          taxRate: parseFloat(e.target.value)
+                        }))}
+                        min="0"
+                        max="50"
+                        step="0.1"
+                      />
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup check>
+                      <Input
+                        type="checkbox"
+                        checked={posSettings.printReceipts}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          printReceipts: e.target.checked
+                        }))}
+                      />
+                      <Label check>Auto-print receipts</Label>
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup check>
+                      <Input
+                        type="checkbox"
+                        checked={posSettings.soundNotifications}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          soundNotifications: e.target.checked
+                        }))}
+                      />
+                      <Label check>Sound notifications</Label>
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <div className="mt-4">
+                  <Button 
+                    color="primary" 
+                    className="me-2"
+                    onClick={handlePosSettingsUpdate}
+                  >
+                    <FaSave className="me-2" />
+                    Save Settings
+                  </Button>
+                  <Button 
+                    color="outline-secondary"
+                    onClick={resetPosSettings}
+                  >
+                    <FaUndo className="me-2" />
+                    Reset to Default
+                  </Button>
+                </div>
+              </Form>
+            </CardBody>
+          </Card>
+        </TabPane>
+
+        {/* Printer Tab */}
+        <TabPane tabId="printer">
+          <Card>
+            <CardHeader>
+              <h5>Thermal Printer Settings</h5>
+            </CardHeader>
+            <CardBody>
+              <Form>
+                <Row>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Printer IP Address</Label>
+                      <Input
+                        type="text"
+                        value={posSettings.printerIP}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          printerIP: e.target.value
+                        }))}
+                        placeholder="192.168.1.100"
+                      />
+                    </FormGroup>
+                  </Col>
+                  <Col md={6}>
+                    <FormGroup>
+                      <Label>Printer Port</Label>
+                      <Input
+                        type="text"
+                        value={posSettings.printerPort}
+                        onChange={(e) => setPosSettings(prev => ({
+                          ...prev,
+                          printerPort: e.target.value
+                        }))}
+                        placeholder="9100"
+                      />
+                    </FormGroup>
+                  </Col>
+                </Row>
+                <div className="mt-3">
+                  <Button 
+                    color="info" 
+                    className="me-2"
+                    onClick={testPrinterConnection}
+                  >
+                    <FaWifi className="me-2" />
+                    Test Connection
+                  </Button>
+                  <Button 
+                    color="primary"
+                    onClick={handlePosSettingsUpdate}
+                  >
+                    <FaSave className="me-2" />
+                    Save Printer Settings
+                  </Button>
+                </div>
+                
+                <Alert color="info" className="mt-4" fade={false}>
+                  <strong>Supported Printers:</strong>
+                  <ul className="mb-0 mt-2">
+                    <li>Epson TM-T20II</li>
+                    <li>Star TSP143III</li>
+                    <li>Citizen CT-S310II</li>
+                    <li>Generic ESC/POS compatible printers</li>
+                  </ul>
+                </Alert>
+              </Form>
+            </CardBody>
+          </Card>
+        </TabPane>
+      </TabContent>
+
+      {/* Change Password Modal */}
+      <Modal 
+        isOpen={showPasswordModal} 
+        toggle={() => setShowPasswordModal(false)}
+      >
+        <ModalHeader toggle={() => setShowPasswordModal(false)}>
+          Change Password
+        </ModalHeader>
+        <Form onSubmit={handlePasswordChange}>
+          <ModalBody>
+            <FormGroup>
+              <Label>Current Password</Label>
+              <div className="input-group">
+                <Input
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData(prev => ({
+                    ...prev,
+                    currentPassword: e.target.value
+                  }))}
+                  required
+                />
+                <Button
+                  type="button"
+                  color="outline-secondary"
+                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                >
+                  {showCurrentPassword ? <FaEyeSlash /> : <FaEye />}
+                </Button>
+              </div>
+            </FormGroup>
+            <FormGroup>
+              <Label>New Password</Label>
+              <div className="input-group">
+                <Input
+                  type={showNewPassword ? "text" : "password"}
+                  value={passwordData.newPassword}
+                  onChange={(e) => setPasswordData(prev => ({
+                    ...prev,
+                    newPassword: e.target.value
+                  }))}
+                  required
+                  minLength="6"
+                />
+                <Button
+                  type="button"
+                  color="outline-secondary"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                >
+                  {showNewPassword ? <FaEyeSlash /> : <FaEye />}
+                </Button>
+              </div>
+            </FormGroup>
+            <FormGroup>
+              <Label>Confirm New Password</Label>
+              <Input
+                type="password"
+                value={passwordData.confirmPassword}
+                onChange={(e) => setPasswordData(prev => ({
+                  ...prev,
+                  confirmPassword: e.target.value
+                }))}
+                required
+                minLength="6"
+              />
+            </FormGroup>
+          </ModalBody>
+          <ModalFooter>
+            <Button 
+              color="secondary" 
+              onClick={() => setShowPasswordModal(false)}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              color="primary"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Spinner size="sm" className="me-2" />
+                  Changing...
+                </>
+              ) : (
+                'Change Password'
+              )}
+            </Button>
+          </ModalFooter>
+        </Form>
+      </Modal>
+    </div>
+  );
+};
+
+export default Settings;

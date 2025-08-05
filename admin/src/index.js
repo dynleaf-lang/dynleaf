@@ -22,6 +22,7 @@ import { TaxProvider } from "./context/TaxContext";
 import { CustomerProvider } from "./context/CustomerContext";
 import { OrderProvider } from "./context/OrderContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
+import { StaffProvider } from "./context/StaffContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // This component synchronizes verification status across the app
@@ -68,7 +69,8 @@ root.render(
                 <TaxProvider>
                   <CustomerProvider>
                     <OrderProvider>
-                      <CurrencyProvider>
+                      <StaffProvider>
+                        <CurrencyProvider>
                         <BrowserRouter>
                           <VerificationStatusSynchronizer />
                           <Routes>
@@ -82,7 +84,8 @@ root.render(
                             <Route path="*" element={<Navigate to="/auth/login" replace />} /> {/* Catch all other routes */}
                           </Routes>
                         </BrowserRouter>
-                      </CurrencyProvider>
+                        </CurrencyProvider>
+                      </StaffProvider>
                     </OrderProvider>
                   </CustomerProvider>
                 </TaxProvider>

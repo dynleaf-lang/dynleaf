@@ -629,4 +629,39 @@ router.get('/debug/branch/:branchId/categories', async (req, res) => {
     }
 });
 
+// Get all menu items for a specific restaurant (for POS system)
+router.get('/restaurant/:restaurantId', async (req, res) => {
+    try {
+        const { restaurantId } = req.params;
+        
+        console.log(`[DEBUG] Fetching menu items for restaurant: ${restaurantId}`);
+        
+        if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+            return res.status(400).json({ message: 'Invalid restaurant ID format' });
+        }
+        
+        // Get all menu items for this restaurant (across all branches)
+        const menuItems = await MenuItem.find({
+            restaurantId,
+            isActive: true,
+            isDeleted: { $ne: true }
+        })
+        .populate('categoryId', 'name')
+        .sort({ categoryId: 1, displayOrder: 1 })
+        .lean();
+        
+        console.log(`[DEBUG] Found ${menuItems.length} menu items for restaurant`);
+        
+        // Return in the format expected by POS frontend
+        res.json({ menus: menuItems });
+        
+    } catch (error) {
+        console.error('[PUBLIC API ERROR] Error fetching menu items for restaurant:', error);
+        res.status(500).json({ 
+            message: error.message,
+            stack: process.env.NODE_ENV === 'production' ? '🥞' : error.stack
+        });
+    }
+});
+
 module.exports = router;

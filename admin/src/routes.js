@@ -16,6 +16,7 @@ import TaxManagement from "features/tax-management/TaxManagement.js";
 import CustomerManagement from "features/customer-management/CustomerManagement.js";
 import OrderManagement from "features/order-management/OrderManagement.js";
 import OrderReports from "features/order-management/OrderReports.js";
+import StaffManagement from "features/staff-management/StaffManagement.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -99,6 +100,14 @@ var routes = [
     component: <CustomerManagement />,
     layout: "/admin",
     roles: ["Branch_Manager", "POS_Operator", "Super_Admin"], 
+  },
+  {
+    path: "/staff-management",
+    name: "Staff Management",
+    icon: "ni ni-badge text-pink",
+    component: <StaffManagement />,
+    layout: "/admin",
+    roles: ["Branch_Manager"], // Only Branch_Manager can see this route
   },
   {
     path: "/tables-management",

@@ -72,7 +72,7 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['Super_Admin', 'admin', 'Branch_Manager', 'Kitchen', 'Delivery', 'POS_Operator'],
+        enum: ['Super_Admin', 'admin', 'Branch_Manager', 'Kitchen', 'Delivery', 'POS_Operator', 'Staff', 'Waiter', 'Chef'],
         default: 'Branch_Manager',
     },
     // Email verification fields

@@ -110,8 +110,9 @@ const tableRoutes = require('./routes/tableRoutes');
 const taxRoutes = require('./routes/taxRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
-const floorRoutes = require('./routes/floorRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
+const floorRoutes = require('./routes/floorRoutes');
+const staffRoutes = require('./routes/staffRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 
 // Import public routes for customer application
@@ -120,6 +121,8 @@ const publicMenuRoutes = require('./routes/publicMenuRoutes');
 const publicBranchRoutes = require('./routes/publicBranchRoutes');
 const publicOrderRoutes = require('./routes/publicOrderRoutes');
 const publicTaxRoutes = require('./routes/publicTaxRoutes');
+const publicCategoryRoutes = require('./routes/publicCategoryRoutes');
+const publicFloorRoutes = require('./routes/publicFloorRoutes');
 // Import diagnostic routes
 const diagnosticRoutes = require('./routes/diagnosticRoutes');
 const schemaInfoRoutes = require('./routes/schemaInfoRoutes');
@@ -157,6 +160,7 @@ app.use('/api/taxes', taxRoutes);
 app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/floors', floorRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Debug request logging middleware for public routes
 app.use('/api/public', (req, res, next) => {
@@ -167,9 +171,11 @@ app.use('/api/public', (req, res, next) => {
 // Register public API routes for the customer application
 app.use('/api/public/tables', publicTableRoutes);
 app.use('/api/public/menus', publicMenuRoutes);
+app.use('/api/public/categories', publicCategoryRoutes);
 app.use('/api/public/branches', publicBranchRoutes);
 app.use('/api/public/orders', publicOrderRoutes);
 app.use('/api/public/taxes', publicTaxRoutes);
+app.use('/api/public/floors', publicFloorRoutes);
 app.use('/api/public/favorites', favoritesRoutes);
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
@@ -197,7 +203,7 @@ io.on('connection', (socket) => {
   
   // Join rooms based on user type and branch/restaurant
   socket.on('join', (data) => {
-    const { userType, branchId, restaurantId, tableId } = data;
+    const { userType, branchId, restaurantId, tableId, userId, role } = data;
     
     if (userType === 'admin') {
       // Admin joins restaurant or branch specific rooms
@@ -225,6 +231,133 @@ io.on('connection', (socket) => {
       // All customers also join global customer room for fallback notifications
       socket.join('customer_global');
       console.log(`[SOCKET] Customer joined global customer room`);
+    } else if (userType === 'pos') {
+      // POS operators join branch-specific rooms
+      if (branchId) {
+        socket.join(`pos_branch_${branchId}`);
+        console.log(`[SOCKET] POS joined branch room: pos_branch_${branchId}`);
+      }
+      if (restaurantId) {
+        socket.join(`pos_restaurant_${restaurantId}`);
+        console.log(`[SOCKET] POS joined restaurant room: pos_restaurant_${restaurantId}`);
+      }
+      // POS also joins kitchen communication room for order sync
+      if (branchId) {
+        socket.join(`kitchen_branch_${branchId}`);
+        console.log(`[SOCKET] POS joined kitchen sync room: kitchen_branch_${branchId}`);
+      }
+    } else if (userType === 'kitchen' || role === 'Chef') {
+      // Kitchen/Chef joins branch-specific kitchen rooms
+      if (branchId) {
+        socket.join(`kitchen_branch_${branchId}`);
+        console.log(`[SOCKET] Kitchen joined branch room: kitchen_branch_${branchId}`);
+      }
+      if (restaurantId) {
+        socket.join(`kitchen_restaurant_${restaurantId}`);
+        console.log(`[SOCKET] Kitchen joined restaurant room: kitchen_restaurant_${restaurantId}`);
+      }
+      // Kitchen also joins POS communication room for order updates
+      if (branchId) {
+        socket.join(`pos_branch_${branchId}`);
+        console.log(`[SOCKET] Kitchen joined POS sync room: pos_branch_${branchId}`);
+      }
+    }
+  });
+
+  // Handle new order creation from POS
+  socket.on('newOrder', (orderData) => {
+    console.log(`[SOCKET] New order received from POS:`, orderData);
+    
+    // Broadcast to kitchen in the same branch
+    if (orderData.branchId) {
+      socket.to(`kitchen_branch_${orderData.branchId}`).emit('newOrder', {
+        ...orderData,
+        timestamp: new Date().toISOString(),
+        source: 'pos'
+      });
+      console.log(`[SOCKET] New order broadcasted to kitchen_branch_${orderData.branchId}`);
+    }
+    
+    // Also broadcast to admin for monitoring
+    if (orderData.branchId) {
+      socket.to(`branch_${orderData.branchId}`).emit('newOrder', orderData);
+    }
+    if (orderData.restaurantId) {
+      socket.to(`restaurant_${orderData.restaurantId}`).emit('newOrder', orderData);
+    }
+  });
+
+  // Handle order status updates from Kitchen
+  socket.on('orderStatusUpdate', (statusData) => {
+    console.log(`[SOCKET] Order status update received:`, statusData);
+    
+    // Broadcast to POS in the same branch
+    if (statusData.branchId) {
+      socket.to(`pos_branch_${statusData.branchId}`).emit('orderStatusUpdate', {
+        ...statusData,
+        timestamp: new Date().toISOString(),
+        source: statusData.source || 'kitchen'
+      });
+      console.log(`[SOCKET] Order status update broadcasted to pos_branch_${statusData.branchId}`);
+    }
+    
+    // Broadcast to customers if order is ready
+    if (statusData.status === 'ready' && statusData.tableId) {
+      socket.to(`table_${statusData.tableId}`).emit('orderStatusUpdate', statusData);
+    }
+    
+    // Broadcast to admin for monitoring
+    if (statusData.branchId) {
+      socket.to(`branch_${statusData.branchId}`).emit('orderStatusUpdate', statusData);
+    }
+    if (statusData.restaurantId) {
+      socket.to(`restaurant_${statusData.restaurantId}`).emit('orderStatusUpdate', statusData);
+    }
+  });
+
+  // Handle payment status updates from POS
+  socket.on('paymentStatusUpdate', (paymentData) => {
+    console.log(`[SOCKET] Payment status update received:`, paymentData);
+    
+    // Broadcast to kitchen for order completion tracking
+    if (paymentData.branchId) {
+      socket.to(`kitchen_branch_${paymentData.branchId}`).emit('paymentStatusUpdate', {
+        ...paymentData,
+        timestamp: new Date().toISOString(),
+        source: 'pos'
+      });
+      console.log(`[SOCKET] Payment status update broadcasted to kitchen_branch_${paymentData.branchId}`);
+    }
+    
+    // Broadcast to admin for monitoring
+    if (paymentData.branchId) {
+      socket.to(`branch_${paymentData.branchId}`).emit('paymentStatusUpdate', paymentData);
+    }
+    if (paymentData.restaurantId) {
+      socket.to(`restaurant_${paymentData.restaurantId}`).emit('paymentStatusUpdate', paymentData);
+    }
+  });
+
+  // Handle table status updates from POS
+  socket.on('tableStatusUpdate', (tableData) => {
+    console.log(`[SOCKET] Table status update received:`, tableData);
+    
+    // Broadcast to kitchen for table management
+    if (tableData.branchId) {
+      socket.to(`kitchen_branch_${tableData.branchId}`).emit('tableStatusUpdate', {
+        ...tableData,
+        timestamp: new Date().toISOString(),
+        source: 'pos'
+      });
+      console.log(`[SOCKET] Table status update broadcasted to kitchen_branch_${tableData.branchId}`);
+    }
+    
+    // Broadcast to admin for monitoring
+    if (tableData.branchId) {
+      socket.to(`branch_${tableData.branchId}`).emit('tableStatusUpdate', tableData);
+    }
+    if (tableData.restaurantId) {
+      socket.to(`restaurant_${tableData.restaurantId}`).emit('tableStatusUpdate', tableData);
     }
   });
   

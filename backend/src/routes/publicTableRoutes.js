@@ -55,9 +55,60 @@ router.get('/branch/:branchId', async (req, res) => {
         }
         
         const tables = await Table.find({ branchId }).sort({ tableNumber: 1 });
-        res.json(tables);
+        res.json({ tables }); // Fixed: Wrap in object for frontend compatibility
     } catch (error) {
         console.error('Error fetching tables for branch:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Update table status (PATCH endpoint for POS system)
+router.patch('/:id/status', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, currentOrderId } = req.body;
+        
+        if (!id) {
+            return res.status(400).json({ message: 'Table ID is required' });
+        }
+        
+        if (!status) {
+            return res.status(400).json({ message: 'Status is required' });
+        }
+        
+        // Validate status values
+        const validStatuses = ['available', 'occupied', 'reserved', 'cleaning'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({ 
+                message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+            });
+        }
+        
+        // Build update object
+        const updateData = { status };
+        if (currentOrderId !== undefined) {
+            updateData.currentOrderId = currentOrderId;
+        }
+        
+        // Update the table
+        const updatedTable = await Table.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true, runValidators: true }
+        );
+        
+        if (!updatedTable) {
+            return res.status(404).json({ message: 'Table not found' });
+        }
+        
+        console.log(`[PUBLIC TABLES] Table ${id} status updated to: ${status}`);
+        res.json({ 
+            message: 'Table status updated successfully',
+            table: updatedTable 
+        });
+        
+    } catch (error) {
+        console.error('Error updating table status:', error);
         res.status(500).json({ message: error.message });
     }
 });
