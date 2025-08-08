@@ -356,7 +356,7 @@ const MenuSelection = () => {
         <CardBody className="p-2 d-flex flex-column justify-content-center" style={{ 
           minHeight: menuSettings.showCardImages ? cardHeight : cardHeight
         }}>
-          <div className="text-center">
+          <div className="text-left">
             {/* Item Name */}
             <h6 className="card-title mb-1" style={{ 
               fontSize: menuSettings.compactView ? '0.85rem' : '0.95rem', 
@@ -399,7 +399,7 @@ const MenuSelection = () => {
             
             {/* Conditional Item Tags */}
             {menuSettings.showItemBadges && (
-              <div className="d-flex justify-content-center flex-wrap gap-1">
+              <div className="d-flex justify-content-end align-items-center flex-wrap gap-1">
                 {item.isVegetarian && (
                   <Badge color="success" className="badge-sm" style={{
                     fontSize: '0.6rem',

@@ -49,6 +49,116 @@
   outline: none;
 }
 
+/* POS Action Buttons Styles */
+.action-buttons-grid {
+  padding: 0.5rem;
+  background: var(--background-alt);
+  border-top: 1px solid #e2e8f0;
+}
+
+.pos-action-btn {
+  transition: all 0.3s ease;
+  font-weight: 500;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+}
+
+.pos-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.pos-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pos-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Success state for KOT buttons */
+.pos-action-btn.btn-success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-color: #059669;
+}
+
+.pos-action-btn.btn-success:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border-color: #047857;
+}
+
+/* Danger buttons (Save actions) */
+.pos-action-btn.btn-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border-color: #dc2626;
+}
+
+.pos-action-btn.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border-color: #b91c1c;
+}
+
+/* Secondary buttons (KOT actions) */
+.pos-action-btn.btn-secondary {
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+  border-color: #4b5563;
+}
+
+.pos-action-btn.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4b5563 0%, #374151 100%);
+  border-color: #374151;
+}
+
+/* Outline secondary (Hold button) */
+.pos-action-btn.btn-outline-secondary {
+  border: 2px solid #6b7280;
+  color: #6b7280;
+  background: transparent;
+}
+
+.pos-action-btn.btn-outline-secondary:hover:not(:disabled) {
+  background: #6b7280;
+  color: white;
+  border-color: #6b7280;
+}
+
+/* Loading state animations */
+.pos-action-btn .spinner-border-sm {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Button icons */
+.pos-action-btn svg {
+  font-size: 0.875rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .pos-action-btn {
+    font-size: 0.75rem;
+    min-height: 36px;
+    padding: 0.25rem 0.5rem;
+  }
+  
+  .pos-action-btn svg {
+    font-size: 0.75rem;
+  }
+}
+
 .info-icons-row .btn-link.border-end {
   border-right: 1px solid #e2e8f0 !important;
 }

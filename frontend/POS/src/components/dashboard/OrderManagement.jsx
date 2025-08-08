@@ -35,10 +35,19 @@ import {
   FaUtensils,
   FaTable,
   FaSync,
+  FaShoppingBag,
+  FaTruck,
+  FaGlobe,
+  FaEllipsisH,
+  FaClipboardList,
+  FaConciergeBell,
+  FaPhone,
+  FaMapMarkerAlt
 } from 'react-icons/fa';
 import { useOrder } from '../../context/OrderContext';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import './OrderManagement.css';
 
 const OrderManagement = () => {
   const { 
@@ -52,6 +61,8 @@ const OrderManagement = () => {
     getTodaysOrders
   } = useOrder();
 
+  // Main view states
+  const [mainView, setMainView] = useState('orders'); // 'orders' or 'kot'
   const [activeTab, setActiveTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -59,13 +70,29 @@ const OrderManagement = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
 
-  // Filter orders based on active tab, search, and filters
+  // Filter orders based on main view, active tab, search, and filters
   const filteredOrders = React.useMemo(() => {
     let filtered = orders;
 
-    // Filter by tab
-    if (activeTab !== 'all') {
-      filtered = getOrdersByStatus(activeTab);
+    // Filter by main view (orders vs kot)
+    if (mainView === 'kot') {
+      // KOT view shows only orders that need kitchen attention
+      filtered = filtered.filter(order => 
+        ['confirmed', 'preparing'].includes(order.status)
+      );
+    }
+
+    // Filter by order type for Order View
+    if (mainView === 'orders' && activeTab !== 'all') {
+      if (['dine-in', 'delivery', 'pickup', 'online', 'other'].includes(activeTab)) {
+        filtered = filtered.filter(order => {
+          const orderType = order.customerInfo?.orderType || order.orderType || 'dine-in';
+          return orderType.toLowerCase().replace(/[^a-z]/g, '') === activeTab.replace(/[^a-z]/g, '');
+        });
+      } else {
+        // Status-based filtering
+        filtered = getOrdersByStatus(activeTab);
+      }
     }
 
     // Filter by search term
@@ -84,7 +111,7 @@ const OrderManagement = () => {
     }
 
     return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [orders, activeTab, searchTerm, paymentFilter, getOrdersByStatus]);
+  }, [orders, mainView, activeTab, searchTerm, paymentFilter, getOrdersByStatus]);
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
@@ -160,120 +187,190 @@ const OrderManagement = () => {
       case 'pending':
         return <FaClock />;
       case 'confirmed':
+        return <FaCheckCircle />;
       case 'preparing':
         return <FaUtensils />;
       case 'ready':
+        return <FaConciergeBell />;
       case 'delivered':
         return <FaCheckCircle />;
       case 'cancelled':
         return <FaExclamationTriangle />;
       default:
-        return <FaReceipt />;
+        return <FaClock />;
     }
   };
 
-  const OrderCard = ({ order }) => (
-    <Card className="order-card mb-3">
-      <CardHeader className="d-flex justify-content-between align-items-center">
-        <div className="d-flex align-items-center">
-          <div className="me-3">
-            {getStatusIcon(order.status)}
-          </div>
-          <div>
-            <h6 className="mb-0">Order #{order.orderNumber}</h6>
-            <small className="text-muted">
-              {format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
-            </small>
-          </div>
-        </div>
-        <div className="d-flex align-items-center gap-2">
-          <Badge color={getStatusColor(order.status)}>
-            {order.status.toUpperCase()}
-          </Badge>
-          <Badge color={getPaymentStatusColor(order.paymentStatus)}>
-            {order.paymentStatus.toUpperCase()}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardBody>
-        <Row>
-          <Col md={6}>
-            <div className="order-info">
-              <p className="mb-1">
-                <FaTable className="me-2 text-muted" />
-                <strong>Table:</strong> {order.tableName}
-              </p>
-              <p className="mb-1">
-                <strong>Customer:</strong> {order.customerInfo?.name || 'Walk-in'}
-              </p>
-              <p className="mb-1">
-                <strong>Items:</strong> {order.items?.length || 0}
-              </p>
-              <p className="mb-0">
-                <strong>Total:</strong> {formatPrice(order.totalAmount)}
-              </p>
-            </div>
-          </Col>
-          <Col md={6}>
-            <div className="order-actions">
-              <div className="d-grid gap-2">
-                <Button
-                  size="sm"
-                  color="outline-info"
-                  onClick={() => handleViewOrder(order)}
-                >
-                  <FaEye className="me-2" />
-                  View Details
-                </Button>
-                
-                {order.status !== 'delivered' && order.status !== 'cancelled' && (
-                  <div className="d-flex gap-2">
-                    {order.status === 'pending' && (
-                      <Button
-                        size="sm"
-                        color="success"
-                        onClick={() => handleStatusUpdate(order._id, 'confirmed')}
-                      >
-                        Confirm
-                      </Button>
-                    )}
-                    {order.status === 'confirmed' && (
-                      <Button
-                        size="sm"
-                        color="primary"
-                        onClick={() => handleStatusUpdate(order._id, 'preparing')}
-                      >
-                        Preparing
-                      </Button>
-                    )}
-                    {order.status === 'ready' && (
-                      <Button
-                        size="sm"
-                        color="success"
-                        onClick={() => handleStatusUpdate(order._id, 'delivered')}
-                      >
-                        Delivered
-                      </Button>
-                    )}
-                  </div>
-                )}
+  const getOrderTypeIcon = (orderType) => {
+    switch (orderType?.toLowerCase()) {
+      case 'dine-in':
+      case 'dinein':
+        return <FaUtensils />;
+      case 'delivery':
+        return <FaTruck />;
+      case 'pickup':
+      case 'takeaway':
+        return <FaShoppingBag />;
+      case 'online':
+        return <FaGlobe />;
+      default:
+        return <FaEllipsisH />;
+    }
+  };
 
-                {order.paymentStatus === 'unpaid' && (
+  const getOrderTypeColor = (orderType) => {
+    switch (orderType?.toLowerCase()) {
+      case 'dine-in':
+      case 'dinein':
+        return 'primary';
+      case 'delivery':
+        return 'info';
+      case 'pickup':
+      case 'takeaway':
+        return 'warning';
+      case 'online':
+        return 'success';
+      default:
+        return 'secondary';
+    }
+  };
+
+  const OrderCard = ({ order }) => {
+    const orderType = order.customerInfo?.orderType || order.orderType || 'dine-in';
+    
+    return (
+      <Card className="order-card h-100 shadow-sm">
+        <CardHeader className="order-card-header">
+          <div className="d-flex justify-content-between align-items-start">
+            <div className="order-header-info">
+              <div className="d-flex align-items-center mb-2">
+                <div className="status-icon me-2">
+                  {getStatusIcon(order.status)}
+                </div>
+                <h6 className="order-number mb-0">#{order.orderNumber}</h6>
+              </div>
+              <div className="d-flex align-items-center mb-2">
+                <div className="order-type-badge me-2">
+                  {getOrderTypeIcon(orderType)}
+                </div>
+                <Badge color={getOrderTypeColor(orderType)} className="order-type-label">
+                  {orderType.toUpperCase()}
+                </Badge>
+              </div>
+              <small className="order-time text-muted">
+                {format(new Date(order.createdAt), 'HH:mm')}
+              </small>
+            </div>
+            <div className="order-status-badges">
+              <Badge color={getStatusColor(order.status)} className="mb-1">
+                {order.status.toUpperCase()}
+              </Badge>
+              <br />
+              <Badge color={getPaymentStatusColor(order.paymentStatus)}>
+                {order.paymentStatus.toUpperCase()}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="order-card-body">
+          <div className="order-details">
+            <div className="detail-item">
+              <FaTable className="detail-icon" />
+              <span className="detail-label">Table:</span>
+              <span className="detail-value">{order.tableName}</span>
+            </div>
+            <div className="detail-item">
+              <FaPhone className="detail-icon" />
+              <span className="detail-label">Customer:</span>
+              <span className="detail-value">{order.customerInfo?.name || 'Walk-in'}</span>
+            </div>
+            <div className="detail-item">
+              <FaReceipt className="detail-icon" />
+              <span className="detail-label">Items:</span>
+              <span className="detail-value">{order.items?.length || 0}</span>
+            </div>
+            <div className="detail-item total-amount">
+              <span className="detail-label">Total:</span>
+              <span className="detail-value font-weight-bold">{formatPrice(order.totalAmount)}</span>
+            </div>
+          </div>
+        </CardBody>
+        <div className="order-card-footer">
+          <div className="action-buttons">
+            <Button
+              size="sm"
+              color="outline-info"
+              className="view-btn"
+              onClick={() => handleViewOrder(order)}
+            >
+              <FaEye className="me-1" />
+              View
+            </Button>
+            
+            {order.status !== 'delivered' && order.status !== 'cancelled' && (
+              <>
+                {order.status === 'pending' && (
+                  <Button
+                    size="sm"
+                    color="success"
+                    className="action-btn"
+                    onClick={() => handleStatusUpdate(order._id, 'confirmed')}
+                  >
+                    <FaCheckCircle className="me-1" />
+                    Confirm
+                  </Button>
+                )}
+                {order.status === 'confirmed' && (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    className="action-btn"
+                    onClick={() => handleStatusUpdate(order._id, 'preparing')}
+                  >
+                    <FaUtensils className="me-1" />
+                    Prepare
+                  </Button>
+                )}
+                {order.status === 'preparing' && (
                   <Button
                     size="sm"
                     color="warning"
-                    onClick={() => handlePaymentStatusUpdate(order._id, 'paid')}
+                    className="action-btn"
+                    onClick={() => handleStatusUpdate(order._id, 'ready')}
                   >
-                    Mark Paid
+                    <FaConciergeBell className="me-1" />
+                    Ready
                   </Button>
                 )}
-              </div>
-            </div>
-          </Col>
-        </Row>
-      </CardBody>
-    </Card>
-  );
+                {order.status === 'ready' && (
+                  <Button
+                    size="sm"
+                    color="success"
+                    className="action-btn"
+                    onClick={() => handleStatusUpdate(order._id, 'delivered')}
+                  >
+                    <FaCheckCircle className="me-1" />
+                    Delivered
+                  </Button>
+                )}
+              </>
+            )}
+
+            {order.paymentStatus === 'unpaid' && (
+              <Button
+                size="sm"
+                color="warning"
+                className="payment-btn"
+                onClick={() => handlePaymentStatusUpdate(order._id, 'paid')}
+              >
+                Mark Paid
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  };
 
   if (loading) {
     return (
@@ -339,54 +436,134 @@ const OrderManagement = () => {
         </Col>
       </Row>
 
-      {/* Status Tabs */}
-      <Nav tabs className="mb-4">
+      {/* Main View Tabs */}
+      <Nav tabs className="mb-4 main-view-tabs">
         <NavItem>
           <NavLink
-            className={activeTab === 'all' ? 'active' : ''}
-            onClick={() => setActiveTab('all')}
+            className={mainView === 'orders' ? 'active' : ''}
+            onClick={() => {
+              setMainView('orders');
+              setActiveTab('all');
+            }}
             style={{ cursor: 'pointer' }}
           >
-            All Orders ({orders.length})
+            <FaClipboardList className="me-2" />
+            Order View
           </NavLink>
         </NavItem>
         <NavItem>
           <NavLink
-            className={activeTab === 'pending' ? 'active' : ''}
-            onClick={() => setActiveTab('pending')}
+            className={mainView === 'kot' ? 'active' : ''}
+            onClick={() => {
+              setMainView('kot');
+              setActiveTab('all');
+            }}
             style={{ cursor: 'pointer' }}
           >
-            Pending ({getOrdersByStatus('pending').length})
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink
-            className={activeTab === 'preparing' ? 'active' : ''}
-            onClick={() => setActiveTab('preparing')}
-            style={{ cursor: 'pointer' }}
-          >
-            Preparing ({getOrdersByStatus('preparing').length})
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink
-            className={activeTab === 'ready' ? 'active' : ''}
-            onClick={() => setActiveTab('ready')}
-            style={{ cursor: 'pointer' }}
-          >
-            Ready ({getOrdersByStatus('ready').length})
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink
-            className={activeTab === 'delivered' ? 'active' : ''}
-            onClick={() => setActiveTab('delivered')}
-            style={{ cursor: 'pointer' }}
-          >
-            Delivered ({getOrdersByStatus('delivered').length})
+            <FaUtensils className="me-2" />
+            KOT View
           </NavLink>
         </NavItem>
       </Nav>
+
+      {/* Sub-category Tabs */}
+      {mainView === 'orders' && (
+        <Nav pills className="mb-4 order-type-tabs">
+          <NavItem>
+            <NavLink
+              className={activeTab === 'all' ? 'active' : ''}
+              onClick={() => setActiveTab('all')}
+              style={{ cursor: 'pointer' }}
+            >
+              All Orders ({orders.length})
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'dine-in' ? 'active' : ''}
+              onClick={() => setActiveTab('dine-in')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaUtensils className="me-2" />
+              Dine-in
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'delivery' ? 'active' : ''}
+              onClick={() => setActiveTab('delivery')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaTruck className="me-2" />
+              Delivery
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'pickup' ? 'active' : ''}
+              onClick={() => setActiveTab('pickup')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaShoppingBag className="me-2" />
+              Pickup
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'online' ? 'active' : ''}
+              onClick={() => setActiveTab('online')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaGlobe className="me-2" />
+              Online
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'other' ? 'active' : ''}
+              onClick={() => setActiveTab('other')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaEllipsisH className="me-2" />
+              Other
+            </NavLink>
+          </NavItem>
+        </Nav>
+      )}
+
+      {mainView === 'kot' && (
+        <Nav pills className="mb-4 kot-status-tabs">
+          <NavItem>
+            <NavLink
+              className={activeTab === 'all' ? 'active' : ''}
+              onClick={() => setActiveTab('all')}
+              style={{ cursor: 'pointer' }}
+            >
+              All KOT ({filteredOrders.length})
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'confirmed' ? 'active' : ''}
+              onClick={() => setActiveTab('confirmed')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaCheckCircle className="me-2" />
+              Confirmed
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'preparing' ? 'active' : ''}
+              onClick={() => setActiveTab('preparing')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaUtensils className="me-2" />
+              Preparing
+            </NavLink>
+          </NavItem>
+        </Nav>
+      )}
 
       {/* Orders List */}
       <div className="orders-list">
@@ -396,9 +573,13 @@ const OrderManagement = () => {
             <p>No orders match your current search criteria.</p>
           </Alert>
         ) : (
-          filteredOrders.map(order => (
-            <OrderCard key={order._id} order={order} />
-          ))
+          <Row className="orders-grid">
+            {filteredOrders.map(order => (
+              <Col key={order._id} xl={3} lg={4} md={6} sm={12} className="mb-4">
+                <OrderCard order={order} />
+              </Col>
+            ))}
+          </Row>
         )}
       </div>
 

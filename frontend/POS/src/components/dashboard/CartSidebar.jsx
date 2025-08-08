@@ -88,6 +88,8 @@ const CartSidebar = () => {
   });
   const [activeOffer, setActiveOffer] = useState(null); // 'bogo', 'split', etc.
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
+  const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
 
   // Order type options
   const orderTypes = [
@@ -145,25 +147,63 @@ const CartSidebar = () => {
     }
   };
 
-  const handleSaveOrder = () => {
+  const handleSaveOrder = async () => {
     if (!saveOrderName.trim()) {
       toast.error('Please enter a name for the saved order');
       return;
     }
-    saveOrder(saveOrderName);
-    setSaveOrderName('');
-    setShowSaveModal(false);
+    
+    if (cartItems.length === 0) {
+      toast.error('Cannot save empty cart');
+      return;
+    }
+    
+    setIsProcessing(true);
+    setProcessingAction('saving');
+    
+    try {
+      await saveOrder(saveOrderName);
+      setSaveOrderName('');
+      setShowSaveModal(false);
+      toast.success(`Order "${saveOrderName}" saved successfully`);
+    } catch (error) {
+      console.error('Error saving order:', error);
+      toast.error('Failed to save order. Please try again.');
+    } finally {
+      setIsProcessing(false);
+      setProcessingAction('');
+    }
   };
 
-  const handleLoadSavedOrder = (orderId) => {
-    loadSavedOrder(orderId);
-    setShowSavedOrders(false);
-    toast.success('Order loaded successfully');
+  const handleLoadSavedOrder = async (orderId) => {
+    if (!orderId) {
+      toast.error('Invalid order ID');
+      return;
+    }
+    
+    setIsProcessing(true);
+    setProcessingAction('loading');
+    
+    try {
+      await loadSavedOrder(orderId);
+      setShowSavedOrders(false);
+      toast.success('Order loaded successfully');
+    } catch (error) {
+      console.error('Error loading order:', error);
+      toast.error('Failed to load order. Please try again.');
+    } finally {
+      setIsProcessing(false);
+      setProcessingAction('');
+    }
   };
 
   // Validation function for order completion
   const validateOrderForPayment = () => {
     const errors = [];
+    
+    if (cartItems.length === 0) {
+      errors.push('Cart is empty. Add items before proceeding.');
+    }
     
     if (!customerInfo.name.trim()) {
       errors.push('Customer name is required');
@@ -183,6 +223,25 @@ const CartSidebar = () => {
     
     return errors;
   };
+  
+  // Validation function for POS actions
+  const validatePOSAction = (actionType) => {
+    const errors = [];
+    
+    if (cartItems.length === 0) {
+      errors.push('Cart is empty. Add items before proceeding.');
+    }
+    
+    if (actionType === 'kot' && kotSent) {
+      errors.push('KOT has already been sent for this order.');
+    }
+    
+    if (!customerInfo.name.trim()) {
+      errors.push('Customer name is required');
+    }
+    
+    return errors;
+  };
 
   // Handle proceed to payment with validation
   const handleProceedToPayment = () => {
@@ -194,6 +253,7 @@ const CartSidebar = () => {
     }
     
     setShowPaymentModal(true);
+    toast.info('Opening payment modal...');
   };
 
   // Get payment button text based on order type
@@ -239,47 +299,156 @@ const CartSidebar = () => {
   };
 
   const handleComplimentaryToggle = () => {
+    if (cartItems.length === 0) {
+      toast.error('Cannot mark empty cart as complimentary');
+      return;
+    }
+    
+    const newComplimentaryStatus = !orderStatus.isComplimentary;
+    
     setOrderStatus(prev => ({
       ...prev,
-      isComplimentary: !prev.isComplimentary
+      isComplimentary: newComplimentaryStatus
     }));
-    toast.success(orderStatus.isComplimentary ? 'Complimentary removed' : 'Order marked as complimentary');
+    
+    const message = newComplimentaryStatus 
+      ? 'Order marked as complimentary' 
+      : 'Complimentary status removed';
+    toast.success(message);
+    
+    if (newComplimentaryStatus) {
+      toast.info('This order will be processed as complimentary');
+    }
   };
 
   const handleKOT = async (withPrint = false) => {
+    // Validate before processing
+    const validationErrors = validatePOSAction('kot');
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => toast.error(error));
+      return;
+    }
+    
     setIsProcessing(true);
+    setProcessingAction(withPrint ? 'kot-print' : 'kot');
+    
     try {
-      // KOT (Kitchen Order Ticket) functionality
-      toast.success(withPrint ? 'KOT sent to kitchen and printed' : 'KOT sent to kitchen');
-      // Add actual KOT API call here
+      // Prepare KOT data
+      const kotData = {
+        items: cartItems.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          customizations: item.customizations || [],
+          specialInstructions: item.specialInstructions || ''
+        })),
+        customerInfo,
+        tableInfo: selectedTable,
+        timestamp: new Date().toISOString(),
+        orderType: customerInfo.orderType || 'dine-in',
+        specialInstructions: customerInfo.specialInstructions || ''
+      };
+      
+      // TODO: Replace with actual API call
+      // await sendKOTToKitchen(kotData, withPrint);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      setKotSent(true);
+      const message = withPrint 
+        ? 'KOT sent to kitchen and printed successfully' 
+        : 'KOT sent to kitchen successfully';
+      toast.success(message);
+      
+      // Log for debugging
+      console.log('KOT Data:', kotData);
+      
     } catch (error) {
-      toast.error('Failed to send KOT');
+      console.error('KOT Error:', error);
+      toast.error('Failed to send KOT. Please try again.');
     } finally {
       setIsProcessing(false);
+      setProcessingAction('');
     }
   };
 
   const handlePOSSaveOrder = async (withPrint = false, withEBill = false) => {
+    // Validate before processing
+    const validationErrors = validatePOSAction('save');
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => toast.error(error));
+      return;
+    }
+    
     setIsProcessing(true);
+    const actionType = withEBill ? 'save-ebill' : withPrint ? 'save-print' : 'save';
+    setProcessingAction(actionType);
+    
     try {
-      // Save order functionality
+      // Prepare order data
+      const orderData = {
+        items: cartItems,
+        customerInfo,
+        tableInfo: selectedTable,
+        orderType: customerInfo.orderType || 'dine-in',
+        paymentMethod: selectedPaymentMethod,
+        orderStatus,
+        activeOffer,
+        subtotal: getSubtotal(),
+        tax: getTax(),
+        total: getTotal(),
+        timestamp: new Date().toISOString(),
+        kotSent,
+        specialInstructions: customerInfo.specialInstructions || ''
+      };
+      
+      // TODO: Replace with actual API call
+      // const response = await saveOrderToPOS(orderData, { withPrint, withEBill });
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       const action = withEBill ? 'saved with e-bill' : withPrint ? 'saved and printed' : 'saved';
       toast.success(`Order ${action} successfully`);
-      // Add actual save API call here
+      
+      // Log for debugging
+      console.log('Order Data:', orderData);
+      
+      // Clear cart after successful save
+      if (window.confirm('Order saved successfully. Clear cart?')) {
+        clearCart();
+        setKotSent(false);
+        setActiveOffer(null);
+        setOrderStatus({
+          isPaid: false,
+          isLoyalty: false,
+          sendFeedbackSMS: false,
+          isComplimentary: false
+        });
+      }
+      
     } catch (error) {
-      toast.error('Failed to save order');
+      console.error('Save Order Error:', error);
+      toast.error('Failed to save order. Please try again.');
     } finally {
       setIsProcessing(false);
+      setProcessingAction('');
     }
   };
 
   const handleHoldOrder = () => {
-    // Hold order functionality (similar to existing save functionality)
-    if (cartItems.length === 0) {
-      toast.error('Cannot hold empty cart');
+    // Validate before processing
+    const validationErrors = validatePOSAction('hold');
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => toast.error(error));
       return;
     }
-    setShowSaveModal(true);
+    
+    // Show confirmation dialog
+    if (window.confirm('Hold this order? You can resume it later from saved orders.')) {
+      setShowSaveModal(true);
+      toast.info('Enter a name to hold this order');
+    }
   };
 
   const CartItem = ({ item }) => (
@@ -444,9 +613,9 @@ const CartSidebar = () => {
         </div>
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {cartItems.length === 0 ? (
-            <Alert color="info" className="text-center" fade={false}>
+            <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
               <FaShoppingCart size={48} className="text-muted mb-3" />
-              <h5>Your cart is empty</h5>
+              <h5>No items added to cart</h5>
               <p>Add some items from the menu to get started!</p>
             </Alert>
           ) : (
@@ -706,9 +875,20 @@ const CartSidebar = () => {
                     size="sm"
                     onClick={() => handlePOSSaveOrder(false, false)}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save order'}
                   >
-                    {isProcessing ? <Spinner size="sm" /> : 'Save'}
+                    {isProcessing && processingAction === 'save' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave className="me-1" />
+                        Save
+                      </>
+                    )}
                   </Button>
                 </div>
                 <div className="col-4">
@@ -717,9 +897,20 @@ const CartSidebar = () => {
                     size="sm"
                     onClick={() => handlePOSSaveOrder(true, false)}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save and print order'}
                   >
-                    Save & Print
+                    {isProcessing && processingAction === 'save-print' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Printing...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave className="me-1" />
+                        Save & Print
+                      </>
+                    )}
                   </Button>
                 </div>
                 <div className="col-4">
@@ -728,33 +919,66 @@ const CartSidebar = () => {
                     size="sm"
                     onClick={() => handlePOSSaveOrder(false, true)}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save with electronic bill'}
                   >
-                    Save & eBill
+                    {isProcessing && processingAction === 'save-ebill' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <FaCreditCard className="me-1" />
+                        Save & eBill
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
               <div className="row g-2">
                 <div className="col-4">
                   <Button
-                    color="secondary"
+                    color={kotSent ? "success" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(false)}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : kotSent ? 'KOT already sent' : 'Send Kitchen Order Ticket'}
                   >
-                    KOT
+                    {isProcessing && processingAction === 'kot' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <FaClipboardList className="me-1" />
+                        {kotSent ? 'KOT Sent' : 'KOT'}
+                      </>
+                    )}
                   </Button>
                 </div>
                 <div className="col-4">
                   <Button
-                    color="secondary"
+                    color={kotSent ? "success" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(true)}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : kotSent ? 'KOT already sent and printed' : 'Send KOT and print'}
                   >
-                    KOT & Print
+                    {isProcessing && processingAction === 'kot-print' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Printing...
+                      </>
+                    ) : (
+                      <>
+                        <FaClipboardList className="me-1" />
+                        {kotSent ? 'KOT Printed' : 'KOT & Print'}
+                      </>
+                    )}
                   </Button>
                 </div>
                 <div className="col-4">
@@ -763,9 +987,20 @@ const CartSidebar = () => {
                     size="sm"
                     onClick={handleHoldOrder}
                     disabled={isProcessing || cartItems.length === 0}
-                    className="w-100"
+                    className="w-100 pos-action-btn"
+                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Hold order for later'}
                   >
-                    Hold
+                    {isProcessing && processingAction === 'hold' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Holding...
+                      </>
+                    ) : (
+                      <>
+                        <FaEdit className="me-1" />
+                        Hold
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
@@ -800,11 +1035,29 @@ const CartSidebar = () => {
                   </FormGroup>
                 </div>
                 <div className="modal-footer">
-                  <Button color="secondary" onClick={() => setShowSaveModal(false)}>
+                  <Button 
+                    color="secondary" 
+                    onClick={() => setShowSaveModal(false)}
+                    disabled={isProcessing}
+                  >
                     Cancel
                   </Button>
-                  <Button color="primary" onClick={handleSaveOrder}>
-                    Save Order
+                  <Button 
+                    color="primary" 
+                    onClick={handleSaveOrder}
+                    disabled={isProcessing || !saveOrderName.trim()}
+                  >
+                    {isProcessing && processingAction === 'saving' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaSave className="me-1" />
+                        Save Order
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
