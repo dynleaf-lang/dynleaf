@@ -40,6 +40,7 @@ import { useCart } from '../../context/CartContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import CartSidebar from './CartSidebar';
 import toast from 'react-hot-toast';
+import './MenuSelection.css';
 
 const MenuSelection = () => {
   const { 
@@ -161,101 +162,166 @@ const MenuSelection = () => {
   };
 
   const ItemCard = ({ item }) => {
-    const cartItem = getItemInCart(item._id);
-    const isInCart = !!cartItem;
- 
+    const itemInCart = getItemInCart(item._id);
+    const itemCount = getItemCount(item._id);
     
-
     return (
-      <Card className="menu-item-card h-100">
-        <div onClick={() => handleItemClick(item)} style={{ cursor: 'pointer' }}>
-          <CardImg 
+      <Card className="menu-item-card h-100 shadow-sm border-0" style={{
+        transition: 'all 0.2s ease',
+        cursor: 'pointer',
+        borderRadius: '12px',
+        overflow: 'hidden'
+      }}>
+        <div className="position-relative" style={{ height: '120px', overflow: 'hidden' }}>
+          <CardImg
             top 
-            src={item.imageUrl || "https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png"} 
+            src={item.imageUrl || 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg' }
             alt={item.name}
-            style={{ height: '150px', objectFit: 'contain' }}
+            style={{ 
+              height: '100%', 
+              objectFit: 'cover',
+              transition: 'transform 0.2s ease'
+            }}
+            onError={(e) => {
+              e.target.src = 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg';
+            }}
           />
-          <CardBody className="p-3">
-            <div className="d-flex justify-content-between align-items-start">
-              <h6 className="item-name mb-0">{item.name}</h6>
-              {item.isVegetarian && (
-                <Badge color="success" className="ms-2">
-                  <FaLeaf size={10} />
-                </Badge>
-              )}
-              {item.isSpicy && (
-                <Badge color="danger" className="ms-1">
-                  <FaFire size={10} />
-                </Badge>
-              )}
-            </div>
-            
-            {/* <p className="item-description text-muted small mb-2">
-              {item.description?.substring(0, 80)}
-              {item.description?.length > 80 && '...'}
-            </p> */}
-            
-            {/* <div className="d-flex justify-content-between align-items-center mb-2">
-              <span className="item-price fw-bold text-primary">
-                {formatPrice(item.price)}
-              </span>
-              {item.rating && (
-                <div className="d-flex align-items-center">
-                  <FaStar className="text-warning me-1" size={12} />
-                  <small>{item.rating}</small>
-                </div>
-              )}
-            </div> */}
-            
-            {item.preparationTime && (
-              <small className="text-muted">
-                <FaUtensils className="me-1" size={10} />
-                {item.preparationTime} mins
-              </small>
-            )}
-          </CardBody>
+          
+          {/* Price Badge */}
+          <Badge 
+            color="primary" 
+            className="position-absolute top-0 end-0 m-2"
+            style={{ 
+              fontSize: '0.75rem',
+              fontWeight: '600',
+              borderRadius: '12px'
+            }}
+          >
+            {formatPrice(item.price)}
+          </Badge>
+          
+          {/* Item Count Badge */}
+          {itemCount > 0 && (
+            <Badge 
+              color="success" 
+              className="position-absolute top-0 start-0 m-2"
+              style={{ 
+                fontSize: '0.7rem',
+                borderRadius: '12px'
+              }}
+            >
+              {itemCount}
+            </Badge>
+          )}
+          
+          {/* Overlay for better text visibility */}
+          <div className="position-absolute bottom-0 start-0 end-0" style={{
+            background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+            height: '50%'
+          }}></div>
         </div>
         
-        <div className="card-footer bg-transparent p-3 pt-0" onClick={(e) => e.stopPropagation()}>
-          {isInCart ? (
-            <div className="d-flex justify-content-between align-items-center mt-3">
+        <CardBody className="p-2 d-flex flex-column" style={{ minHeight: '80px' }}>
+          <div className="mb-2">
+            <h6 className="card-title mb-1 text-truncate" style={{ 
+              fontSize: '0.9rem', 
+              fontWeight: '600',
+              color: '#2d3748'
+            }}>
+              {item.name}
+            </h6>
+             
+          </div>
+          
+          {/* Item Tags */}
+          <div className="mb-2 d-flex flex-wrap gap-1">
+            {item.isVegetarian && (
+              <Badge color="success" className="badge-sm" style={{
+                fontSize: '0.65rem',
+                padding: '0.2rem 0.4rem',
+                borderRadius: '8px'
+              }}>
+                <FaLeaf style={{ fontSize: '0.6rem' }} />
+              </Badge>
+            )}
+            {item.isSpicy && (
+              <Badge color="danger" className="badge-sm" style={{
+                fontSize: '0.65rem',
+                padding: '0.2rem 0.4rem',
+                borderRadius: '8px'
+              }}>
+                <FaFire style={{ fontSize: '0.6rem' }} />
+              </Badge>
+            )}
+            {item.preparationTime && (
+              <Badge color="info" className="badge-sm" style={{
+                fontSize: '0.65rem',
+                padding: '0.2rem 0.4rem',
+                borderRadius: '8px'
+              }}>
+                {item.preparationTime}m
+              </Badge>
+            )}
+          </div>
+          
+          {/* Action Buttons */}
+          <div className="mt-auto">
+            <div className="d-flex gap-1">
               <Button
                 size="sm"
-                color="outline-primary"
+                color="primary"
+                className="flex-fill"
                 onClick={(e) => {
-                  e.preventDefault();
                   e.stopPropagation();
-                  console.log('Edit button clicked for:', item.name);
-                  handleEditItem(item);
+                  handleDirectAddToCart(item);
                 }}
-                style={{ pointerEvents: 'auto', zIndex: 10 }}
+                style={{ 
+                  fontSize: '0.75rem',
+                  padding: '0.4rem 0.6rem',
+                  borderRadius: '6px',
+                  fontWeight: '500'
+                }}
               >
-                <FaEdit className="me-1" />
-                Edit
+                <FaPlus className="me-1" style={{ fontSize: '0.65rem' }} />
+                Add
               </Button>
-              <Badge color="primary" pill>
-                In Cart: {cartItem.quantity}
-              </Badge>
+              
+              <Button
+                size="sm"
+                color="outline-secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleItemClick(item);
+                }}
+                style={{ 
+                  fontSize: '0.75rem',
+                  padding: '0.4rem 0.6rem',
+                  borderRadius: '6px'
+                }}
+              >
+                <FaEye style={{ fontSize: '0.65rem' }} />
+              </Button>
+              
+              {itemInCart && (
+                <Button
+                  size="sm"
+                  color="outline-warning"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditItem(item);
+                  }}
+                  style={{ 
+                    fontSize: '0.75rem',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: '6px'
+                  }}
+                >
+                  <FaEdit style={{ fontSize: '0.65rem' }} />
+                </Button>
+              )}
             </div>
-          ) : (
-            <Button
-              size="sm"
-              color="primary"
-              className="mt-3"
-              block
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('Add button clicked for:', item.name);
-                handleDirectAddToCart(item);
-              }}
-              style={{ pointerEvents: 'auto', zIndex: 10 }}
-            >
-              <FaPlus className="me-2" />
-              Add
-            </Button>
-          )}
-        </div>
+          </div>
+        </CardBody>
       </Card>
     );
   };
@@ -282,83 +348,114 @@ const MenuSelection = () => {
   }
 
   return (
-    <div className="menu-selection">
+    <div className="menu-selection" style={{ height: 'calc(100vh - 100px)' }}>
       <Row className="h-100">
         {/* Menu Section - Left Side */}
-        <Col lg={8} className="pe-3">
-          {/* Header with Search */}
-          <div className="d-flex justify-content-between align-items-center mb-4">
-            <div className="d-flex align-items-center">
-              <h4 className="mb-0 me-3">
-                <FaUtensils className="me-2 text-primary" />
-                Menu Selection
-              </h4>
-              {selectedTable && (
-                <Badge color="info" className="fs-6">
-                  Table {selectedTable.TableName}
-                </Badge>
-              )}
+        <Col lg={8} className="pe-3 d-flex flex-column">
+          {/* Header with Search - Fixed */}
+          <div className="menu-header bg-white" style={{ 
+            position: 'sticky', 
+            top: 0, 
+            zIndex: 5,
+            paddingBottom: '1rem',
+            borderBottom: '1px solid #e2e8f0',
+            marginBottom: '1rem'
+          }}>
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <div className="d-flex align-items-center">
+                <h4 className="mb-0 me-3">
+                  <FaUtensils className="me-2 text-primary" />
+                  Menu Selection
+                </h4>
+                {selectedTable && (
+                  <Badge color="info" className="fs-6">
+                    Table {selectedTable.TableName}
+                  </Badge>
+                )}
+              </div>
+              
+              {/* Search */}
+              <InputGroup style={{ width: '280px' }}>
+                <Input
+                  type="text"
+                  placeholder="Search menu items..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ fontSize: '0.9rem' }}
+                />
+                <Button color="outline-secondary" size="sm">
+                  <FaSearch />
+                </Button>
+              </InputGroup>
             </div>
-            
-            {/* Search */}
-            <InputGroup style={{ width: '300px' }}>
-              <Input
-                type="text"
-                placeholder="Search menu items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <Button color="outline-secondary">
-                <FaSearch />
-              </Button>
-            </InputGroup>
-          </div>
 
-          {/* Categories Navigation */}
-          <Nav pills className="mb-4 flex-nowrap" style={{ overflowX: 'auto' }}>
-            <NavItem>
-              <NavLink
-                className={selectedCategory === 'all' ? 'active' : ''}
-                onClick={() => setSelectedCategory('all')}
-                style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                <FaUtensils className="me-2" />
-                All Items
-              </NavLink>
-            </NavItem>
-            {categories.map(category => (
-              <NavItem key={category._id}>
+            {/* Categories Navigation */}
+            <Nav pills className="flex-nowrap category-nav" style={{ 
+              overflowX: 'auto',
+              scrollbarWidth: 'thin'
+            }}>
+              <NavItem>
                 <NavLink
-                  className={selectedCategory === category._id ? 'active' : ''}
-                  onClick={() => setSelectedCategory(category._id)}
-                  style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  className={selectedCategory === 'all' ? 'active' : ''}
+                  onClick={() => setSelectedCategory('all')}
+                  style={{ 
+                    cursor: 'pointer', 
+                    whiteSpace: 'nowrap',
+                    fontSize: '0.85rem',
+                    padding: '0.4rem 0.8rem'
+                  }}
                 >
-                  {category.name}
+                  <FaUtensils className="me-1" style={{ fontSize: '0.8rem' }} />
+                  All Items
                 </NavLink>
               </NavItem>
-            ))}
-          </Nav>
-
-          {/* Menu Items Grid */}
-          {loading ? (
-            <div className="text-center py-5">
-              <Spinner color="primary" />
-              <p className="mt-2">Loading menu items...</p>
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <Alert color="info" className="text-center">
-              <h5>No items found</h5>
-              <p>Try adjusting your search or category filter.</p>
-            </Alert>
-          ) : (
-            <Row>
-              {filteredItems.map(item => (
-                <Col key={item._id} sm={4} md={4} lg={3} className="mb-4">
-                  <ItemCard item={item} />
-                </Col>
+              {categories.map(category => (
+                <NavItem key={category._id}>
+                  <NavLink
+                    className={selectedCategory === category._id ? 'active' : ''}
+                    onClick={() => setSelectedCategory(category._id)}
+                    style={{ 
+                      cursor: 'pointer', 
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.85rem',
+                      padding: '0.4rem 0.8rem'
+                    }}
+                  >
+                    {category.name}
+                  </NavLink>
+                </NavItem>
               ))}
-            </Row>
-          )}
+            </Nav>
+          </div>
+
+          {/* Menu Items Grid - Scrollable */}
+          <div className="menu-items-container" style={{ 
+            flex: 1, 
+            overflowY: 'auto',
+            paddingRight: '0.5rem',
+            overflowX: 'hidden',
+            maxHeight: 'calc(100vh - 200px)',
+          }}>
+            {loading ? (
+              <div className="text-center py-5">
+                <Spinner color="primary" />
+                <p className="mt-2">Loading menu items...</p>
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <Alert color="info" className="text-center">
+                <h5>No items found</h5>
+                <p>Try adjusting your search or category filter.</p>
+              </Alert>
+            ) : (
+              <Row className="g-3">
+                {filteredItems.map(item => (
+                  <Col key={item._id} sm={6} md={4} lg={4} xl={3} className="mb-3">
+                    <ItemCard item={item} />
+                  </Col>
+                ))}
+              </Row>
+            )}
+          </div>
         </Col>
 
         {/* Cart Sidebar - Right Side */}
@@ -382,7 +479,7 @@ const MenuSelection = () => {
               <Col md={6}>
                 {selectedItem.image && (
                   <img 
-                    src={selectedItem.image} 
+                    src={selectedItem.imageUrl} 
                     alt={selectedItem.name}
                     className="img-fluid rounded mb-3"
                   />

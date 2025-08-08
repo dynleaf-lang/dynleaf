@@ -77,6 +77,17 @@ const CartSidebar = () => {
   const [showSavedOrders, setShowSavedOrders] = useState(false);
   const [showCustomerInfo, setShowCustomerInfo] = useState(false);
   const [showSpecialInstructions, setShowSpecialInstructions] = useState(false);
+  
+  // POS functionality state
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
+  const [orderStatus, setOrderStatus] = useState({
+    isPaid: false,
+    isLoyalty: false,
+    sendFeedbackSMS: false,
+    isComplimentary: false
+  });
+  const [activeOffer, setActiveOffer] = useState(null); // 'bogo', 'split', etc.
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Order type options
   const orderTypes = [
@@ -203,6 +214,72 @@ const CartSidebar = () => {
   const isPaymentDisabled = () => {
     const errors = validateOrderForPayment();
     return errors.length > 0;
+  };
+
+  // POS functionality handlers
+  const handleOfferToggle = (offerType) => {
+    setActiveOffer(activeOffer === offerType ? null : offerType);
+    if (offerType === 'bogo') {
+      toast.success('BOGO offer applied to cart');
+    } else if (offerType === 'split') {
+      toast.info('Split bill mode activated');
+    }
+  };
+
+  const handlePaymentMethodChange = (method) => {
+    setSelectedPaymentMethod(method);
+    toast.success(`Payment method changed to ${method.toUpperCase()}`);
+  };
+
+  const handleStatusToggle = (statusKey) => {
+    setOrderStatus(prev => ({
+      ...prev,
+      [statusKey]: !prev[statusKey]
+    }));
+  };
+
+  const handleComplimentaryToggle = () => {
+    setOrderStatus(prev => ({
+      ...prev,
+      isComplimentary: !prev.isComplimentary
+    }));
+    toast.success(orderStatus.isComplimentary ? 'Complimentary removed' : 'Order marked as complimentary');
+  };
+
+  const handleKOT = async (withPrint = false) => {
+    setIsProcessing(true);
+    try {
+      // KOT (Kitchen Order Ticket) functionality
+      toast.success(withPrint ? 'KOT sent to kitchen and printed' : 'KOT sent to kitchen');
+      // Add actual KOT API call here
+    } catch (error) {
+      toast.error('Failed to send KOT');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePOSSaveOrder = async (withPrint = false, withEBill = false) => {
+    setIsProcessing(true);
+    try {
+      // Save order functionality
+      const action = withEBill ? 'saved with e-bill' : withPrint ? 'saved and printed' : 'saved';
+      toast.success(`Order ${action} successfully`);
+      // Add actual save API call here
+    } catch (error) {
+      toast.error('Failed to save order');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleHoldOrder = () => {
+    // Hold order functionality (similar to existing save functionality)
+    if (cartItems.length === 0) {
+      toast.error('Cannot hold empty cart');
+      return;
+    }
+    setShowSaveModal(true);
   };
 
   const CartItem = ({ item }) => (
@@ -365,7 +442,7 @@ const CartSidebar = () => {
             </div>
           </Button>
         </div>
-        <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 120px)' }}>
+        <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {cartItems.length === 0 ? (
             <Alert color="info" className="text-center" fade={false}>
               <FaShoppingCart size={48} className="text-muted mb-3" />
@@ -447,71 +524,11 @@ const CartSidebar = () => {
                 </ListGroup>
               </div>
 
-              {/* Order Summary */}
-              <div className="order-summary mb-4">
-                <div className="d-flex justify-content-between mb-2">
-                  <span>Subtotal:</span>
-                  <span>{formatPrice(getSubtotal())}</span>
-                </div>
-                <div className="d-flex justify-content-between mb-2">
-                  <span>Tax (10%):</span>
-                  <span>{formatPrice(getTax())}</span>
-                </div>
-                <hr />
-                <div className="d-flex justify-content-between fw-bold">
-                  <span>Total:</span>
-                  <span className="text-primary">{formatPrice(getTotal())}</span>
-                </div>
-              </div>
+             
 
              
 
-              {/* Action Buttons */}
-              <div className="cart-actions">
-                <div className="d-grid gap-2">
-                  <Button
-                    color="success"
-                    size="lg"
-                    className="payment-btn"
-                    onClick={handleProceedToPayment}
-                    disabled={isPaymentDisabled()}
-                  >
-                    <FaCreditCard className="me-2" />
-                    {getPaymentButtonText()}
-                  </Button>
-                  
-                  <div className="d-flex gap-2">
-                    <Button
-                      color="outline-primary"
-                      onClick={() => setShowSaveModal(true)}
-                      className="flex-fill"
-                    >
-                      <FaSave className="me-2" />
-                      Save Order
-                    </Button>
-                    <Button
-                      color="outline-info"
-                      onClick={() => setShowSavedOrders(true)}
-                      className="flex-fill"
-                    >
-                      <FaEdit className="me-2" />
-                      Load Saved
-                    </Button>
-                  </div>
-                  
-                  <Button
-                    color="outline-danger"
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to clear the cart?')) {
-                        clearCart();
-                      }
-                    }}
-                  >
-                    <FaTimes className="me-2" />
-                    Clear Cart
-                  </Button>
-                </div>
-              </div>
+
 
               {/* Conditional alerts based on order type and validation */}
               {customerInfo.orderType === 'dine-in' && !selectedTable && (
@@ -586,6 +603,175 @@ const CartSidebar = () => {
             </div>
           )}
         </CardBody>
+        
+        {/* Fixed POS Action Buttons Footer */}
+        <div className="pos-actions-footer">
+          <div className="pos-actions">
+            {/* Offer Buttons Row */}
+            <div className="offer-buttons mb-2">
+              <div className="d-flex gap-2 align-items-center justify-content-between">
+                <Button
+                  color={activeOffer === 'split' ? 'danger' : 'outline-danger'}
+                  size="sm"
+                  onClick={() => handleOfferToggle('split')} 
+                >
+                  Split
+                </Button>
+                <div className="d-flex align-items-center">
+                  <Input
+                    type="checkbox"
+                    id="complimentary"
+                    checked={orderStatus.isComplimentary}
+                    onChange={handleComplimentaryToggle}
+                    className="me-2"
+                  />
+                  <Label for="complimentary" className="mb-0 small">
+                    Complimentary
+                  </Label>
+                </div>
+                <div className="total-display">
+                  <div className="d-flex justify-content-between fw-bold">
+                    <span>Total:</span>
+                    <span className="text-primary">{formatPrice(getTotal())}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Method Selection */}
+            <div className="payment-methods mb-2">
+              <div className="d-flex gap-1">
+                {['cash', 'card', 'due', 'other', 'part'].map(method => (
+                  <Button
+                    key={method}
+                    color={selectedPaymentMethod === method ? 'dark' : 'outline-secondary'}
+                    size="sm"
+                    onClick={() => handlePaymentMethodChange(method)}
+                    className="flex-fill text-capitalize"
+                  >
+                    {method}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status Checkboxes */}
+            <div className="status-checkboxes mb-2">
+              <div className="d-flex gap-3 justify-content-center">
+                <div className="d-flex align-items-center">
+                  <Input
+                    type="checkbox"
+                    id="isPaid"
+                    checked={orderStatus.isPaid}
+                    onChange={() => handleStatusToggle('isPaid')}
+                    className="me-1"
+                  />
+                  <Label for="isPaid" className="mb-0 small">
+                    It's Paid
+                  </Label>
+                </div>
+                <div className="d-flex align-items-center">
+                  <Input
+                    type="checkbox"
+                    id="isLoyalty"
+                    checked={orderStatus.isLoyalty}
+                    onChange={() => handleStatusToggle('isLoyalty')}
+                    className="me-1"
+                  />
+                  <Label for="isLoyalty" className="mb-0 small">
+                    Loyalty
+                  </Label>
+                </div>
+                <div className="d-flex align-items-center">
+                  <Input
+                    type="checkbox"
+                    id="sendFeedbackSMS"
+                    checked={orderStatus.sendFeedbackSMS}
+                    onChange={() => handleStatusToggle('sendFeedbackSMS')}
+                    className="me-1"
+                  />
+                  <Label for="sendFeedbackSMS" className="mb-0 small">
+                    Send Feedback SMS
+                  </Label>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons Grid */}
+            <div className="action-buttons-grid">
+              <div className="row g-2 mb-2">
+                <div className="col-4">
+                  <Button
+                    color="danger"
+                    size="sm"
+                    onClick={() => handlePOSSaveOrder(false, false)}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    {isProcessing ? <Spinner size="sm" /> : 'Save'}
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="danger"
+                    size="sm"
+                    onClick={() => handlePOSSaveOrder(true, false)}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    Save & Print
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="danger"
+                    size="sm"
+                    onClick={() => handlePOSSaveOrder(false, true)}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    Save & eBill
+                  </Button>
+                </div>
+              </div>
+              <div className="row g-2">
+                <div className="col-4">
+                  <Button
+                    color="secondary"
+                    size="sm"
+                    onClick={() => handleKOT(false)}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    KOT
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="secondary"
+                    size="sm"
+                    onClick={() => handleKOT(true)}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    KOT & Print
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="outline-secondary"
+                    size="sm"
+                    onClick={handleHoldOrder}
+                    disabled={isProcessing || cartItems.length === 0}
+                    className="w-100"
+                  >
+                    Hold
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </Card>
 
       {/* Save Order Modal */}

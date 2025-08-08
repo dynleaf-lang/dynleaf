@@ -1,0 +1,243 @@
+/* MenuSelection Component Styles */
+
+/* Main container */
+.menu-selection {
+  background: #f8fafc;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Header styling */
+.menu-header {
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-radius: 12px 12px 0 0;
+  padding: 1rem;
+}
+
+/* Category navigation */
+.category-nav {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 transparent;
+}
+
+.category-nav::-webkit-scrollbar {
+  height: 4px;
+}
+
+.category-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.category-nav::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 2px;
+}
+
+.category-nav::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+.category-nav .nav-link {
+  border-radius: 20px;
+  margin-right: 0.5rem;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.category-nav .nav-link:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.category-nav .nav-link.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* Menu items container */
+.menu-items-container {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 transparent;
+}
+
+.menu-items-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.menu-items-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.menu-items-container::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 3px;
+}
+
+.menu-items-container::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+/* Menu item cards */
+.menu-item-card {
+  transition: all 0.3s ease;
+  border: 1px solid #e2e8f0;
+  background: white;
+}
+
+.menu-item-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  border-color: #667eea;
+}
+
+.menu-item-card .card-img-top {
+  transition: transform 0.3s ease;
+}
+
+.menu-item-card:hover .card-img-top {
+  transform: scale(1.05);
+}
+
+/* Card badges */
+.menu-item-card .badge {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.9);
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.menu-item-card .badge.bg-primary {
+  background: rgba(102, 126, 234, 0.9) !important;
+  color: white;
+}
+
+.menu-item-card .badge.bg-success {
+  background: rgba(72, 187, 120, 0.9) !important;
+  color: white;
+}
+
+/* Action buttons */
+.menu-item-card .btn {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.menu-item-card .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.menu-item-card .btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
+.menu-item-card .btn-primary:hover {
+  background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+}
+
+.menu-item-card .btn-outline-secondary:hover {
+  background: #f7fafc;
+  border-color: #a0aec0;
+  color: #4a5568;
+}
+
+.menu-item-card .btn-outline-warning:hover {
+  background: #fffbeb;
+  border-color: #f6ad55;
+  color: #c05621;
+}
+
+/* Item tags styling */
+.badge-sm {
+  font-size: 0.65rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .menu-selection .col-lg-8 {
+    padding-right: 1rem;
+  }
+  
+  .menu-selection .col-lg-4 {
+    padding-left: 1rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .menu-header {
+    padding: 0.75rem;
+  }
+  
+  .menu-header h4 {
+    font-size: 1.1rem;
+  }
+  
+  .menu-header .input-group {
+    width: 240px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .menu-selection {
+    height: auto !important;
+  }
+  
+  .menu-header .d-flex {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .menu-header .input-group {
+    width: 100% !important;
+  }
+  
+  .menu-items-container {
+    max-height: 60vh;
+  }
+}
+
+/* Loading and empty states */
+.text-center.py-5 {
+  background: white;
+  border-radius: 12px;
+  margin: 1rem 0;
+}
+
+.alert {
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Animation for smooth transitions */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-item-card {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* Hover effects for better UX */
+.menu-selection .row.g-3 .col:nth-child(odd) .menu-item-card {
+  animation-delay: 0.1s;
+}
+
+.menu-selection .row.g-3 .col:nth-child(even) .menu-item-card {
+  animation-delay: 0.2s;
+}
