@@ -78,6 +78,41 @@ const MenuSelection = () => {
     spiceLevel: 'medium',
     specialInstructions: ''
   });
+
+  // Menu display settings state
+  const [menuSettings, setMenuSettings] = useState({
+    showCardImages: false,
+    cardImageHeight: 120,
+    showItemDescription: false,
+    compactView: true,
+    showPreparationTime: true,
+    showItemBadges: true
+  });
+
+  // Load menu settings from localStorage and listen for changes
+  useEffect(() => {
+    const loadMenuSettings = () => {
+      const savedSettings = localStorage.getItem('menu_settings');
+      if (savedSettings) {
+        setMenuSettings(JSON.parse(savedSettings));
+      }
+    };
+
+    // Load settings on component mount
+    loadMenuSettings();
+
+    // Listen for settings changes from Settings component
+    const handleSettingsChange = (event) => {
+      setMenuSettings(event.detail);
+    };
+
+    window.addEventListener('menuSettingsChanged', handleSettingsChange);
+
+    // Cleanup event listener
+    return () => {
+      window.removeEventListener('menuSettingsChanged', handleSettingsChange);
+    };
+  }, []);
  
 
   // Filter menu items based on category and search
@@ -158,170 +193,207 @@ const MenuSelection = () => {
 
 
   const getItemInCart = (itemId) => {
-    return cartItems.find(cartItem => cartItem.menuItemId === itemId);
+    return cartItems.find(cartItem => cartItem._id === itemId);
+  };
+
+  // Check if item has variants or size differences that require modal
+  const hasVariantsOrSizes = (item) => {
+    // Check for variants (like sizes, flavors, etc.)
+    if (item.variants && item.variants.length > 0) {
+      return true;
+    }
+    
+    // Check for size options
+    if (item.sizes && item.sizes.length > 1) {
+      return true;
+    }
+    
+    // Check for customization options that require user input
+    if (item.customizations && item.customizations.length > 0) {
+      return true;
+    }
+    
+    // Check if item has complex spice levels or special requirements
+    if (item.requiresCustomization) {
+      return true;
+    }
+    
+    return false;
+  };
+
+  // Handle smart card click - add to cart or open modal
+  const handleSmartCardClick = (item) => {
+    if (hasVariantsOrSizes(item)) {
+      // Item has variants/sizes, open modal for customization
+      handleItemClick(item);
+    } else {
+      // Simple item, add directly to cart
+      handleDirectAddToCart(item);
+    }
   };
 
   const ItemCard = ({ item }) => {
     const itemInCart = getItemInCart(item._id);
     const itemCount = getItemCount(item._id);
+    const hasVariants = hasVariantsOrSizes(item);
+    
+    const cardHeight = menuSettings.compactView ? '60px' : '80px';
+    const imageHeight = menuSettings.showCardImages ? `${menuSettings.cardImageHeight}px` : '0px';
     
     return (
-      <Card className="menu-item-card h-100 shadow-sm border-0" style={{
-        transition: 'all 0.2s ease',
-        cursor: 'pointer',
-        borderRadius: '12px',
-        overflow: 'hidden'
-      }}>
-        <div className="position-relative" style={{ height: '120px', overflow: 'hidden' }}>
-          <CardImg
-            top 
-            src={item.imageUrl || 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg' }
-            alt={item.name}
-            style={{ 
-              height: '100%', 
-              objectFit: 'cover',
-              transition: 'transform 0.2s ease'
-            }}
-            onError={(e) => {
-              e.target.src = 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg';
-            }}
-          />
-          
-          {/* Price Badge */}
-          <Badge 
-            color="primary" 
-            className="position-absolute top-0 end-0 m-2"
-            style={{ 
-              fontSize: '0.75rem',
-              fontWeight: '600',
-              borderRadius: '12px'
-            }}
-          >
-            {formatPrice(item.price)}
-          </Badge>
-          
-          {/* Item Count Badge */}
-          {itemCount > 0 && (
-            <Badge 
-              color="success" 
-              className="position-absolute top-0 start-0 m-2"
+      <Card 
+        className={`menu-item-card h-100 shadow-sm border-0`}
+        style={{
+          cursor: 'pointer',
+          borderRadius: '12px',
+          overflow: 'hidden'
+        }}
+        onClick={() => handleSmartCardClick(item)}
+      >
+        {/* Conditional Image Section */}
+        {menuSettings.showCardImages && (
+          <div className="position-relative" style={{ height: imageHeight, overflow: 'hidden' }}>
+            <CardImg
+              top 
+              src={item.imageUrl || 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg' }
+              alt={item.name}
               style={{ 
-                fontSize: '0.7rem',
-                borderRadius: '12px'
+                height: '100%', 
+                objectFit: 'cover',
+                transition: 'transform 0.2s ease'
               }}
-            >
-              {itemCount}
-            </Badge>
-          )}
-          
-          {/* Overlay for better text visibility */}
-          <div className="position-absolute bottom-0 start-0 end-0" style={{
-            background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
-            height: '50%'
-          }}></div>
-        </div>
+              onError={(e) => {
+                e.target.src = 'https://thumbs.dreamstime.com/b/no-found-symbol-unsuccessful-search-vecotr-upset-magnifying-glass-cute-not-zoom-icon-suitable-results-oops-page-failure-122786031.jpg';
+              }}
+            />
+            
+            {/* Item Count Badge on Image */}
+            {itemCount > 0 && (
+              <Badge 
+                color="success" 
+                className="position-absolute top-0 start-0 m-2"
+                style={{ 
+                  fontSize: '0.7rem',
+                  borderRadius: '12px',
+                  fontWeight: '600'
+                }}
+              >
+                {itemCount}
+              </Badge>
+            )}
+            
+            {/* Variants Indicator on Image */}
+            {hasVariants && (
+              <Badge 
+                color="info" 
+                className="position-absolute top-0 end-0 m-2"
+                style={{ 
+                  fontSize: '0.65rem',
+                  borderRadius: '12px'
+                }}
+              >
+                Options
+              </Badge>
+            )}
+            
+            {/* Overlay for better text visibility */}
+            <div className="position-absolute bottom-0 start-0 end-0" style={{
+              background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+              height: '50%'
+            }}></div>
+          </div>
+        )}
         
-        <CardBody className="p-2 d-flex flex-column" style={{ minHeight: '80px' }}>
-          <div className="mb-2">
-            <h6 className="card-title mb-1 text-truncate" style={{ 
-              fontSize: '0.9rem', 
+        <CardBody className="p-2 d-flex flex-column justify-content-center" style={{ 
+          minHeight: menuSettings.showCardImages ? cardHeight : cardHeight
+        }}>
+          <div className="text-center">
+            {/* Item Name */}
+            <h6 className="card-title mb-1" style={{ 
+              fontSize: menuSettings.compactView ? '0.85rem' : '0.95rem', 
               fontWeight: '600',
-              color: '#2d3748'
+              color: '#2d3748',
+              lineHeight: '1.2'
             }}>
               {item.name}
             </h6>
-             
-          </div>
-          
-          {/* Item Tags */}
-          <div className="mb-2 d-flex flex-wrap gap-1">
-            {item.isVegetarian && (
-              <Badge color="success" className="badge-sm" style={{
-                fontSize: '0.65rem',
-                padding: '0.2rem 0.4rem',
-                borderRadius: '8px'
-              }}>
-                <FaLeaf style={{ fontSize: '0.6rem' }} />
-              </Badge>
-            )}
-            {item.isSpicy && (
-              <Badge color="danger" className="badge-sm" style={{
-                fontSize: '0.65rem',
-                padding: '0.2rem 0.4rem',
-                borderRadius: '8px'
-              }}>
-                <FaFire style={{ fontSize: '0.6rem' }} />
-              </Badge>
-            )}
-            {item.preparationTime && (
-              <Badge color="info" className="badge-sm" style={{
-                fontSize: '0.65rem',
-                padding: '0.2rem 0.4rem',
-                borderRadius: '8px'
-              }}>
-                {item.preparationTime}m
-              </Badge>
-            )}
-          </div>
-          
-          {/* Action Buttons */}
-          <div className="mt-auto">
-            <div className="d-flex gap-1">
-              <Button
+           
+            
+            {/* Variants Indicator when no image */}
+            {!menuSettings.showCardImages && hasVariants && (
+              <Badge 
+                color="info" 
                 size="sm"
-                color="primary"
-                className="flex-fill"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDirectAddToCart(item);
-                }}
+                className="mb-1 ms-1"
                 style={{ 
-                  fontSize: '0.75rem',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: '6px',
-                  fontWeight: '500'
+                  fontSize: '0.65rem',
+                  borderRadius: '12px'
                 }}
               >
-                <FaPlus className="me-1" style={{ fontSize: '0.65rem' }} />
-                Add
-              </Button>
-              
-              <Button
-                size="sm"
-                color="outline-secondary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleItemClick(item);
-                }}
-                style={{ 
-                  fontSize: '0.75rem',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: '6px'
-                }}
-              >
-                <FaEye style={{ fontSize: '0.65rem' }} />
-              </Button>
-              
-              {itemInCart && (
-                <Button
-                  size="sm"
-                  color="outline-warning"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleEditItem(item);
-                  }}
-                  style={{ 
-                    fontSize: '0.75rem',
-                    padding: '0.4rem 0.6rem',
-                    borderRadius: '6px'
-                  }}
-                >
-                  <FaEdit style={{ fontSize: '0.65rem' }} />
-                </Button>
-              )}
-            </div>
+                Options Available
+              </Badge>
+            )}
+            
+            {/* Conditional Item Description */}
+            {menuSettings.showItemDescription && (
+              <p className="card-text text-muted mb-1" style={{ 
+                fontSize: '0.7rem',
+                lineHeight: '1.2',
+                display: '-webkit-box',
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden'
+              }}>
+                {item.description || 'Delicious menu item'}
+              </p>
+            )}
+            
+            {/* Conditional Item Tags */}
+            {menuSettings.showItemBadges && (
+              <div className="d-flex justify-content-center flex-wrap gap-1">
+                {item.isVegetarian && (
+                  <Badge color="success" className="badge-sm" style={{
+                    fontSize: '0.6rem',
+                    padding: '0.1rem 0.3rem',
+                    borderRadius: '8px'
+                  }}>
+                    <FaLeaf style={{ fontSize: '0.55rem' }} />
+                  </Badge>
+                )}
+                {item.isSpicy && (
+                  <Badge color="danger" className="badge-sm" style={{
+                    fontSize: '0.6rem',
+                    padding: '0.1rem 0.3rem',
+                    borderRadius: '8px'
+                  }}>
+                    <FaFire style={{ fontSize: '0.55rem' }} />
+                  </Badge>
+                )}
+                {menuSettings.showPreparationTime && item.preparationTime && (
+                  <Badge color="info" className="badge-sm" style={{
+                    fontSize: '0.6rem',
+                    padding: '0.1rem 0.3rem',
+                    borderRadius: '8px'
+                  }}>
+                    {item.preparationTime}m
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
         </CardBody>
+        
+        {/* Hover Effect Overlay */}
+        <div className="hover-overlay">
+          <div className="text-white text-center d-flex align-items-center justify-content-center">
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', marginRight: '0.5rem' }}>
+              {hasVariants ? '⚙️' : '+'}
+            </div>
+            <div style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+              {hasVariants ? 'Choose Options' : 'Add to Cart'}
+            </div>
+          </div>
+        </div>
       </Card>
     );
   };
@@ -449,7 +521,7 @@ const MenuSelection = () => {
             ) : (
               <Row className="g-3">
                 {filteredItems.map(item => (
-                  <Col key={item._id} sm={6} md={4} lg={4} xl={3} className="mb-3">
+                  <Col key={item._id} sm={6} md={4} lg={4} xl={3} >
                     <ItemCard item={item} />
                   </Col>
                 ))}

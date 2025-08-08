@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Row, 
   Col, 
@@ -32,7 +32,9 @@ import {
   FaKey,
   FaEye,
   FaEyeSlash, 
-  FaUndo
+  FaUndo,
+  FaUtensils,
+  FaImage
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -69,6 +71,28 @@ const Settings = () => {
     printerIP: '192.168.1.100',
     printerPort: '9100'
   });
+
+  const [menuSettings, setMenuSettings] = useState({
+    showCardImages: false,
+    cardImageHeight: 120,
+    showItemDescription: false,
+    compactView: true,
+    showPreparationTime: true,
+    showItemBadges: true
+  });
+
+  // Load settings from localStorage on component mount
+  useEffect(() => {
+    const savedPosSettings = localStorage.getItem('pos_settings');
+    if (savedPosSettings) {
+      setPosSettings(JSON.parse(savedPosSettings));
+    }
+
+    const savedMenuSettings = localStorage.getItem('menu_settings');
+    if (savedMenuSettings) {
+      setMenuSettings(JSON.parse(savedMenuSettings));
+    }
+  }, []);
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
@@ -125,6 +149,17 @@ const Settings = () => {
     toast.success('POS settings saved successfully');
   };
 
+  const handleMenuSettingsUpdate = () => {
+    // Save Menu settings to localStorage
+    localStorage.setItem('menu_settings', JSON.stringify(menuSettings));
+    toast.success('Menu settings saved successfully');
+    
+    // Trigger a custom event to notify MenuSelection component
+    window.dispatchEvent(new CustomEvent('menuSettingsChanged', {
+      detail: menuSettings
+    }));
+  };
+
   const resetPosSettings = () => {
     setPosSettings({
       autoLogout: 30,
@@ -138,6 +173,26 @@ const Settings = () => {
       printerPort: '9100'
     });
     toast.success('Settings reset to default');
+  };
+
+  const resetMenuSettings = () => {
+    const defaultSettings = {
+      showCardImages: false,
+      cardImageHeight: 120,
+      showItemDescription: false,
+      compactView: true,
+      showPreparationTime: true,
+      showItemBadges: true
+    };
+    setMenuSettings(defaultSettings);
+    localStorage.setItem('menu_settings', JSON.stringify(defaultSettings));
+    
+    // Trigger event to notify MenuSelection component
+    window.dispatchEvent(new CustomEvent('menuSettingsChanged', {
+      detail: defaultSettings
+    }));
+    
+    toast.success('Menu settings reset to default');
   };
 
   const testPrinterConnection = () => {
@@ -180,6 +235,16 @@ const Settings = () => {
           >
             <FaLock className="me-2" />
             Security
+          </NavLink>
+        </NavItem>
+        <NavItem>
+          <NavLink
+            className={activeTab === 'menu' ? 'active' : ''}
+            onClick={() => setActiveTab('menu')}
+            style={{ cursor: 'pointer' }}
+          >
+            <FaUtensils className="me-2" />
+            Menu Display
           </NavLink>
         </NavItem>
         <NavItem>
@@ -285,6 +350,205 @@ const Settings = () => {
                     </>
                   )}
                 </Button>
+              </Form>
+            </CardBody>
+          </Card>
+        </TabPane>
+
+        {/* Menu Display Tab */}
+        <TabPane tabId="menu">
+          <Card>
+            <CardHeader>
+              <div className="d-flex justify-content-between align-items-center">
+                <h5>Menu Display Settings</h5>
+                <Button 
+                  color="outline-secondary" 
+                  size="sm"
+                  onClick={resetMenuSettings}
+                >
+                  <FaUndo className="me-2" />
+                  Reset to Default
+                </Button>
+              </div>
+            </CardHeader>
+            <CardBody>
+              <Form>
+                <Row>
+                  <Col md={6}>
+                    {/* Card Images Toggle */}
+                    <FormGroup>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <Label className="mb-0">
+                            <FaImage className="me-2 text-primary" />
+                            Show Card Images
+                          </Label>
+                          <div>
+                            <small className="text-muted">
+                              Display product images on menu cards
+                            </small>
+                          </div>
+                        </div>
+                        <Input
+                          type="switch"
+                          checked={menuSettings.showCardImages}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            showCardImages: e.target.checked
+                          }))}
+                          style={{ width: '50px', height: '25px' }}
+                        />
+                      </div>
+                    </FormGroup>
+
+                    {/* Card Image Height */}
+                    {menuSettings.showCardImages && (
+                      <FormGroup>
+                        <Label>Card Image Height</Label>
+                        <Input
+                          type="range"
+                          min="80"
+                          max="200"
+                          step="10"
+                          value={menuSettings.cardImageHeight}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            cardImageHeight: parseInt(e.target.value)
+                          }))}
+                        />
+                        <div className="d-flex justify-content-between">
+                          <small className="text-muted">80px</small>
+                          <small className="text-primary font-weight-bold">
+                            {menuSettings.cardImageHeight}px
+                          </small>
+                          <small className="text-muted">200px</small>
+                        </div>
+                      </FormGroup>
+                    )}
+
+                    {/* Item Description Toggle */}
+                    <FormGroup>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <Label className="mb-0">Show Item Description</Label>
+                          <div>
+                            <small className="text-muted">
+                              Display item descriptions on cards
+                            </small>
+                          </div>
+                        </div>
+                        <Input
+                          type="switch"
+                          checked={menuSettings.showItemDescription}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            showItemDescription: e.target.checked
+                          }))}
+                          style={{ width: '50px', height: '25px' }}
+                        />
+                      </div>
+                    </FormGroup>
+                  </Col>
+
+                  <Col md={6}>
+                    {/* Compact View Toggle */}
+                    <FormGroup>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <Label className="mb-0">Compact View</Label>
+                          <div>
+                            <small className="text-muted">
+                              Use compact card layout to show more items
+                            </small>
+                          </div>
+                        </div>
+                        <Input
+                          type="switch"
+                          checked={menuSettings.compactView}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            compactView: e.target.checked
+                          }))}
+                          style={{ width: '50px', height: '25px' }}
+                        />
+                      </div>
+                    </FormGroup>
+
+                    {/* Preparation Time Toggle */}
+                    <FormGroup>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <Label className="mb-0">Show Preparation Time</Label>
+                          <div>
+                            <small className="text-muted">
+                              Display estimated cooking time
+                            </small>
+                          </div>
+                        </div>
+                        <Input
+                          type="switch"
+                          checked={menuSettings.showPreparationTime}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            showPreparationTime: e.target.checked
+                          }))}
+                          style={{ width: '50px', height: '25px' }}
+                        />
+                      </div>
+                    </FormGroup>
+
+                    {/* Item Badges Toggle */}
+                    <FormGroup>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                          <Label className="mb-0">Show Item Badges</Label>
+                          <div>
+                            <small className="text-muted">
+                              Display vegetarian, spicy, and other badges
+                            </small>
+                          </div>
+                        </div>
+                        <Input
+                          type="switch"
+                          checked={menuSettings.showItemBadges}
+                          onChange={(e) => setMenuSettings(prev => ({
+                            ...prev,
+                            showItemBadges: e.target.checked
+                          }))}
+                          style={{ width: '50px', height: '25px' }}
+                        />
+                      </div>
+                    </FormGroup>
+                  </Col>
+                </Row>
+
+                <hr className="my-4" />
+
+                {/* Save Button */}
+                <div className="d-flex justify-content-end gap-2">
+                  <Button 
+                    color="primary"
+                    onClick={handleMenuSettingsUpdate}
+                  >
+                    <FaSave className="me-2" />
+                    Save Menu Settings
+                  </Button>
+                </div>
+
+                {/* Preview Section */}
+                <Alert color="info" className="mt-4" fade={false}>
+                  <strong>Settings Preview:</strong>
+                  <ul className="mb-0 mt-2">
+                    <li>Card Images: {menuSettings.showCardImages ? 'Enabled' : 'Disabled'}</li>
+                    {menuSettings.showCardImages && (
+                      <li>Image Height: {menuSettings.cardImageHeight}px</li>
+                    )}
+                    <li>Item Description: {menuSettings.showItemDescription ? 'Enabled' : 'Disabled'}</li>
+                    <li>Compact View: {menuSettings.compactView ? 'Enabled' : 'Disabled'}</li>
+                    <li>Preparation Time: {menuSettings.showPreparationTime ? 'Enabled' : 'Disabled'}</li>
+                    <li>Item Badges: {menuSettings.showItemBadges ? 'Enabled' : 'Disabled'}</li>
+                  </ul>
+                </Alert>
               </Form>
             </CardBody>
           </Card>
