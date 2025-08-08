@@ -19,6 +19,7 @@ import './POSDashboard.css';
 
 const POSDashboard = () => {
   const [activeTab, setActiveTab] = useState('tables');
+  const [sidebarVisible, setSidebarVisible] = useState(true);
   const { user, logout } = useAuth();
   const { connected } = useSocket();
   const { selectedTable } = usePOS();
@@ -41,6 +42,10 @@ const POSDashboard = () => {
     }
   };
 
+  const handleToggleSidebar = () => {
+    setSidebarVisible(!sidebarVisible);
+  };
+
   const orderStats = getOrderStats();
 
   return (
@@ -50,15 +55,19 @@ const POSDashboard = () => {
         connected={connected}
         selectedTable={selectedTable}
         onLogout={handleLogout}
+        onToggleSidebar={handleToggleSidebar}
       />
 
       <Container fluid className="dashboard-content">
         <Row>
           {/* Sidebar Navigation */}
-          <Col md={2} className="sidebar-nav">
-            <Card className="nav-card h-100">
+          <Col 
+            md={sidebarVisible ? 0 : 2} 
+            className={`sidebar-nav ${sidebarVisible ? 'sidebar-hidden' : 'sidebar-visible'}`}
+          >
+            <Card className="nav-card h-100" style={{ boxShadow: 'none' }}>
               <CardBody className="p-0">
-                <Nav vertical pills className="flex-column">
+                <Nav vertical pills className="flex-column p-3">
                   <NavItem>
                     <NavLink
                       className={activeTab === 'tables' ? 'active' : ''}
@@ -140,7 +149,10 @@ const POSDashboard = () => {
           </Col>
 
           {/* Main Content Area */}
-          <Col md={10} className="main-content">
+          <Col 
+            md={sidebarVisible ? 12 : 10} 
+            className={`main-content ${sidebarVisible ? 'content-full-width' : 'content-with-sidebar'}`}
+          >
             <TabContent activeTab={activeTab}>
               <TabPane tabId="tables">
                 <TableSelection />

@@ -73,32 +73,23 @@ const DailySummaryReport = () => {
         startDate = startOfDay(new Date(selectedDate));
         endDate = endOfDay(new Date(selectedDate));
       }
-
-      console.log('📅 Generating report for:', {
-        reportType,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        branchId: user.branchId
-      });
+ 
 
       // Fetch orders for the selected date range
       const response = await axios.get(
         `${API_BASE_URL}/public/orders?branchId=${user.branchId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&limit=1000&sort=-createdAt`
       );
 
-      const dayOrders = response.data.orders || [];
-      console.log('📋 Report: Found', dayOrders.length, 'orders for date range');
+      const dayOrders = response.data.orders || []; 
       
       // Also check orders from context for comparison
       const contextOrders = orders.filter(order => {
         const orderDate = new Date(order.createdAt);
         return orderDate >= startDate && orderDate <= endDate;
-      });
-      console.log('📋 Context: Found', contextOrders.length, 'orders in context for same date range');
-      
+      }); 
       // Use the larger dataset (API or context)
       const ordersToUse = dayOrders.length >= contextOrders.length ? dayOrders : contextOrders;
-      console.log('📋 Using', ordersToUse.length, 'orders for report generation');
+      
       
       const summary = calculateSummary(ordersToUse);
       
@@ -112,8 +103,7 @@ const DailySummaryReport = () => {
         ordersUsed: ordersToUse.length
       });
 
-    } catch (error) {
-      console.error('❌ Error generating report:', error);
+    } catch (error) { 
       toast.error('Failed to generate daily summary report');
     } finally {
       setLoading(false);

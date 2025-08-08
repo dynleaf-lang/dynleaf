@@ -61,15 +61,9 @@ export const OrderProvider = ({ children }) => {
       const response = await axios.get(`${API_BASE_URL}/public/orders?branchId=${user.branchId}&limit=100&sort=-createdAt`);
       const fetchedOrders = response.data.orders || [];
       
-      console.log('📋 Fetched orders:', fetchedOrders.length);
-      setOrders(fetchedOrders);
+      setOrders(fetchedOrders); 
       
-      if (fetchedOrders.length === 0) {
-        console.log('⚠️ No orders found for branch:', user.branchId);
-      }
-      
-    } catch (error) {
-      console.error('Error fetching orders:', error);
+    } catch (error) { 
       setError('Failed to fetch orders');
       toast.error('Failed to load orders');
       setOrders([]); // Clear orders on error
@@ -93,8 +87,7 @@ export const OrderProvider = ({ children }) => {
         status: 'pending',
         paymentStatus: orderData.paymentStatus || 'unpaid'
       };
-
-      console.log('🚀 Creating order with data:', newOrderData);
+ 
       const response = await axios.post(`${API_BASE_URL}/public/orders`, newOrderData);
       
       // Handle different response structures
@@ -104,8 +97,7 @@ export const OrderProvider = ({ children }) => {
       if (!createdOrder || typeof createdOrder !== 'object') {
         throw new Error('Invalid order response from server');
       }
-
-      console.log('✅ Order created successfully:', createdOrder);
+ 
 
       // Add to local state immediately
       setOrders(prevOrders => [createdOrder, ...prevOrders]);
@@ -127,11 +119,6 @@ export const OrderProvider = ({ children }) => {
       return { success: true, order: createdOrder };
 
     } catch (error) {
-      console.error('❌ Error creating order:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to create order';
       toast.error(errorMessage);
       setError(errorMessage);
       return { success: false, error: errorMessage };
@@ -162,8 +149,6 @@ export const OrderProvider = ({ children }) => {
       return { success: true, order: updatedOrder };
 
     } catch (error) {
-      console.error('Error updating order status:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to update order status';
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
@@ -194,8 +179,7 @@ export const OrderProvider = ({ children }) => {
       toast.success(`Payment status updated to ${paymentStatus}`);
       return { success: true, order: updatedOrder };
 
-    } catch (error) {
-      console.error('Error updating payment status:', error);
+    } catch (error) { 
       const errorMessage = error.response?.data?.message || 'Failed to update payment status';
       toast.error(errorMessage);
       return { success: false, error: errorMessage };

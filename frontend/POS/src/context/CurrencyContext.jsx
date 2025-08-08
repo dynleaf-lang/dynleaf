@@ -44,8 +44,7 @@ export const CurrencyProvider = ({ children }) => {
         try {
           const branchResponse = await axios.get(`${API_BASE_URL}/public/branches/${user.branchId}`);
           if (branchResponse.data?.branch?.country) {
-            countryCode = branchResponse.data.branch.country;
-            console.log('🌍 Currency: Using branch country:', countryCode);
+            countryCode = branchResponse.data.branch.country; 
           }
         } catch (branchError) {
           console.warn('Could not fetch branch country:', branchError.message);
@@ -57,8 +56,7 @@ export const CurrencyProvider = ({ children }) => {
         try {
           const restaurantResponse = await axios.get(`${API_BASE_URL}/public/restaurants/${user.restaurantId}`);
           if (restaurantResponse.data?.restaurant?.country) {
-            countryCode = restaurantResponse.data.restaurant.country;
-            console.log('🌍 Currency: Using restaurant country:', countryCode);
+            countryCode = restaurantResponse.data.restaurant.country; 
           }
         } catch (restaurantError) {
           console.warn('Could not fetch restaurant country:', restaurantError.message);
@@ -67,20 +65,12 @@ export const CurrencyProvider = ({ children }) => {
 
       // If still no country found, check user profile
       if (countryCode === 'DEFAULT' && user?.country) {
-        countryCode = user.country;
-        console.log('🌍 Currency: Using user country:', countryCode);
+        countryCode = user.country; 
       }
 
       // Set currency configuration
       const config = getCurrencyConfig(countryCode);
-      setCurrencyConfig(config);
-      
-      console.log('💰 Currency configuration set:', {
-        country: countryCode,
-        currency: config.currency,
-        symbol: config.symbol,
-        locale: config.locale
-      });
+      setCurrencyConfig(config); 
 
     } catch (error) {
       console.error('Error fetching country information:', error);

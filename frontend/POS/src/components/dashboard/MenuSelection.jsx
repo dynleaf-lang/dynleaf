@@ -174,7 +174,7 @@ const MenuSelection = () => {
             top 
             src={item.imageUrl || "https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png"} 
             alt={item.name}
-            style={{ height: '150px', objectFit: 'cover' }}
+            style={{ height: '150px', objectFit: 'contain' }}
           />
           <CardBody className="p-3">
             <div className="d-flex justify-content-between align-items-start">
@@ -286,8 +286,7 @@ const MenuSelection = () => {
     <div className="menu-selection">
       {/* Header */}
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <div>
-          <h3>Menu Selection</h3>
+        <div> 
           <p className="text-muted mb-0">
             Table: <strong>{selectedTable.TableName}</strong>
           </p>
@@ -509,7 +508,7 @@ const MenuSelection = () => {
           </Col>
         ) : (
           filteredItems.map(item => (
-            <Col key={item._id} xs={12} sm={6} md={4} lg={3} className="mb-4">
+            <Col key={item._id} xs={12} sm={6} md={4} lg={2} className="mb-4">
               <ItemCard item={item} />
             </Col>
           ))

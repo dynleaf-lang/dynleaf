@@ -19,11 +19,12 @@ import {
   FaTable,
   FaUser,
   FaCog,
-  FaSignOutAlt
+  FaSignOutAlt,
+  FaBars
 } from 'react-icons/fa';
 import { format } from 'date-fns';
 
-const Header = ({ user, connected, selectedTable, onLogout }) => {
+const Header = ({ user, connected, selectedTable, onLogout, onToggleSidebar }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -50,6 +51,16 @@ const Header = ({ user, connected, selectedTable, onLogout }) => {
       className="px-4 shadow-sm border-bottom"
       style={{ height: '80px' }}
     >
+      {/* Sidebar Toggle Button */}
+      <Button
+        color="light"
+        size="sm"
+        className="me-3 d-flex align-items-center justify-content-center"
+        onClick={onToggleSidebar} 
+      >
+        <FaBars size={16} />
+      </Button>
+    
       <NavbarBrand href="#" className="d-flex align-items-center">
         <FaCashRegister size={32} className="text-primary me-3" />
         <div>
