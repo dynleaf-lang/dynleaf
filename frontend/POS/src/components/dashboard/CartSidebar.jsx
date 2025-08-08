@@ -22,13 +22,21 @@ import {
   FaCreditCard,
   FaSave,
   FaEdit,
-  FaTimes
+  FaTimes,
+  FaUtensils,
+  FaShoppingBag,
+  FaTruck,
+  FaUser,
+  FaChevronDown,
+  FaChevronUp,
+  FaClipboardList
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
+import './CartSidebar.css';
 
 const CartSidebar = () => {
   const { 
@@ -67,6 +75,56 @@ const CartSidebar = () => {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveOrderName, setSaveOrderName] = useState('');
   const [showSavedOrders, setShowSavedOrders] = useState(false);
+  const [showCustomerInfo, setShowCustomerInfo] = useState(false);
+  const [showSpecialInstructions, setShowSpecialInstructions] = useState(false);
+
+  // Order type options
+  const orderTypes = [
+    { 
+      value: 'dine-in', 
+      label: 'Dine In', 
+      icon: FaUtensils, 
+      color: 'primary',
+      description: 'Table service'
+    },
+    { 
+      value: 'takeaway', 
+      label: 'Takeaway', 
+      icon: FaShoppingBag, 
+      color: 'warning',
+      description: 'Pick up order'
+    },
+    { 
+      value: 'delivery', 
+      label: 'Delivery', 
+      icon: FaTruck, 
+      color: 'info',
+      description: 'Home delivery'
+    }
+  ];
+
+  // Handle order type change
+  const handleOrderTypeChange = (orderType) => {
+    updateCustomerInfo({ orderType });
+    
+    // Clear table selection for non-dine-in orders
+    if (orderType !== 'dine-in' && selectedTable) {
+      // Note: We would need to clear table selection here if we had access to the function
+      console.log('Table selection should be cleared for non-dine-in orders');
+    }
+    
+    const selectedType = orderTypes.find(type => type.value === orderType);
+    toast.success(`Order type changed to ${selectedType?.label}`);
+    
+    // Show relevant information based on order type
+    if (orderType === 'delivery') {
+      toast.info('Delivery address will be required for this order');
+    } else if (orderType === 'takeaway') {
+      toast.info('Customer will pick up this order');
+    } else if (orderType === 'dine-in') {
+      toast.info('Please ensure a table is selected');
+    }
+  };
 
   const handleQuantityChange = (cartItemId, newQuantity) => {
     if (newQuantity < 1) {
@@ -92,11 +150,66 @@ const CartSidebar = () => {
     toast.success('Order loaded successfully');
   };
 
+  // Validation function for order completion
+  const validateOrderForPayment = () => {
+    const errors = [];
+    
+    if (!customerInfo.name.trim()) {
+      errors.push('Customer name is required');
+    }
+    
+    if (!customerInfo.phone.trim()) {
+      errors.push('Phone number is required');
+    }
+    
+    if (customerInfo.orderType === 'dine-in' && !selectedTable) {
+      errors.push('Table selection is required for dine-in orders');
+    }
+    
+    if (customerInfo.orderType === 'delivery' && !customerInfo.deliveryAddress?.trim()) {
+      errors.push('Delivery address is required for delivery orders');
+    }
+    
+    return errors;
+  };
+
+  // Handle proceed to payment with validation
+  const handleProceedToPayment = () => {
+    const validationErrors = validateOrderForPayment();
+    
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => toast.error(error));
+      return;
+    }
+    
+    setShowPaymentModal(true);
+  };
+
+  // Get payment button text based on order type
+  const getPaymentButtonText = () => {
+    switch (customerInfo.orderType) {
+      case 'dine-in':
+        return 'Proceed to Payment';
+      case 'takeaway':
+        return 'Process Takeaway Order';
+      case 'delivery':
+        return 'Process Delivery Order';
+      default:
+        return 'Proceed to Payment';
+    }
+  };
+
+  // Check if payment button should be disabled
+  const isPaymentDisabled = () => {
+    const errors = validateOrderForPayment();
+    return errors.length > 0;
+  };
+
   const CartItem = ({ item }) => (
-    <ListGroupItem className="d-flex justify-content-between align-items-center p-3">
+    <ListGroupItem className="d-flex justify-content-between align-items-center px-0">
       <div className="flex-grow-1">
         <h6 className="mb-1">{item.name}</h6>
-        <small className="text-muted">{formatPrice(item.price)} each</small>
+        {/* <small className="text-muted">{formatPrice(item.price)} each</small> */}
         
         {/* Customizations */}
         {item.customizations && (
@@ -134,11 +247,12 @@ const CartSidebar = () => {
           </Button>
         </div>
         
-        <div className="text-end">
+        <div className="text-end d-flex">
           <div className="fw-bold">{formatPrice(item.price * item.quantity)}</div>
           <Button
             size="sm"
             color="outline-danger"
+            className="px-2 ms-3"
             onClick={() => removeFromCart(item.cartItemId)}
           >
             <FaTrash size={10} />
@@ -150,14 +264,108 @@ const CartSidebar = () => {
 
   return (
     <>
-      <Card className="cart-sidebar h-100" style={{ minHeight: 'calc(100vh - 120px)' }}>
-        <CardHeader className="bg-primary text-white">
+      <Card className="cart-sidebar" style={{ height: 'calc(100vh - 100px)', maxHeight: 'calc(100vh - 100px)' }}>
+        {/* <CardHeader className="d-flex justify-content-between align-items-center">
           <div className="d-flex align-items-center">
             <FaShoppingCart className="me-2" />
-            <span>Cart ({getItemCount()} items)</span>
+            <span className="fw-bold">Cart</span>
+            {getItemCount() > 0 && (
+              <Badge color="primary" className="ms-2">
+                {getItemCount()}
+              </Badge>
+            )}
           </div>
-        </CardHeader>
-        <CardBody className="p-3" style={{ overflowY: 'auto' }}>
+          {cartItems.length > 0 && (
+            <Button
+              size="sm"
+              color="outline-danger"
+              onClick={clearCart}
+              title="Clear Cart"
+            >
+              <FaTrash size={12} />
+            </Button>
+          )}
+        </CardHeader> */}
+
+        {/* Order Type Selection */}
+        <div className="order-type-selection p-3 border-bottom">
+          
+          <div className="d-flex gap-2">
+            {orderTypes.map((type) => {
+              const IconComponent = type.icon;
+              const isSelected = customerInfo.orderType === type.value;
+              
+              return (
+                <Button
+                  key={type.value}
+                  size="sm"
+                  color={isSelected ? type.color : 'outline-secondary'}
+                  className={`flex-fill d-flex flex-column align-items-center py-2 order-type-btn ${
+                    isSelected ? 'selected' : ''
+                  }`}
+                  onClick={() => handleOrderTypeChange(type.value)}
+                  title={type.description}
+                >
+                  <IconComponent size={16} className="mb-1" />
+                  <small className="fw-bold">{type.label}</small>
+                </Button>
+              );
+            })}
+          </div>
+          {/* {customerInfo.orderType && (
+            <div className="mt-2">
+              <small className="text-muted">
+                {orderTypes.find(type => type.value === customerInfo.orderType)?.description}
+              </small>
+            </div>
+          )} */}
+        </div>
+
+        {/* Customer Info & Special Instructions Icons Row */}
+        <div className="info-icons-row d-flex border-bottom">
+          {/* Customer Information Icon */}
+          <Button
+            color="link"
+            className="flex-fill d-flex justify-content-center align-items-center p-3 text-decoration-none border-end"
+            onClick={() => setShowCustomerInfo(!showCustomerInfo)}
+            title="Customer Information"
+          >
+            <div className="position-relative">
+              <FaUser size={20} className={showCustomerInfo ? 'text-primary' : 'text-muted'} />
+              {(customerInfo.name || customerInfo.phone) && (
+                <Badge 
+                  color="success" 
+                  className="position-absolute top-0 start-100 translate-middle badge-sm"
+                  style={{ fontSize: '0.6rem', padding: '0.2em 0.4em' }}
+                >
+                  ✓
+                </Badge>
+              )}
+            </div>
+          </Button>
+          
+          {/* Special Instructions Icon */}
+          <Button
+            color="link"
+            className="flex-fill d-flex justify-content-center align-items-center p-3 text-decoration-none"
+            onClick={() => setShowSpecialInstructions(!showSpecialInstructions)}
+            title="Special Instructions"
+          >
+            <div className="position-relative">
+              <FaClipboardList size={20} className={showSpecialInstructions ? 'text-primary' : 'text-muted'} />
+              {customerInfo.specialInstructions && (
+                <Badge 
+                  color="success" 
+                  className="position-absolute top-0 start-100 translate-middle badge-sm"
+                  style={{ fontSize: '0.6rem', padding: '0.2em 0.4em' }}
+                >
+                  ✓
+                </Badge>
+              )}
+            </div>
+          </Button>
+        </div>
+        <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 120px)' }}>
           {cartItems.length === 0 ? (
             <Alert color="info" className="text-center" fade={false}>
               <FaShoppingCart size={48} className="text-muted mb-3" />
@@ -166,9 +374,10 @@ const CartSidebar = () => {
             </Alert>
           ) : (
             <>
-              {/* Customer Information */}
-              <div className="customer-info mb-4">
-                <h6>Customer Information</h6>
+              {/* Customer Information - Collapsible */}
+              {showCustomerInfo && (
+                <div className="customer-info mb-4">
+                  <h6>Customer Information</h6>
                 <Form>
                   <FormGroup>
                     <Label size="sm">Customer Name</Label>
@@ -190,21 +399,43 @@ const CartSidebar = () => {
                       onChange={(e) => updateCustomerInfo({ phone: e.target.value })}
                     />
                   </FormGroup>
-                  <FormGroup>
-                    <Label size="sm">Order Type</Label>
-                    <Input
-                      size="sm"
-                      type="select"
-                      value={customerInfo.orderType}
-                      onChange={(e) => updateCustomerInfo({ orderType: e.target.value })}
-                    >
-                      <option value="dine-in">Dine In</option>
-                      <option value="takeaway">Takeaway</option>
-                      <option value="delivery">Delivery</option>
-                    </Input>
-                  </FormGroup>
+                  {/* Conditional fields based on order type */}
+                  {customerInfo.orderType === 'delivery' && (
+                    <FormGroup>
+                      <Label size="sm">Delivery Address</Label>
+                      <Input
+                        size="sm"
+                        type="textarea"
+                        rows="2"
+                        placeholder="Enter delivery address"
+                        value={customerInfo.deliveryAddress || ''}
+                        onChange={(e) => updateCustomerInfo({ deliveryAddress: e.target.value })}
+                      />
+                    </FormGroup>
+                  )}
                 </Form>
-              </div>
+                </div>
+              )}
+
+              {/* Special Instructions - Collapsible */}
+              {showSpecialInstructions && (
+                <div className="special-instructions mb-4">
+                  <h6>Special Instructions</h6>
+                  <Form>
+                    <FormGroup>
+                      <Label size="sm">Order Notes</Label>
+                      <Input
+                        size="sm"
+                        type="textarea"
+                        rows="3"
+                        placeholder="Enter any special instructions for this order..."
+                        value={customerInfo.specialInstructions || ''}
+                        onChange={(e) => updateCustomerInfo({ specialInstructions: e.target.value })}
+                      />
+                    </FormGroup>
+                  </Form>
+                </div>
+              )}
 
               {/* Cart Items */}
               <div className="cart-items mb-4">
@@ -233,17 +464,7 @@ const CartSidebar = () => {
                 </div>
               </div>
 
-              {/* Special Instructions */}
-              <FormGroup className="mb-4">
-                <Label size="sm">Special Instructions</Label>
-                <Input
-                  type="textarea"
-                  rows="2"
-                  placeholder="Any special requests for the kitchen..."
-                  value={customerInfo.specialInstructions}
-                  onChange={(e) => updateCustomerInfo({ specialInstructions: e.target.value })}
-                />
-              </FormGroup>
+             
 
               {/* Action Buttons */}
               <div className="cart-actions">
@@ -251,11 +472,12 @@ const CartSidebar = () => {
                   <Button
                     color="success"
                     size="lg"
-                    onClick={() => setShowPaymentModal(true)}
-                    disabled={!selectedTable}
+                    className="payment-btn"
+                    onClick={handleProceedToPayment}
+                    disabled={isPaymentDisabled()}
                   >
                     <FaCreditCard className="me-2" />
-                    Proceed to Payment
+                    {getPaymentButtonText()}
                   </Button>
                   
                   <div className="d-flex gap-2">
@@ -291,9 +513,22 @@ const CartSidebar = () => {
                 </div>
               </div>
 
-              {!selectedTable && (
+              {/* Conditional alerts based on order type and validation */}
+              {customerInfo.orderType === 'dine-in' && !selectedTable && (
                 <Alert color="warning" className="mt-3" fade={false}>
-                  <small>Please select a table to proceed with payment</small>
+                  <small>Please select a table for dine-in orders</small>
+                </Alert>
+              )}
+              
+              {customerInfo.orderType === 'delivery' && !customerInfo.deliveryAddress?.trim() && (
+                <Alert color="info" className="mt-3" fade={false}>
+                  <small>Delivery address is required for delivery orders</small>
+                </Alert>
+              )}
+              
+              {customerInfo.orderType === 'takeaway' && (
+                <Alert color="success" className="mt-3" fade={false}>
+                  <small>Customer will pick up this order at the restaurant</small>
                 </Alert>
               )}
             </>
