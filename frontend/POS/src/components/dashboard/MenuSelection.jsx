@@ -76,7 +76,10 @@ const MenuSelection = () => {
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemCustomizations, setItemCustomizations] = useState({
     spiceLevel: 'medium',
-    specialInstructions: ''
+    specialInstructions: '',
+    selectedVariant: null,
+    selectedPrice: null,
+    selectedAddons: []
   });
 
   // Menu display settings state
@@ -142,6 +145,31 @@ const MenuSelection = () => {
   
 
 
+  // Calculate total price including variants and addons
+  const calculateItemTotal = () => {
+    if (!selectedItem) return 0;
+    
+    let basePrice = selectedItem.price;
+    
+    // Use selected variant price if available
+    if (itemCustomizations.selectedPrice) {
+      basePrice = itemCustomizations.selectedPrice;
+    }
+    
+    // Add addon prices
+    let addonTotal = 0;
+    if (itemCustomizations.selectedAddons && selectedItem.addons) {
+      itemCustomizations.selectedAddons.forEach(addonName => {
+        const addon = selectedItem.addons.find(a => a.name === addonName);
+        if (addon) {
+          addonTotal += addon.price || 0;
+        }
+      });
+    }
+    
+    return (basePrice + addonTotal) * itemQuantity;
+  };
+
   const handleAddToCart = (item, quantity = 1, customizations = {}) => {
     addToCart(item, quantity, customizations);
     setShowItemModal(false);
@@ -158,13 +186,41 @@ const MenuSelection = () => {
     toast.success(`${item.name} added to cart!`);
   };
 
-  const handleItemClick = (item) => {
-    // Only open modal for viewing item details, not for adding
-    setSelectedItem(item);
+  const resetItemModal = () => {
+    setSelectedItem(null);
     setItemQuantity(1);
     setItemCustomizations({
       spiceLevel: 'medium',
-      specialInstructions: ''
+      specialInstructions: '',
+      selectedVariant: null,
+      selectedPrice: null,
+      selectedAddons: []
+    });
+  };
+
+  const handleItemClick = (item) => {
+    // Initialize modal with item and default selections
+    setSelectedItem(item);
+    setItemQuantity(1);
+    
+    // Initialize with default variant/size if available
+    let defaultVariant = null;
+    let defaultPrice = item.price;
+    
+    if (item.sizeVariants && item.sizeVariants.length > 0) {
+      defaultVariant = item.sizeVariants[0].size;
+      defaultPrice = item.sizeVariants[0].price;
+    } else if (item.variants && item.variants.length > 0) {
+      defaultVariant = item.variants[0].name;
+      defaultPrice = item.variants[0].price || item.price;
+    }
+    
+    setItemCustomizations({
+      spiceLevel: 'medium',
+      specialInstructions: '',
+      selectedVariant: defaultVariant,
+      selectedPrice: defaultPrice,
+      selectedAddons: []
     });
     setShowItemModal(true);
   };
@@ -181,14 +237,7 @@ const MenuSelection = () => {
     setShowItemModal(true);
   };
 
-  const resetItemModal = () => {
-    setSelectedItem(null);
-    setItemQuantity(1);
-    setItemCustomizations({
-      spiceLevel: 'medium',
-      specialInstructions: ''
-    });
-  };
+
 
 
 
@@ -204,7 +253,7 @@ const MenuSelection = () => {
     }
     
     // Check for size options
-    if (item.sizes && item.sizes.length > 1) {
+    if (item.sizeVariants && item.sizeVariants.length > 1) {
       return true;
     }
     
@@ -536,118 +585,114 @@ const MenuSelection = () => {
         </Col>
       </Row>
 
-      {/* Item Details Modal */}
+      {/* Variant Selection Modal */}
       <Modal 
         isOpen={showItemModal} 
         toggle={() => setShowItemModal(false)}
-        size="lg"
+        size="md"
       >
         <ModalHeader toggle={() => setShowItemModal(false)}>
-          {selectedItem?.name}
+          Select Options - {selectedItem?.name}
         </ModalHeader>
         <ModalBody>
           {selectedItem && (
-            <Row>
-              <Col md={6}>
-                {selectedItem.image && (
-                  <img 
-                    src={selectedItem.imageUrl} 
-                    alt={selectedItem.name}
-                    className="img-fluid rounded mb-3"
-                  />
-                )}
-                <h5>{selectedItem.name}</h5>
-                <p className="text-muted">{selectedItem.description}</p>
-                <h4 className="text-primary">{formatPrice(selectedItem.price)}</h4>
-                
-                <div className="mt-3">
-                  {selectedItem.isVegetarian && (
-                    <Badge color="success" className="me-2">
-                      <FaLeaf className="me-1" />
-                      Vegetarian
-                    </Badge>
-                  )}
-                  {selectedItem.isSpicy && (
-                    <Badge color="danger" className="me-2">
-                      <FaFire className="me-1" />
-                      Spicy
-                    </Badge>
-                  )}
-                  {selectedItem.preparationTime && (
-                    <Badge color="info">
-                      <FaUtensils className="me-1" />
-                      {selectedItem.preparationTime} mins
-                    </Badge>
-                  )}
-                </div>
-              </Col>
-              
-              <Col md={6}>
-                <Form>
-                  <FormGroup>
-                    <Label>Quantity</Label>
-                    <div className="d-flex align-items-center">
+            <div>
+              {/* Size/Variant Selection */}
+              {selectedItem.sizeVariants && selectedItem.sizeVariants.length > 0 && (
+                <div className="mb-4">
+                  <Label className="fw-bold mb-3">Size Options</Label>
+                  <div className="d-flex flex-wrap gap-2">
+                    {selectedItem.sizeVariants.map((variant, index) => (
                       <Button
+                        key={index}
+                        color={itemCustomizations.selectedVariant === variant.size ? "primary" : "outline-primary"}
                         size="sm"
-                        color="outline-secondary"
-                        onClick={() => setItemQuantity(Math.max(1, itemQuantity - 1))}
+                        onClick={() => setItemCustomizations(prev => ({
+                          ...prev,
+                          selectedVariant: variant.size,
+                          selectedPrice: variant.price
+                        }))}
+                        className="rounded-pill"
                       >
-                        <FaMinus />
+                        {variant.size} - {formatPrice(variant.price)}
                       </Button>
-                      <Input
-                        type="number"
-                        value={itemQuantity}
-                        onChange={(e) => setItemQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="mx-2 text-center"
-                        style={{ width: '80px' }}
-                      />
-                      <Button
-                        size="sm"
-                        color="outline-secondary"
-                        onClick={() => setItemQuantity(itemQuantity + 1)}
-                      >
-                        <FaPlus />
-                      </Button>
-                    </div>
-                  </FormGroup>
-
-                  <FormGroup>
-                    <Label>Spice Level</Label>
-                    <Input
-                      type="select"
-                      value={itemCustomizations.spiceLevel}
-                      onChange={(e) => setItemCustomizations(prev => ({
-                        ...prev,
-                        spiceLevel: e.target.value
-                      }))}
-                    >
-                      <option value="mild">Mild</option>
-                      <option value="medium">Medium</option>
-                      <option value="hot">Hot</option>
-                      <option value="extra-hot">Extra Hot</option>
-                    </Input>
-                  </FormGroup>
-
-                  <FormGroup>
-                    <Label>Special Instructions</Label>
-                    <Input
-                      type="textarea"
-                      rows="3"
-                      placeholder="Any special requests or modifications..."
-                      value={itemCustomizations.specialInstructions}
-                      onChange={(e) => setItemCustomizations(prev => ({
-                        ...prev,
-                        specialInstructions: e.target.value
-                      }))}
-                    />
-                  </FormGroup>
-
-                  <div className="mt-3">
-                    <h6>Total: {formatPrice(selectedItem.price * itemQuantity)}</h6>
+                    ))}
                   </div>
-                </Form>
-              </Col>
-            </Row>
+                </div>
+              )}
+
+              {/* Variants Selection */}
+              {selectedItem.variants && selectedItem.variants.length > 0 && (
+                <div className="mb-4">
+                  <Label className="fw-bold mb-3">Variants</Label>
+                  <div className="d-flex flex-wrap gap-2">
+                    {selectedItem.variants.map((variant, index) => (
+                      <Button
+                        key={index}
+                        color={itemCustomizations.selectedVariant === variant.name ? "primary" : "outline-primary"}
+                        size="sm"
+                        onClick={() => setItemCustomizations(prev => ({
+                          ...prev,
+                          selectedVariant: variant.name,
+                          selectedPrice: variant.price || selectedItem.price
+                        }))}
+                        className="rounded-pill"
+                      >
+                        {variant.name}
+                        {variant.price && variant.price !== selectedItem.price && (
+                          <span className="ms-1">+{formatPrice(variant.price - selectedItem.price)}</span>
+                        )}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Addons Selection */}
+              {selectedItem.addons && selectedItem.addons.length > 0 && (
+                <div className="mb-4">
+                  <Label className="fw-bold mb-3">Add-ons</Label>
+                  <div className="d-flex flex-column gap-2">
+                    {selectedItem.addons.map((addon, index) => (
+                      <div key={index} className="d-flex justify-content-between align-items-center p-2 border rounded">
+                        <div className="d-flex align-items-center">
+                          <Input
+                            type="checkbox"
+                            id={`addon-${index}`}
+                            checked={itemCustomizations.selectedAddons?.includes(addon.name) || false}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setItemCustomizations(prev => {
+                                const currentAddons = prev.selectedAddons || [];
+                                const updatedAddons = isChecked 
+                                  ? [...currentAddons, addon.name]
+                                  : currentAddons.filter(name => name !== addon.name);
+                                return {
+                                  ...prev,
+                                  selectedAddons: updatedAddons
+                                };
+                              });
+                            }}
+                            className="me-2"
+                          />
+                          <Label for={`addon-${index}`} className="mb-0">
+                            {addon.name}
+                          </Label>
+                        </div>
+                        <span className="text-primary fw-bold">+{formatPrice(addon.price)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Total Price Display */}
+              <div className="text-center mt-4 p-3 bg-light rounded">
+                <h5 className="mb-0 text-primary">
+                  Total: {formatPrice(calculateItemTotal())}
+                </h5>
+              </div>
+            </div>
           )}
         </ModalBody>
         <ModalFooter>
@@ -659,7 +704,7 @@ const MenuSelection = () => {
             onClick={() => handleAddToCart(selectedItem, itemQuantity, itemCustomizations)}
           >
             <FaPlus className="me-2" />
-            Add to Cart
+            Save & Add to Cart
           </Button>
         </ModalFooter>
       </Modal>

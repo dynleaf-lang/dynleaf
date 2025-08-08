@@ -82,11 +82,14 @@ export const CartProvider = ({ children }) => {
         );
       } else {
         // Add new item to cart
+        // Use selected variant price if available, otherwise use base price
+        const itemPrice = customizations.selectedPrice || menuItem.price;
+        
         const newItem = {
           cartItemId,
           menuItemId: menuItem._id,
           name: menuItem.name,
-          price: menuItem.price,
+          price: itemPrice,
           image: menuItem.image,
           description: menuItem.description,
           category: menuItem.category,
