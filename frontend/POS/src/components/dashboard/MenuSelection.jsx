@@ -70,7 +70,6 @@ const MenuSelection = () => {
   
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCart, setShowCart] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showItemModal, setShowItemModal] = useState(false);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -178,7 +177,7 @@ const MenuSelection = () => {
           />
           <CardBody className="p-3">
             <div className="d-flex justify-content-between align-items-start">
-              <h6 className="item-name mb-0 fs-6">{item.name}</h6>
+              <h6 className="item-name mb-0">{item.name}</h6>
               {item.isVegetarian && (
                 <Badge color="success" className="ms-2">
                   <FaLeaf size={10} />
@@ -273,7 +272,7 @@ const MenuSelection = () => {
   if (loading) {
     return (
       <div className="text-center py-5">
-         <Spinner color="primary" style={{ width: '3rem', height: '3rem' }} />
+        <Spinner color="primary" style={{ width: '3rem', height: '3rem' }} />
         <div className="mt-3">
           <h5>Loading Menu...</h5>
           <p className="text-muted">Please wait while we fetch the menu items</p>
@@ -284,235 +283,88 @@ const MenuSelection = () => {
 
   return (
     <div className="menu-selection">
-      {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div> 
-          <p className="text-muted mb-0">
-            Table: <strong>{selectedTable.TableName}</strong>
-          </p>
-        </div>
-        <Button 
-          color="primary" 
-          onClick={() => setShowCart(true)}
-          className="position-relative"
-        >
-          <FaShoppingCart className="me-2" />
-          Cart
-          {getItemCount() > 0 && (
-            <Badge 
-              color="danger" 
-              pill 
-              className="position-absolute top-0 start-100 translate-middle"
-            >
-              {getItemCount()}
-            </Badge>
-          )}
-        </Button>
-      </div>
+      <Row className="h-100">
+        {/* Menu Section - Left Side */}
+        <Col lg={8} className="pe-3">
+          {/* Header with Search */}
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <div className="d-flex align-items-center">
+              <h4 className="mb-0 me-3">
+                <FaUtensils className="me-2 text-primary" />
+                Menu Selection
+              </h4>
+              {selectedTable && (
+                <Badge color="info" className="fs-6">
+                  Table {selectedTable.TableName}
+                </Badge>
+              )}
+            </div>
+            
+            {/* Search */}
+            <InputGroup style={{ width: '300px' }}>
+              <Input
+                type="text"
+                placeholder="Search menu items..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <Button color="outline-secondary">
+                <FaSearch />
+              </Button>
+            </InputGroup>
+          </div>
 
-      {/* Search Bar */}
-      <Row className="mb-4">
-        <Col md={8}>
-          <InputGroup>
-            <Input
-              type="text"
-              placeholder="Search menu items..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Button color="outline-secondary">
-              <FaSearch />
-            </Button>
-          </InputGroup>
-        </Col>
-        <Col md={4}>
-          <Button
-            color="outline-info"
-            block
-            onClick={() => setShowCart(true)}
-          >
-            <FaEye className="me-2" />
-            View Cart ({getItemCount()})
-          </Button>
-        </Col>
-      </Row>
-
-      {/* Category Navigation */}
-      <Nav pills className="mb-4 category-nav">
-        <NavItem>
-          <NavLink
-            className={selectedCategory === 'all' ? 'active' : ''}
-            onClick={() => setSelectedCategory('all')}
-            style={{ cursor: 'pointer' }}
-          >
-            All Items
-          </NavLink>
-        </NavItem>
-        {categories.map(category => {
-          const categoryId = category._id || category.categoryId;
-          const isParentCategory = !category.parentCategory;
-          
-          // Only show parent categories in main navigation
-          if (!isParentCategory) return null;
-          
-          return (
-            <NavItem key={categoryId}>
+          {/* Categories Navigation */}
+          <Nav pills className="mb-4 flex-nowrap" style={{ overflowX: 'auto' }}>
+            <NavItem>
               <NavLink
-                className={selectedCategory === categoryId ? 'active' : ''}
-                onClick={() => setSelectedCategory(categoryId)}
-                style={{ cursor: 'pointer' }}
+                className={selectedCategory === 'all' ? 'active' : ''}
+                onClick={() => setSelectedCategory('all')}
+                style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
-                {category.name}
-                {/* Show indicator if category has children */}
-                {categories.some(cat => 
-                  (cat.parentCategory?._id || cat.parentCategory) === categoryId
-                ) && (
-                  <Badge color="secondary" className="ms-1" style={{ fontSize: '0.6rem' }}>
-                    +
-                  </Badge>
-                )}
+                <FaUtensils className="me-2" />
+                All Items
               </NavLink>
             </NavItem>
-          );
-        }).filter(Boolean)}
-      </Nav>
+            {categories.map(category => (
+              <NavItem key={category._id}>
+                <NavLink
+                  className={selectedCategory === category._id ? 'active' : ''}
+                  onClick={() => setSelectedCategory(category._id)}
+                  style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  {category.name}
+                </NavLink>
+              </NavItem>
+            ))}
+          </Nav>
 
-      {/* Subcategories Navigation */}
-      {selectedCategory !== 'all' && (
-        (() => {
-          // Check if selected category is a parent with children
-          const subcategoriesOfSelected = categories.filter(category => {
-            const parentCatId = category.parentCategory?._id || category.parentCategory;
-            return parentCatId === selectedCategory;
-          });
-
-          // Check if selected category is a child (subcategory)
-          const selectedCategoryObj = categories.find(cat => 
-            (cat._id || cat.categoryId) === selectedCategory
-          );
-          const isSelectedASubcategory = selectedCategoryObj?.parentCategory;
-
-          // If selected is a subcategory, find its siblings
-          let subcategories = [];
-          let parentCategoryId = null;
-
-          if (isSelectedASubcategory) {
-            // Selected is a subcategory, show all siblings including itself
-            parentCategoryId = selectedCategoryObj.parentCategory._id || selectedCategoryObj.parentCategory;
-            subcategories = categories.filter(category => {
-              const parentCatId = category.parentCategory?._id || category.parentCategory;
-              return parentCatId === parentCategoryId;
-            });
-          } else if (subcategoriesOfSelected.length > 0) {
-            // Selected is a parent with children
-            subcategories = subcategoriesOfSelected;
-            parentCategoryId = selectedCategory;
-          }
-
-          if (subcategories.length > 0) {
-            return (
-              <div className="mb-3">
-                <small className="text-muted mb-2 d-block">
-                  <FaUtensils className="me-1" />
-                  Subcategories:
-                </small>
-                <Nav pills className="subcategory-nav" style={{ fontSize: '0.9rem' }}>
-                  {subcategories.map(subcategory => {
-                    const subcategoryId = subcategory._id || subcategory.categoryId;
-                    return (
-                      <NavItem key={subcategoryId}>
-                        <NavLink
-                          className={`subcategory-link ${selectedCategory === subcategoryId ? 'active' : ''}`}
-                          onClick={() => setSelectedCategory(subcategoryId)}
-                          style={{ 
-                            cursor: 'pointer',
-                            padding: '0.4rem 0.8rem',
-                            marginRight: '0.5rem',
-                            marginBottom: '0.5rem',
-                            fontSize: '0.85rem',
-                            backgroundColor: selectedCategory === subcategoryId ? '#007bff' : '#f8f9fa',
-                            color: selectedCategory === subcategoryId ? 'white' : '#6c757d',
-                            border: selectedCategory === subcategoryId ? '1px solid #007bff' : '1px solid #dee2e6',
-                            borderRadius: '15px',
-                            transition: 'all 0.2s ease',
-                            textDecoration: 'none'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (selectedCategory !== subcategoryId) {
-                              e.target.style.backgroundColor = '#e9ecef';
-                              e.target.style.borderColor = '#adb5bd';
-                              e.target.style.color = '#495057';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (selectedCategory !== subcategoryId) {
-                              e.target.style.backgroundColor = '#f8f9fa';
-                              e.target.style.borderColor = '#dee2e6';
-                              e.target.style.color = '#6c757d';
-                            }
-                          }}
-                        >
-                          {subcategory.name}
-                        </NavLink>
-                      </NavItem>
-                    );
-                  })}
-                  {/* Back to parent category button */}
-                  <NavItem>
-                    <NavLink
-                      onClick={() => {
-                        if (isSelectedASubcategory && parentCategoryId) {
-                          // If we're viewing a subcategory, go back to its parent
-                          setSelectedCategory(parentCategoryId);
-                        } else if (subcategories.length > 0) {
-                          // If we're viewing a parent with children, go to 'all'
-                          setSelectedCategory('all');
-                        }
-                      }}
-                      style={{ 
-                        cursor: 'pointer',
-                        padding: '0.4rem 0.8rem',
-                        fontSize: '0.85rem',
-                        backgroundColor: '#6c757d',
-                        color: 'white',
-                        border: '1px solid #6c757d',
-                        borderRadius: '15px',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = '#5a6268';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = '#6c757d';
-                      }}
-                    >
-                      ← Back to Parent
-                    </NavLink>
-                  </NavItem>
-                </Nav>
-              </div>
-            );
-          }
-          return null;
-        })()
-      )}
-
-      {/* Menu Items Grid */}
-      <Row>
-        {filteredItems.length === 0 ? (
-          <Col>
-            <Alert color="info" className="text-center" fade={false}>
-              <h5>No Items Found</h5>
-              <p>No menu items match your current search criteria.</p>
+          {/* Menu Items Grid */}
+          {loading ? (
+            <div className="text-center py-5">
+              <Spinner color="primary" />
+              <p className="mt-2">Loading menu items...</p>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <Alert color="info" className="text-center">
+              <h5>No items found</h5>
+              <p>Try adjusting your search or category filter.</p>
             </Alert>
-          </Col>
-        ) : (
-          filteredItems.map(item => (
-            <Col key={item._id} xs={12} sm={6} md={4} lg={2} className="mb-4">
-              <ItemCard item={item} />
-            </Col>
-          ))
-        )}
+          ) : (
+            <Row>
+              {filteredItems.map(item => (
+                <Col key={item._id} sm={4} md={4} lg={3} className="mb-4">
+                  <ItemCard item={item} />
+                </Col>
+              ))}
+            </Row>
+          )}
+        </Col>
+
+        {/* Cart Sidebar - Right Side */}
+        <Col lg={4} className="ps-3">
+          <CartSidebar />
+        </Col>
       </Row>
 
       {/* Item Details Modal */}
@@ -643,11 +495,7 @@ const MenuSelection = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Cart Sidebar */}
-      <CartSidebar 
-        isOpen={showCart}
-        toggle={() => setShowCart(false)}
-      />
+
     </div>
   );
 };

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { 
-  Offcanvas,
-  OffcanvasHeader,
-  OffcanvasBody,
+  Card,
+  CardHeader,
+  CardBody,
   Button,
   ListGroup,
   ListGroupItem,
@@ -30,7 +30,7 @@ import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
 
-const CartSidebar = ({ isOpen, toggle }) => {
+const CartSidebar = () => {
   const { 
     cartItems, 
     customerInfo,
@@ -150,20 +150,14 @@ const CartSidebar = ({ isOpen, toggle }) => {
 
   return (
     <>
-      <Offcanvas 
-        isOpen={isOpen} 
-        toggle={toggle} 
-        direction="end"
-        style={{ width: '500px' }}
-      >
-        <OffcanvasHeader toggle={toggle}>
+      <Card className="cart-sidebar h-100" style={{ minHeight: 'calc(100vh - 120px)' }}>
+        <CardHeader className="bg-primary text-white">
           <div className="d-flex align-items-center">
-            <FaShoppingCart className="me-2 text-primary" />
+            <FaShoppingCart className="me-2" />
             <span>Cart ({getItemCount()} items)</span>
           </div>
-        </OffcanvasHeader>
-        
-        <OffcanvasBody>
+        </CardHeader>
+        <CardBody className="p-3" style={{ overflowY: 'auto' }}>
           {cartItems.length === 0 ? (
             <Alert color="info" className="text-center" fade={false}>
               <FaShoppingCart size={48} className="text-muted mb-3" />
@@ -356,8 +350,8 @@ const CartSidebar = ({ isOpen, toggle }) => {
               </ListGroup>
             </div>
           )}
-        </OffcanvasBody>
-      </Offcanvas>
+        </CardBody>
+      </Card>
 
       {/* Save Order Modal */}
       {showSaveModal && (

@@ -153,7 +153,7 @@ const POSDashboard = () => {
             md={sidebarVisible ? 12 : 10} 
             className={`main-content ${sidebarVisible ? 'content-full-width' : 'content-with-sidebar'}`}
           >
-            <TabContent activeTab={activeTab}>
+            <TabContent activeTab={activeTab} className='rounded-0 p-3'>
               <TabPane tabId="tables">
                 <TableSelection />
               </TabPane>
