@@ -37,6 +37,7 @@ import {
 } from 'react-icons/fa';
 import { usePOS } from '../../context/POSContext';
 import { useCart } from '../../context/CartContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import CartSidebar from './CartSidebar';
 import toast from 'react-hot-toast';
 
@@ -53,6 +54,19 @@ const MenuSelection = () => {
   
   
   const { addToCart, cartItems, getItemCount } = useCart();
+  const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
+
+  // Dynamic currency formatting function
+  const formatPrice = (price) => {
+    if (currencyReady && formatCurrencyDynamic) {
+      return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0
+    }).format(price || 0);
+  };
   
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -99,10 +113,33 @@ const MenuSelection = () => {
     resetItemModal();
   };
 
+  // Direct add to cart function for Add button (no modal)
+  const handleDirectAddToCart = (item) => {
+    const defaultCustomizations = {
+      spiceLevel: 'medium',
+      specialInstructions: ''
+    };
+    addToCart(item, 1, defaultCustomizations);
+    toast.success(`${item.name} added to cart!`);
+  };
+
   const handleItemClick = (item) => {
+    // Only open modal for viewing item details, not for adding
     setSelectedItem(item);
     setItemQuantity(1);
     setItemCustomizations({
+      spiceLevel: 'medium',
+      specialInstructions: ''
+    });
+    setShowItemModal(true);
+  };
+
+  const handleEditItem = (item) => {
+    // Open modal for editing existing cart item
+    const cartItem = getItemInCart(item._id);
+    setSelectedItem(item);
+    setItemQuantity(cartItem ? cartItem.quantity : 1);
+    setItemCustomizations(cartItem ? cartItem.customizations : {
       spiceLevel: 'medium',
       specialInstructions: ''
     });
@@ -118,13 +155,7 @@ const MenuSelection = () => {
     });
   };
 
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0
-    }).format(price);
-  };
+
 
   const getItemInCart = (itemId) => {
     return cartItems.find(cartItem => cartItem.menuItemId === itemId);
@@ -137,8 +168,8 @@ const MenuSelection = () => {
     
 
     return (
-      <Card className="menu-item-card h-100" style={{ cursor: 'pointer' }}>
-        <div onClick={() => handleItemClick(item)}>
+      <Card className="menu-item-card h-100">
+        <div onClick={() => handleItemClick(item)} style={{ cursor: 'pointer' }}>
           <CardImg 
             top 
             src={item.imageUrl || "https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png"} 
@@ -146,8 +177,8 @@ const MenuSelection = () => {
             style={{ height: '150px', objectFit: 'cover' }}
           />
           <CardBody className="p-3">
-            <div className="d-flex justify-content-between align-items-start mb-2">
-              <h6 className="item-name mb-0">{item.name}</h6>
+            <div className="d-flex justify-content-between align-items-start">
+              <h6 className="item-name mb-0 fs-6">{item.name}</h6>
               {item.isVegetarian && (
                 <Badge color="success" className="ms-2">
                   <FaLeaf size={10} />
@@ -165,7 +196,7 @@ const MenuSelection = () => {
               {item.description?.length > 80 && '...'}
             </p> */}
             
-            <div className="d-flex justify-content-between align-items-center mb-2">
+            {/* <div className="d-flex justify-content-between align-items-center mb-2">
               <span className="item-price fw-bold text-primary">
                 {formatPrice(item.price)}
               </span>
@@ -175,7 +206,7 @@ const MenuSelection = () => {
                   <small>{item.rating}</small>
                 </div>
               )}
-            </div>
+            </div> */}
             
             {item.preparationTime && (
               <small className="text-muted">
@@ -186,19 +217,22 @@ const MenuSelection = () => {
           </CardBody>
         </div>
         
-        <div className="card-footer bg-transparent p-3 pt-0">
+        <div className="card-footer bg-transparent p-3 pt-0" onClick={(e) => e.stopPropagation()}>
           {isInCart ? (
-            <div className="d-flex justify-content-between align-items-center">
+            <div className="d-flex justify-content-between align-items-center mt-3">
               <Button
                 size="sm"
                 color="outline-primary"
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
-                  handleItemClick(item);
+                  console.log('Edit button clicked for:', item.name);
+                  handleEditItem(item);
                 }}
+                style={{ pointerEvents: 'auto', zIndex: 10 }}
               >
                 <FaEdit className="me-1" />
-                Modify
+                Edit
               </Button>
               <Badge color="primary" pill>
                 In Cart: {cartItem.quantity}
@@ -208,14 +242,18 @@ const MenuSelection = () => {
             <Button
               size="sm"
               color="primary"
+              className="mt-3"
               block
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                handleAddToCart(item);
+                console.log('Add button clicked for:', item.name);
+                handleDirectAddToCart(item);
               }}
+              style={{ pointerEvents: 'auto', zIndex: 10 }}
             >
               <FaPlus className="me-2" />
-              
+              Add
             </Button>
           )}
         </div>

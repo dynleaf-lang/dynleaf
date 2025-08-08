@@ -26,6 +26,7 @@ import {
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
 
@@ -48,19 +49,24 @@ const CartSidebar = ({ isOpen, toggle }) => {
   } = useCart();
   
   const { selectedTable } = usePOS();
+  const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
+
+  // Dynamic currency formatting function
+  const formatPrice = (price) => {
+    if (currencyReady && formatCurrencyDynamic) {
+      return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
+    }
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0
+    }).format(price || 0);
+  };
   
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveOrderName, setSaveOrderName] = useState('');
   const [showSavedOrders, setShowSavedOrders] = useState(false);
-
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0
-    }).format(price);
-  };
 
   const handleQuantityChange = (cartItemId, newQuantity) => {
     if (newQuantity < 1) {

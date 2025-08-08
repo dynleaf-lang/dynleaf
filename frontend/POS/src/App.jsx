@@ -6,6 +6,7 @@ import './App.css';
 
 // Context Providers
 import { AuthProvider } from './context/AuthContext';
+import { CurrencyProvider } from './context/CurrencyContext';
 import { SocketProvider } from './context/SocketContext';
 import { POSProvider } from './context/POSContext';
 import { CartProvider } from './context/CartContext';
@@ -22,10 +23,11 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <SocketProvider>
-          <POSProvider>
-            <CartProvider>
-              <OrderProvider>
+        <CurrencyProvider>
+          <SocketProvider>
+            <POSProvider>
+              <CartProvider>
+                <OrderProvider>
                 <div className="App">
                   <SessionManager />
                   <GlobalToast />
@@ -52,10 +54,11 @@ function App() {
                     }}
                   />
                 </div>
-              </OrderProvider>
-            </CartProvider>
-          </POSProvider>
-        </SocketProvider>
+                </OrderProvider>
+              </CartProvider>
+            </POSProvider>
+          </SocketProvider>
+        </CurrencyProvider>
       </AuthProvider>
     </Router>
   );

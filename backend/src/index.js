@@ -173,6 +173,7 @@ app.use('/api/public/tables', publicTableRoutes);
 app.use('/api/public/menus', publicMenuRoutes);
 app.use('/api/public/categories', publicCategoryRoutes);
 app.use('/api/public/branches', publicBranchRoutes);
+app.use('/api/public/restaurants', require('./routes/publicRestaurantRoutes'));
 app.use('/api/public/orders', publicOrderRoutes);
 app.use('/api/public/taxes', publicTaxRoutes);
 app.use('/api/public/floors', publicFloorRoutes);

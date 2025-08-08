@@ -94,7 +94,11 @@ router.get('/', async (req, res) => {
             
         console.log(`[PUBLIC ORDERS] Found ${orders.length} orders`);
 
-        res.json(orders);
+        res.json({
+            success: true,
+            orders: orders,
+            total: orders.length
+        });
     } catch (error) {
         console.error('[PUBLIC ORDERS] Error fetching orders:', error);
         res.status(500).json({ 

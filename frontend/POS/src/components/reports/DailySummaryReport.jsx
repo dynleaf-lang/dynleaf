@@ -32,13 +32,15 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useOrder } from '../../context/OrderContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 
 const DailySummaryReport = () => {
   const { user } = useAuth();
-  const { orders } = useOrder();
+  const { orders, refreshOrders } = useOrder();
+  const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -48,7 +50,10 @@ const DailySummaryReport = () => {
 
   useEffect(() => {
     if (user?.branchId) {
-      generateReport();
+      // Refresh orders first, then generate report
+      refreshOrders().then(() => {
+        generateReport();
+      });
     }
   }, [user, selectedDate, reportType]);
 
@@ -69,13 +74,33 @@ const DailySummaryReport = () => {
         endDate = endOfDay(new Date(selectedDate));
       }
 
+      console.log('📅 Generating report for:', {
+        reportType,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        branchId: user.branchId
+      });
+
       // Fetch orders for the selected date range
       const response = await axios.get(
-        `${API_BASE_URL}/public/orders?branchId=${user.branchId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+        `${API_BASE_URL}/public/orders?branchId=${user.branchId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&limit=1000&sort=-createdAt`
       );
 
       const dayOrders = response.data.orders || [];
-      const summary = calculateSummary(dayOrders);
+      console.log('📋 Report: Found', dayOrders.length, 'orders for date range');
+      
+      // Also check orders from context for comparison
+      const contextOrders = orders.filter(order => {
+        const orderDate = new Date(order.createdAt);
+        return orderDate >= startDate && orderDate <= endDate;
+      });
+      console.log('📋 Context: Found', contextOrders.length, 'orders in context for same date range');
+      
+      // Use the larger dataset (API or context)
+      const ordersToUse = dayOrders.length >= contextOrders.length ? dayOrders : contextOrders;
+      console.log('📋 Using', ordersToUse.length, 'orders for report generation');
+      
+      const summary = calculateSummary(ordersToUse);
       
       setReportData({
         ...summary,
@@ -83,11 +108,12 @@ const DailySummaryReport = () => {
         dateRange: {
           start: startDate,
           end: endDate
-        }
+        },
+        ordersUsed: ordersToUse.length
       });
 
     } catch (error) {
-      console.error('Error generating report:', error);
+      console.error('❌ Error generating report:', error);
       toast.error('Failed to generate daily summary report');
     } finally {
       setLoading(false);
@@ -231,11 +257,16 @@ const DailySummaryReport = () => {
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
+    // Use dynamic currency formatting based on branch country
+    if (currencyReady && formatCurrencyDynamic) {
+      return formatCurrencyDynamic(amount, { minimumFractionDigits: 0 });
+    }
+    // Fallback to USD if currency context not ready
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 0
-    }).format(amount);
+    }).format(amount || 0);
   };
 
   const getStatusBadgeColor = (status) => {

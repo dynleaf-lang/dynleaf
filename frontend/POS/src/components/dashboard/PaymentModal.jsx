@@ -35,6 +35,7 @@ import { useOrder } from '../../context/OrderContext';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
 import { useSocket } from '../../context/SocketContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import ReceiptPreview from '../receipt/ReceiptPreview';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 import toast from 'react-hot-toast';
@@ -63,13 +64,19 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   const { clearCart } = useCart();
   const { updateTableStatus } = usePOS();
   const { emitNewOrder } = useSocket();
+  const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
   const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
+    // Use dynamic currency formatting based on branch country
+    if (currencyReady && formatCurrencyDynamic) {
+      return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
+    }
+    // Fallback to USD if currency context not ready
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'USD',
       minimumFractionDigits: 0
-    }).format(price);
+    }).format(price || 0);
   };
 
   const calculateChange = () => {

@@ -55,12 +55,24 @@ export const OrderProvider = ({ children }) => {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/public/orders?branchId=${user.branchId}&limit=50`);
-      setOrders(response.data.orders || []);
+      setError(null);
+      
+      // Fetch orders with proper sorting (newest first)
+      const response = await axios.get(`${API_BASE_URL}/public/orders?branchId=${user.branchId}&limit=100&sort=-createdAt`);
+      const fetchedOrders = response.data.orders || [];
+      
+      console.log('📋 Fetched orders:', fetchedOrders.length);
+      setOrders(fetchedOrders);
+      
+      if (fetchedOrders.length === 0) {
+        console.log('⚠️ No orders found for branch:', user.branchId);
+      }
+      
     } catch (error) {
       console.error('Error fetching orders:', error);
       setError('Failed to fetch orders');
       toast.error('Failed to load orders');
+      setOrders([]); // Clear orders on error
     } finally {
       setLoading(false);
     }
@@ -69,6 +81,7 @@ export const OrderProvider = ({ children }) => {
   const createOrder = async (orderData) => {
     try {
       setLoading(true);
+      setError(null);
       
       const newOrderData = {
         ...orderData,
@@ -78,9 +91,10 @@ export const OrderProvider = ({ children }) => {
         createdByName: user.name,
         source: 'pos',
         status: 'pending',
-        paymentStatus: 'unpaid'
+        paymentStatus: orderData.paymentStatus || 'unpaid'
       };
 
+      console.log('🚀 Creating order with data:', newOrderData);
       const response = await axios.post(`${API_BASE_URL}/public/orders`, newOrderData);
       
       // Handle different response structures
@@ -91,7 +105,9 @@ export const OrderProvider = ({ children }) => {
         throw new Error('Invalid order response from server');
       }
 
-      // Add to local state
+      console.log('✅ Order created successfully:', createdOrder);
+
+      // Add to local state immediately
       setOrders(prevOrders => [createdOrder, ...prevOrders]);
 
       // Emit to kitchen via socket (only if order has required fields)
@@ -102,15 +118,22 @@ export const OrderProvider = ({ children }) => {
       // Use orderNumber if available, otherwise use _id or a fallback
       const orderIdentifier = createdOrder.orderNumber || createdOrder._id || 'New Order';
       toast.success(`Order #${orderIdentifier} created successfully`);
+      
+      // Refresh orders to ensure persistence
+      setTimeout(() => {
+        fetchOrders();
+      }, 1000);
+      
       return { success: true, order: createdOrder };
 
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error('❌ Error creating order:', error);
       console.error('Error response:', error.response?.data);
       console.error('Error status:', error.response?.status);
       
       const errorMessage = error.response?.data?.message || error.message || 'Failed to create order';
       toast.error(errorMessage);
+      setError(errorMessage);
       return { success: false, error: errorMessage };
     } finally {
       setLoading(false);
@@ -254,7 +277,10 @@ export const OrderProvider = ({ children }) => {
     getOrdersByPaymentStatus,
     getTodaysOrders,
     getTodaysRevenue,
-    getOrderStats
+    getOrderStats,
+    
+    // Refresh function for manual refresh
+    refreshOrders: fetchOrders
   };
 
   return (
