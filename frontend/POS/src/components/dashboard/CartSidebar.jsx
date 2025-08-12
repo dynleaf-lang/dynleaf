@@ -791,27 +791,15 @@ const CartSidebar = () => {
           </Button>
         </div>
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
-          {cartItems.length === 0 ? (
-            (() => {
-              const tableId = selectedTable?._id;
-              const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-              const tableBatches = tableId ? batchesMap[tableId] : null;
-              const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
-              const nextOrderNumber = tableBatches?.nextOrderNumber || 1;
-              const isOccupied = selectedTable?.status === 'occupied';
-              const title = isOccupied || hasBatches ? 'No new items in cart' : 'No items added to cart';
-              const subtitle = isOccupied || hasBatches
-                ? `Table is occupied${hasBatches ? ` • ${tableBatches.batches.length} batch${tableBatches.batches.length>1?'es':''} sent` : ''}. Add items to create KOT #${nextOrderNumber}.`
-                : 'Add some items from the menu to get started!';
+          {(() => {
+            const tableId = selectedTable?._id;
+            const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+            const tableBatches = tableId ? batchesMap[tableId] : null;
+            const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
+            
+            // Always show content if there are cart items OR batch items
+            if (cartItems.length > 0 || hasBatches) {
               return (
-                <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
-                  <FaShoppingCart size={48} className="text-muted mb-3" />
-                  <h5>{title}</h5>
-                  <p>{subtitle}</p>
-                </Alert>
-              );
-            })()
-          ) : (
             <>
               {/* Customer Information - Collapsible */}
               {showCustomerInfo && (
@@ -879,50 +867,48 @@ const CartSidebar = () => {
               {/* Cart Items */}
               <div className="cart-items mb-1">
                 {/* <h6>Order Items</h6> */}
-                {cartItems.length === 0 ? (
-                  <div className="text-center text-muted py-3">
-                    <small>No items in cart</small>
+                <>
+                  {/* Batch Header */}
+                  <div className="batch-headers">
+                    <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
                   </div>
-                ) : (
-                  <>
-                    {/* Batch Header */}
-                    <div className="batch-headers">
-                      <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
-                    </div>
-                    
-                    {/* Cart Items List */}
-                    {cartItems.map((item) => (
-                      <div key={item.cartItemId} className="cart-item-row d-flex justify-content-between align-items-center">
-                        <div className="item-info">
-                          <div className="item-name">{item.name}</div>
+                  
+                  {/* Cart Items List */}
+                  {cartItems.length > 0 && (
+                    <>
+                      {cartItems.map((item) => (
+                        <div key={item.cartItemId} className="cart-item-row d-flex justify-content-between align-items-center">
+                          <div className="item-info">
+                            <div className="item-name">{item.name}</div>
+                          </div>
+                          <div className="item-controls d-flex align-items-center">
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateQuantity(item.cartItemId, Math.max(1, item.quantity - 1))}
+                              disabled={item.quantity <= 1}
+                            >
+                              −
+                            </button>
+                            <span className="qty-display">{item.quantity}</span>
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
+                            >
+                              +
+                            </button>
+                            <span className="item-price">{formatPrice(item.price * item.quantity)}</span>
+                            <button 
+                              className="delete-btn"
+                              onClick={() => removeFromCart(item.cartItemId)}
+                            >
+                              <FaTrash size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="item-controls d-flex align-items-center">
-                          <button 
-                            className="qty-btn"
-                            onClick={() => updateQuantity(item.cartItemId, Math.max(1, item.quantity - 1))}
-                            disabled={item.quantity <= 1}
-                          >
-                            −
-                          </button>
-                          <span className="qty-display">{item.quantity}</span>
-                          <button 
-                            className="qty-btn"
-                            onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
-                          >
-                            +
-                          </button>
-                          <span className="item-price">{formatPrice(item.price * item.quantity)}</span>
-                          <button 
-                            className="delete-btn"
-                            onClick={() => removeFromCart(item.cartItemId)}
-                          >
-                            <FaTrash size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
+                      ))}
+                    </>
+                  )}
+                </>
               </div>
 
               {/* Batch Summary for this table */}
@@ -993,7 +979,18 @@ const CartSidebar = () => {
                 </Alert>
               )}
             </>
-          )}
+              );
+            } else {
+              // Show placeholder when no cart items and no batches
+              return (
+                <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
+                  <FaShoppingCart size={48} className="text-muted mb-3" />
+                  <h5>No items added to cart</h5>
+                  <p>Add some items from the menu to get started!</p>
+                </Alert>
+              );
+            }
+          })()}
 
           {/* Saved Orders Section */}
           {showSavedOrders && savedOrders.length > 0 && (
