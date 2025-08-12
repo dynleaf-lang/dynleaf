@@ -90,8 +90,8 @@ const CartSidebar = () => {
   const batchCount = tableBatches?.batches?.length || 0;
   const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
 
-  // Settle: mark all batch orders paid, clear storage, free the table
-  const handleSettleTable = async () => {
+  // Settle: open payment modal for table settlement
+  const handleSettleTable = () => {
     if (!selectedTable?._id) {
       toast.error('No table selected');
       return;
@@ -100,54 +100,10 @@ const CartSidebar = () => {
       toast.error('No batches to settle for this table');
       return;
     }
-    if (!window.confirm('Settle this table and complete all batches?')) return;
-
-    try {
-      setIsProcessing(true);
-      setProcessingAction('settle');
-
-      // Pay all batch orders (default to selected payment method or cash)
-      const method = (selectedPaymentMethod || 'cash');
-      const ordersToPay = tableBatches.batches.filter(b => b.orderId);
-      const results = await Promise.allSettled(
-        ordersToPay.map(b => updatePaymentStatus(b.orderId, 'paid', method))
-      );
-      const failures = results
-        .map((r, idx) => ({ r, b: ordersToPay[idx] }))
-        .filter(({ r }) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success));
-      if (failures.length) {
-        const first = failures[0];
-        const msg = (first.r.status === 'fulfilled' ? first.r.value?.error : first.r.reason?.message) || 'Failed to update payment status';
-        // Show compact summary
-        toast.error(`Failed to settle ${failures.length}/${ordersToPay.length} batch(es). ${msg}`);
-        throw new Error(msg);
-      }
-
-      // Clear this table's cart and batches from localStorage
-      try {
-        const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-        delete carts[selectedTable._id];
-        localStorage.setItem('pos_table_carts', JSON.stringify(carts));
-      } catch {}
-      try {
-        const batches = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-        delete batches[selectedTable._id];
-        localStorage.setItem('pos_table_batches', JSON.stringify(batches));
-      } catch {}
-
-      // Reset cart UI and free the table
-      replaceCart([], { orderType: 'dine-in' });
-      setKotSent(false);
-      await updateTableStatus(selectedTable._id, 'available');
-
-      toast.success('Table settled and freed');
-    } catch (e) {
-      console.error('Settle error:', e);
-      toast.error(e.message || 'Failed to settle table');
-    } finally {
-      setIsProcessing(false);
-      setProcessingAction('');
-    }
+    
+    // Open payment modal for settlement
+    setShowPaymentModal(true);
+    toast.info('Complete payment to settle the table');
   };
   
   const [showPaymentModal, setShowPaymentModal] = useState(false);

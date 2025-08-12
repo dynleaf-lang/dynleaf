@@ -48,6 +48,13 @@ const POSDashboard = () => {
 
   const orderStats = getOrderStats();
 
+  // Navigate to Tables when requested (e.g., after settlement)
+  useEffect(() => {
+    const toTables = () => setActiveTab('tables');
+    window.addEventListener('pos:navigateToTables', toTables);
+    return () => window.removeEventListener('pos:navigateToTables', toTables);
+  }, []);
+
   return (
     <div className="pos-dashboard">
       <Header 

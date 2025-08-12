@@ -1,15 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Modal,
   ModalHeader,
   ModalBody,
   ModalFooter,
   Button,
-  Nav,
-  NavItem,
-  NavLink,
-  TabContent,
-  TabPane,
   Form,
   FormGroup,
   Label,
@@ -17,8 +12,8 @@ import {
   Alert,
   Spinner,
   Badge,
-  ListGroup,
-  ListGroupItem
+  Card,
+  CardBody
 } from 'reactstrap';
 import { 
   FaCreditCard, 
@@ -29,7 +24,10 @@ import {
   FaCheck,
   FaTimes,
   FaCalculator,
-  FaEye
+  FaEye,
+  FaTable,
+  FaUser,
+  FaUtensils
 } from 'react-icons/fa';
 import { useOrder } from '../../context/OrderContext';
 import { useCart } from '../../context/CartContext';
@@ -41,37 +39,62 @@ import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThe
 import toast from 'react-hot-toast';
 
 const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, orderTotal }) => {
-  const [activeTab, setActiveTab] = useState('cash');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [paymentData, setPaymentData] = useState({
     method: 'cash',
     amountReceived: '',
     cardNumber: '',
     cardHolder: '',
     upiId: '',
-    transactionId: '',
-    splitPayments: []
+    transactionId: ''
   });
   const [loading, setLoading] = useState(false);
   const [orderCreated, setOrderCreated] = useState(null);
-  const [showReceipt, setShowReceipt] = useState(false);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [isSettling, setIsSettling] = useState(false);
   const [printerConfig, setPrinterConfig] = useState(() => {
     const saved = localStorage.getItem('pos_printer_config');
     return saved ? JSON.parse(saved) : { printerType: 'browser' };
   });
 
-  const { createOrder } = useOrder();
-  const { clearCart } = useCart();
-  const { updateTableStatus } = usePOS();
+  const { createOrder, updatePaymentStatus } = useOrder();
+  const { clearCart, replaceCart } = useCart();
+  const { updateTableStatus, clearSelectedTable } = usePOS();
   const { emitNewOrder } = useSocket();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
+  // Get batches for settlement
+  const getCurrentTableBatches = () => {
+    const tableId = selectedTable?._id;
+    if (!tableId) return null;
+    try {
+      const map = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+      return map[tableId] || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const tableBatches = getCurrentTableBatches();
+  const batchCount = tableBatches?.batches?.length || 0;
+  const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
+  const totalAmount = orderTotal + batchesTotal;
+
+  // Payment method options
+  const paymentMethods = [
+    { id: 'cash', label: 'Cash', icon: FaMoneyBillWave, color: 'success' },
+    { id: 'card', label: 'Card', icon: FaCreditCard, color: 'primary' },
+    { id: 'upi', label: 'UPI', icon: FaMobile, color: 'info' }
+  ];
+
+  // Quick amount buttons for cash payments
+  const quickAmounts = [0, 50, 100, 200, 500, 1000].filter(amount => amount === 0 || amount >= totalAmount);
+
   const formatPrice = (price) => {
-    // Use dynamic currency formatting based on branch country
     if (currencyReady && formatCurrencyDynamic) {
       return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
     }
-    // Fallback to USD if currency context not ready
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -81,101 +104,202 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
 
   const calculateChange = () => {
     const received = parseFloat(paymentData.amountReceived) || 0;
-    return Math.max(0, received - orderTotal);
+    return Math.max(0, received - totalAmount);
   };
 
   const handlePaymentMethodChange = (method) => {
-    setActiveTab(method);
+    setSelectedPaymentMethod(method);
     setPaymentData(prev => ({ ...prev, method }));
+    setErrors({});
+    
+    // Set default amount for non-cash payments
+    if (method !== 'cash') {
+      setPaymentData(prev => ({ ...prev, amountReceived: totalAmount.toString() }));
+    }
+  };
+
+  const handleQuickAmount = (amount) => {
+    setPaymentData(prev => ({ ...prev, amountReceived: amount.toString() }));
+    setErrors(prev => ({ ...prev, amountReceived: null }));
   };
 
   const validatePayment = () => {
+    const newErrors = {};
+    
     switch (paymentData.method) {
       case 'cash':
         const received = parseFloat(paymentData.amountReceived) || 0;
-        if (received < orderTotal) {
-          toast.error('Amount received cannot be less than order total');
-          return false;
+        if (!paymentData.amountReceived) {
+          newErrors.amountReceived = 'Amount received is required';
+        } else if (received < totalAmount) {
+          newErrors.amountReceived = `Amount cannot be less than ${formatPrice(totalAmount)}`;
         }
         break;
       case 'card':
-        if (!paymentData.cardNumber || !paymentData.cardHolder) {
-          toast.error('Please enter card details');
-          return false;
+        if (!paymentData.cardNumber?.trim()) {
+          newErrors.cardNumber = 'Card number is required';
+        }
+        if (!paymentData.cardHolder?.trim()) {
+          newErrors.cardHolder = 'Card holder name is required';
         }
         break;
       case 'upi':
-        if (!paymentData.upiId || !paymentData.transactionId) {
-          toast.error('Please enter UPI details');
-          return false;
+        if (!paymentData.upiId?.trim()) {
+          newErrors.upiId = 'UPI ID is required';
+        }
+        if (!paymentData.transactionId?.trim()) {
+          newErrors.transactionId = 'Transaction ID is required';
         }
         break;
     }
-    return true;
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleProcessPayment = async () => {
     if (!validatePayment()) return;
 
     setLoading(true);
+    setIsSettling(batchCount > 0);
+    
     try {
-      // Prepare order data
-      const orderData = {
-        tableId: selectedTable._id,
-        tableName: selectedTable.name,
-        items: cartItems.map(item => ({
-          menuItemId: item.menuItemId,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          customizations: item.customizations,
-          subtotal: item.price * item.quantity
-        })),
-        customerInfo: {
-          name: customerInfo.name || 'Walk-in Customer',
-          phone: customerInfo.phone || '',
-          orderType: customerInfo.orderType || 'dine-in'
-        },
-        specialInstructions: customerInfo.specialInstructions || '',
-        subtotal: orderTotal - (orderTotal * 0.1),
-        tax: orderTotal * 0.1,
-        totalAmount: orderTotal,
-        paymentMethod: paymentData.method,
-        paymentStatus: 'paid',
-        paymentDetails: {
-          method: paymentData.method,
-          amountReceived: paymentData.method === 'cash' ? parseFloat(paymentData.amountReceived) : orderTotal,
-          change: paymentData.method === 'cash' ? calculateChange() : 0,
-          cardNumber: paymentData.method === 'card' ? `****${paymentData.cardNumber.slice(-4)}` : null,
-          cardHolder: paymentData.method === 'card' ? paymentData.cardHolder : null,
-          upiId: paymentData.method === 'upi' ? paymentData.upiId : null,
-          transactionId: paymentData.method === 'upi' ? paymentData.transactionId : null
-        }
-      };
-
-      // Create order
-      const result = await createOrder(orderData);
+      let orderData = null;
       
-      if (result.success) {
-        // Update table status to occupied
-        await updateTableStatus(selectedTable._id, 'occupied', result.order);
+      // If there are current cart items, create a new order
+      if (cartItems && cartItems.length > 0) {
+        orderData = {
+          tableId: selectedTable?._id,
+          tableName: selectedTable?.name || selectedTable?.TableName,
+          orderType: customerInfo?.orderType || 'dine-in',
+          customer: {
+            name: customerInfo?.name || '',
+            phone: customerInfo?.phone || ''
+          },
+          specialInstructions: customerInfo?.specialInstructions || '',
+          items: cartItems.map(item => ({
+            menuItemId: item.menuItemId,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            customizations: item.customizations || {},
+            subtotal: item.price * item.quantity
+          })),
+          customerInfo: {
+            name: customerInfo?.name || 'Walk-in',
+            phone: customerInfo?.phone || '',
+            orderType: customerInfo?.orderType || 'dine-in',
+            deliveryAddress: customerInfo?.deliveryAddress || ''
+          },
+          totalAmount: orderTotal,
+          paymentMethod: paymentData.method,
+          paymentStatus: 'paid'
+        };
         
-        // Clear cart
+        const result = await createOrder(orderData);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to create order');
+        }
+        
+        orderData = result.order;
+        
+        // Update table status for dine-in orders
+        if (selectedTable?._id && (customerInfo?.orderType || 'dine-in') === 'dine-in') {
+          try {
+            await updateTableStatus(selectedTable._id, 'occupied', orderData);
+          } catch (e) {
+            console.warn('Failed to set table occupied:', e);
+          }
+        }
+        
+        // Record batch for this table
+        const tableId = selectedTable?._id || 'no-table';
+        const batchesKey = 'pos_table_batches';
+        const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+        const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
+        const orderNumber = entry.nextOrderNumber;
+        entry.batches = [
+          {
+            orderId: orderData._id,
+            orderNumber,
+            items: orderData.items,
+            totalAmount: orderData.totalAmount,
+            createdAt: new Date().toISOString()
+          },
+          ...entry.batches
+        ];
+        entry.nextOrderNumber = orderNumber + 1;
+        batchesAll[tableId] = entry;
+        localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        
+        // Clear current cart
         clearCart();
         
-        // Set order created for receipt
-        setOrderCreated(result.order);
-        setShowReceipt(true);
-        
-        toast.success('Order created and payment processed successfully!');
-      } else {
-        throw new Error(result.error);
+        // Emit socket event
+        if (emitNewOrder) {
+          emitNewOrder(orderData);
+        }
       }
+      
+      // Handle table settlement if there are existing batches
+      if (batchCount > 0) {
+        const method = paymentData.method;
+        const ordersToPay = tableBatches.batches.filter(b => b.orderId);
+        const results = await Promise.allSettled(
+          ordersToPay.map(b => updatePaymentStatus(b.orderId, 'paid', method))
+        );
+        
+        const failures = results
+          .map((r, idx) => ({ r, b: ordersToPay[idx] }))
+          .filter(({ r }) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success));
+          
+        if (failures.length) {
+          const first = failures[0];
+          const msg = (first.r.status === 'fulfilled' ? first.r.value?.error : first.r.reason?.message) || 'Failed to update payment status';
+          throw new Error(`Settlement failed: ${msg} (${failures.length}/${ordersToPay.length} failed)`);
+        }
+        
+        // Clear table batches from localStorage
+        const tableId = selectedTable._id;
+        const batchesKey = 'pos_table_batches';
+        const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+        delete batchesAll[tableId];
+        localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        
+        // Clear table carts
+        try {
+          const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+          delete carts[selectedTable._id];
+          localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+        } catch {}
+        
+        // Free the table
+        try {
+          await updateTableStatus(selectedTable._id, 'available');
+        } catch (e) {
+          console.warn('Failed to free table:', e);
+        }
+        
+        // Reset cart UI
+        replaceCart([], { orderType: 'dine-in' });
+        
+        toast.success(`Table settled! ${ordersToPay.length} orders marked as paid.`);
+      } else {
+        toast.success('Payment processed successfully!');
+      }
+      
+      // Close modal and go back to Table Selection
+      try { clearSelectedTable && clearSelectedTable(); } catch {}
+      handleClose();
+      // Notify dashboard to switch to Tables tab
+      try { window.dispatchEvent(new Event('pos:navigateToTables')); } catch {}
+      
     } catch (error) {
       console.error('Payment processing error:', error);
-      toast.error('Failed to process payment. Please try again.');
+      toast.error(error.message || 'Failed to process payment');
     } finally {
       setLoading(false);
+      setIsSettling(false);
     }
   };
 
@@ -246,344 +370,272 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   };
 
   const handleClose = () => {
-    if (orderCreated) {
-      // Reset modal state
-      setOrderCreated(null);
-      setShowReceipt(false);
-      setPaymentData({
-        method: 'cash',
-        amountReceived: '',
-        cardNumber: '',
-        cardHolder: '',
-        upiId: '',
-        transactionId: '',
-        splitPayments: []
-      });
+    if (loading) {
+      toast.warning('Please wait for the current operation to complete');
+      return;
     }
+    
+    // Reset modal state
+    setOrderCreated(null);
+    setSelectedPaymentMethod('cash');
+    setPaymentData({
+      method: 'cash',
+      amountReceived: '',
+      cardNumber: '',
+      cardHolder: '',
+      upiId: '',
+      transactionId: ''
+    });
+    setErrors({});
+    setIsSettling(false);
     toggle();
   };
 
-  if (showReceipt && orderCreated) {
-    return (
-      <Modal isOpen={isOpen} toggle={handleClose} size="lg">
-        <ModalHeader toggle={handleClose}>
-          <FaReceipt className="me-2 text-success" />
-          Order Confirmation
-        </ModalHeader>
-        <ModalBody>
-          <div className="receipt-content" id="receipt-print">
-            <div className="text-center mb-4">
-              <h4>Order Receipt</h4>
-              <p className="text-muted">Order #{orderCreated.orderNumber}</p>
-              <p className="text-muted">{new Date(orderCreated.createdAt).toLocaleString()}</p>
-            </div>
+  // Set default amount when modal opens
+  useEffect(() => {
+    if (isOpen && selectedPaymentMethod === 'cash') {
+      setPaymentData(prev => ({ ...prev, amountReceived: totalAmount.toString() }));
+    }
+  }, [isOpen, totalAmount, selectedPaymentMethod]);
 
-            <div className="order-details mb-4">
-              <div className="row">
-                <div className="col-md-6">
-                  <h6>Customer Information</h6>
-                  <p><strong>Name:</strong> {orderCreated.customerInfo?.name || 'N/A'}</p>
-                  <p><strong>Phone:</strong> {orderCreated.customerInfo?.phone || 'N/A'}</p>
-                  <p><strong>Type:</strong> {orderCreated.customerInfo?.orderType || orderCreated.orderType || 'N/A'}</p>
-                </div>
-                <div className="col-md-6">
-                  <h6>Table Information</h6>
-                  <p><strong>Table:</strong> {orderCreated.tableName}</p>
-                  <p><strong>Status:</strong> <Badge color="success">Confirmed</Badge></p>
-                </div>
-              </div>
-            </div>
-
-            <div className="order-items mb-4">
-              <h6>Order Items</h6>
-              <ListGroup flush>
-                {orderCreated.items.map((item, index) => (
-                  <ListGroupItem key={index} className="d-flex justify-content-between">
-                    <div>
-                      <strong>{item.name}</strong>
-                      <div className="text-muted small">
-                        {item.quantity} × {formatPrice(item.price)}
-                        {item.customizations?.spiceLevel && (
-                          <Badge color="warning" size="sm" className="ms-2">
-                            {item.customizations.spiceLevel} spice
-                          </Badge>
-                        )}
-                      </div>
-                      {item.customizations?.specialInstructions && (
-                        <div className="text-info small">
-                          Note: {item.customizations.specialInstructions}
-                        </div>
-                      )}
-                    </div>
-                    <strong>{formatPrice(item.subtotal)}</strong>
-                  </ListGroupItem>
-                ))}
-              </ListGroup>
-            </div>
-
-            <div className="order-summary mb-4">
-              <div className="d-flex justify-content-between mb-2">
-                <span>Subtotal:</span>
-                <span>{formatPrice(orderCreated.subtotal)}</span>
-              </div>
-              <div className="d-flex justify-content-between mb-2">
-                <span>Tax:</span>
-                <span>{formatPrice(orderCreated.tax)}</span>
-              </div>
-              <hr />
-              <div className="d-flex justify-content-between fw-bold">
-                <span>Total:</span>
-                <span className="text-primary">{formatPrice(orderCreated.totalAmount)}</span>
-              </div>
-            </div>
-
-            <div className="payment-details mb-4">
-              <h6>Payment Details</h6>
-              <p><strong>Method:</strong> {orderCreated.paymentMethod.toUpperCase()}</p>
-              <p><strong>Status:</strong> <Badge color="success">PAID</Badge></p>
-              {orderCreated.paymentDetails?.amountReceived && (
-                <p><strong>Amount Received:</strong> {formatPrice(orderCreated.paymentDetails.amountReceived)}</p>
-              )}
-              {orderCreated.paymentDetails?.change > 0 && (
-                <p><strong>Change:</strong> {formatPrice(orderCreated.paymentDetails.change)}</p>
-              )}
-            </div>
-
-            {orderCreated.specialInstructions && (
-              <div className="special-instructions mb-4">
-                <h6>Special Instructions</h6>
-                <p className="text-info">{orderCreated.specialInstructions}</p>
-              </div>
-            )}
-
-            <div className="text-center">
-              <p className="text-muted">Thank you for your order!</p>
-              <p className="text-muted small">Please keep this receipt for your records</p>
-            </div>
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <Button color="primary" onClick={handlePrintReceipt}>
-            <FaPrint className="me-2" />
-            Print Receipt
-          </Button>
-          <Button color="success" onClick={handleClose}>
-            <FaCheck className="me-2" />
-            Complete Order
-          </Button>
-        </ModalFooter>
-      </Modal>
-    );
-  }
-
+  // No receipt preview modal rendering; flow will close and navigate after settlement
+  
+  // Main payment modal
   return (
     <>
-    <Modal isOpen={isOpen} toggle={toggle} size="lg">
-      <ModalHeader toggle={toggle}>
-        <FaCreditCard className="me-2" />
-        Process Payment - {formatPrice(orderTotal)}
+    <Modal isOpen={isOpen} toggle={handleClose} size="lg" backdrop="static" keyboard={false}>
+      <ModalHeader toggle={!loading ? handleClose : undefined} className="bg-primary text-white">
+        <div className="d-flex align-items-center">
+          <FaCreditCard className="me-2" />
+          {isSettling ? 'Settle Table Payment' : 'Process Payment'}
+          {batchCount > 0 && (
+            <Badge color="warning" className="ms-2">
+              {batchCount} batch{batchCount > 1 ? 'es' : ''} + current order
+            </Badge>
+          )}
+        </div>
       </ModalHeader>
-      <ModalBody>
-        {/* Payment Method Tabs */}
-        <Nav tabs className="mb-4">
-          <NavItem>
-            <NavLink
-              className={activeTab === 'cash' ? 'active' : ''}
-              onClick={() => handlePaymentMethodChange('cash')}
-              style={{ cursor: 'pointer' }}
-            >
-              <FaMoneyBillWave className="me-2" />
-              Cash
-            </NavLink>
-          </NavItem>
-          <NavItem>
-            <NavLink
-              className={activeTab === 'card' ? 'active' : ''}
-              onClick={() => handlePaymentMethodChange('card')}
-              style={{ cursor: 'pointer' }}
-            >
-              <FaCreditCard className="me-2" />
-              Card
-            </NavLink>
-          </NavItem>
-          <NavItem>
-            <NavLink
-              className={activeTab === 'upi' ? 'active' : ''}
-              onClick={() => handlePaymentMethodChange('upi')}
-              style={{ cursor: 'pointer' }}
-            >
-              <FaMobile className="me-2" />
-              UPI
-            </NavLink>
-          </NavItem>
-        </Nav>
-
-        <TabContent activeTab={activeTab}>
-          {/* Cash Payment */}
-          <TabPane tabId="cash">
-            <Form>
-              <FormGroup>
-                <Label>Amount Received</Label>
-                <Input
-                  type="number"
-                  placeholder="Enter amount received"
-                  value={paymentData.amountReceived}
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    amountReceived: e.target.value
-                  }))}
-                  step="0.01"
-                  min={orderTotal}
-                />
-              </FormGroup>
-              
-              {paymentData.amountReceived && (
-                <Alert color={calculateChange() >= 0 ? 'success' : 'danger'} fade={false}>
-                  <div className="d-flex justify-content-between">
-                    <span>Order Total:</span>
-                    <strong>{formatPrice(orderTotal)}</strong>
-                  </div>
-                  <div className="d-flex justify-content-between">
-                    <span>Amount Received:</span>
-                    <strong>{formatPrice(parseFloat(paymentData.amountReceived) || 0)}</strong>
-                  </div>
-                  <hr />
-                  <div className="d-flex justify-content-between">
-                    <span>Change:</span>
-                    <strong className={calculateChange() >= 0 ? 'text-success' : 'text-danger'}>
-                      {formatPrice(calculateChange())}
-                    </strong>
-                  </div>
-                </Alert>
-              )}
-
-              <div className="quick-amounts mt-3">
-                <Label>Quick Amounts</Label>
-                <div className="d-flex gap-2 flex-wrap">
-                  {[orderTotal, orderTotal + 50, orderTotal + 100, orderTotal + 200, orderTotal + 500].map(amount => (
-                    <Button
-                      key={amount}
-                      size="sm"
-                      color="outline-primary"
-                      onClick={() => setPaymentData(prev => ({
-                        ...prev,
-                        amountReceived: amount.toString()
-                      }))}
-                    >
-                      {formatPrice(amount)}
-                    </Button>
-                  ))}
+      
+      <ModalBody className="p-0">
+        {/* Order Summary Card */}
+        <Card className="border-0 border-bottom">
+          <CardBody className="bg-light">
+            <div className="row">
+              <div className="col-md-6">
+                <div className="d-flex align-items-center mb-2">
+                  <FaTable className="text-primary me-2" />
+                  <span><strong>Table:</strong> {selectedTable?.name || selectedTable?.TableName || 'N/A'}</span>
+                </div>
+                <div className="d-flex align-items-center mb-2">
+                  <FaUser className="text-primary me-2" />
+                  <span><strong>Customer:</strong> {customerInfo?.name || 'Walk-in'}</span>
+                </div>
+                <div className="d-flex align-items-center">
+                  <FaUtensils className="text-primary me-2" />
+                  <span><strong>Type:</strong> {customerInfo?.orderType || 'dine-in'}</span>
                 </div>
               </div>
-            </Form>
-          </TabPane>
-
-          {/* Card Payment */}
-          <TabPane tabId="card">
-            <Form>
-              <FormGroup>
-                <Label>Card Number</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter card number"
-                  value={paymentData.cardNumber}
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    cardNumber: e.target.value
-                  }))}
-                  maxLength="16"
-                />
-              </FormGroup>
-              <FormGroup>
-                <Label>Card Holder Name</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter card holder name"
-                  value={paymentData.cardHolder}
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    cardHolder: e.target.value
-                  }))}
-                />
-              </FormGroup>
-              <Alert color="info" fade={false}>
-                <FaCalculator className="me-2" />
-                Amount to be charged: <strong>{formatPrice(orderTotal)}</strong>
-              </Alert>
-            </Form>
-          </TabPane>
-
-          {/* UPI Payment */}
-          <TabPane tabId="upi">
-            <Form>
-              <FormGroup>
-                <Label>UPI ID</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter UPI ID (e.g., user@paytm)"
-                  value={paymentData.upiId}
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    upiId: e.target.value
-                  }))}
-                />
-              </FormGroup>
-              <FormGroup>
-                <Label>Transaction ID</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter transaction ID"
-                  value={paymentData.transactionId}
-                  onChange={(e) => setPaymentData(prev => ({
-                    ...prev,
-                    transactionId: e.target.value
-                  }))}
-                />
-              </FormGroup>
-              <Alert color="info" fade={false}>
-                <FaMobile className="me-2" />
-                Amount to be paid: <strong>{formatPrice(orderTotal)}</strong>
-              </Alert>
-            </Form>
-          </TabPane>
-        </TabContent>
-
-        {/* Order Summary */}
-        <div className="order-summary mt-4 p-3 bg-light rounded">
-          <h6>Order Summary</h6>
-          <div className="d-flex justify-content-between">
-            <span>Table: {selectedTable?.name}</span>
-            <span>Items: {cartItems.length}</span>
+              <div className="col-md-6">
+                <div className="text-end">
+                  {cartItems && cartItems.length > 0 && (
+                    <div className="mb-1">
+                      <small className="text-muted">Current Order:</small>
+                      <div className="fw-bold">{formatPrice(orderTotal)}</div>
+                    </div>
+                  )}
+                  {batchCount > 0 && (
+                    <div className="mb-1">
+                      <small className="text-muted">Existing Batches:</small>
+                      <div className="fw-bold">{formatPrice(batchesTotal)}</div>
+                    </div>
+                  )}
+                  <hr className="my-2" />
+                  <div className="fs-4 fw-bold text-primary">
+                    <small className="text-muted d-block fs-6">Total Amount:</small>
+                    {formatPrice(totalAmount)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+        
+        {/* Payment Method Selection */}
+        <div className="p-4">
+          <h6 className="mb-3">Select Payment Method</h6>
+          <div className="row g-3 mb-4">
+            {paymentMethods.map(method => (
+              <div key={method.id} className="col-4">
+                <Button
+                  color={selectedPaymentMethod === method.id ? method.color : 'outline-secondary'}
+                  className="w-100 h-100 d-flex flex-column align-items-center justify-content-center p-3"
+                  onClick={() => handlePaymentMethodChange(method.id)}
+                  disabled={loading}
+                >
+                  <method.icon size={24} className="mb-2" />
+                  <span>{method.label}</span>
+                </Button>
+              </div>
+            ))}
           </div>
-          <div className="d-flex justify-content-between">
-            <span>Customer: {customerInfo.name || 'Walk-in'}</span>
-            <span>Type: {customerInfo.orderType}</span>
-          </div>
-          <hr />
-          <div className="d-flex justify-content-between fw-bold">
-            <span>Total Amount:</span>
-            <span className="text-primary">{formatPrice(orderTotal)}</span>
-          </div>
+          
+          {/* Payment Details Form */}
+          <Card className="border">
+            <CardBody>
+              {selectedPaymentMethod === 'cash' && (
+                <>
+                  <FormGroup>
+                    <Label>Amount Received <span className="text-danger">*</span></Label>
+                    <Input
+                      type="number"
+                      placeholder="Enter amount received"
+                      value={paymentData.amountReceived}
+                      onChange={(e) => {
+                        setPaymentData(prev => ({ ...prev, amountReceived: e.target.value }));
+                        setErrors(prev => ({ ...prev, amountReceived: null }));
+                      }}
+                      invalid={!!errors.amountReceived}
+                      disabled={loading}
+                      step="0.01"
+                      min="0"
+                    />
+                    {errors.amountReceived && (
+                      <div className="invalid-feedback d-block">{errors.amountReceived}</div>
+                    )}
+                  </FormGroup>
+                  
+                  {/* Quick Amount Buttons */}
+                  <div className="mb-3">
+                    <Label className="small text-muted">Quick Amounts</Label>
+                    <div className="d-flex gap-2 flex-wrap">
+                      {quickAmounts.map(amount => (
+                        <Button
+                          key={amount}
+                          size="sm"
+                          color="outline-primary"
+                          onClick={() => handleQuickAmount(amount)}
+                          disabled={loading}
+                        >
+                          {amount === 0 ? 'Exact' : formatPrice(amount)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Change Calculation */}
+                  {paymentData.amountReceived && parseFloat(paymentData.amountReceived) > totalAmount && (
+                    <Alert color="info" className="d-flex justify-content-between align-items-center">
+                      <span><FaCalculator className="me-2" />Change to Return:</span>
+                      <strong className="fs-5">{formatPrice(calculateChange())}</strong>
+                    </Alert>
+                  )}
+                </>
+              )}
+              
+              {selectedPaymentMethod === 'card' && (
+                <>
+                  <FormGroup>
+                    <Label>Card Number <span className="text-danger">*</span></Label>
+                    <Input
+                      type="text"
+                      placeholder="Enter card number"
+                      value={paymentData.cardNumber}
+                      onChange={(e) => {
+                        setPaymentData(prev => ({ ...prev, cardNumber: e.target.value }));
+                        setErrors(prev => ({ ...prev, cardNumber: null }));
+                      }}
+                      invalid={!!errors.cardNumber}
+                      disabled={loading}
+                    />
+                    {errors.cardNumber && (
+                      <div className="invalid-feedback d-block">{errors.cardNumber}</div>
+                    )}
+                  </FormGroup>
+                  <FormGroup>
+                    <Label>Card Holder Name <span className="text-danger">*</span></Label>
+                    <Input
+                      type="text"
+                      placeholder="Enter card holder name"
+                      value={paymentData.cardHolder}
+                      onChange={(e) => {
+                        setPaymentData(prev => ({ ...prev, cardHolder: e.target.value }));
+                        setErrors(prev => ({ ...prev, cardHolder: null }));
+                      }}
+                      invalid={!!errors.cardHolder}
+                      disabled={loading}
+                    />
+                    {errors.cardHolder && (
+                      <div className="invalid-feedback d-block">{errors.cardHolder}</div>
+                    )}
+                  </FormGroup>
+                  <Alert color="success">
+                    <strong>Amount:</strong> {formatPrice(totalAmount)}
+                  </Alert>
+                </>
+              )}
+              
+              {selectedPaymentMethod === 'upi' && (
+                <>
+                  <FormGroup>
+                    <Label>UPI ID <span className="text-danger">*</span></Label>
+                    <Input
+                      type="text"
+    
+                      value={paymentData.upiId}
+                      onChange={(e) => {
+                        setPaymentData(prev => ({ ...prev, upiId: e.target.value }));
+                        setErrors(prev => ({ ...prev, upiId: null }));
+                      }}
+                      invalid={!!errors.upiId}
+                      disabled={loading}
+                    />
+                    {errors.upiId && (
+                      <div className="invalid-feedback d-block">{errors.upiId}</div>
+                    )}
+                  </FormGroup>
+                  <FormGroup>
+                    <Label>Transaction ID <span className="text-danger">*</span></Label>
+                    <Input
+                      type="text"
+                      placeholder="Enter transaction ID"
+                      value={paymentData.transactionId}
+                      onChange={(e) => {
+                        setPaymentData(prev => ({ ...prev, transactionId: e.target.value }));
+                        setErrors(prev => ({ ...prev, transactionId: null }));
+                      }}
+                      invalid={!!errors.transactionId}
+                      disabled={loading}
+                    />
+                    {errors.transactionId && (
+                      <div className="invalid-feedback d-block">{errors.transactionId}</div>
+                    )}
+                  </FormGroup>
+                  <Alert color="success">
+                    <strong>Amount:</strong> {formatPrice(totalAmount)}
+                  </Alert>
+                </>
+              )}
+            </CardBody>
+          </Card>
         </div>
       </ModalBody>
-      <ModalFooter>
-        <div className="d-flex justify-content-between w-100">
+      
+      <ModalFooter className="bg-light">
+        <div className="d-flex justify-content-between w-100 align-items-center">
           <div>
-            <Button color="secondary" onClick={toggle} disabled={loading}>
+            <Button color="secondary" onClick={handleClose} disabled={loading}>
               <FaTimes className="me-2" />
               Cancel
             </Button>
           </div>
           
-          <div>
-            {/* Receipt Options - Show after order is created */}
+          <div className="d-flex gap-2">
             {orderCreated && (
               <>
                 <Button 
                   color="info" 
-                  onClick={handleShowReceiptPreview}
+                  onClick={() => setShowReceiptPreview(true)}
                   disabled={loading}
-                  className="me-2"
                 >
                   <FaEye className="me-1" />
                   Preview Receipt
@@ -592,7 +644,6 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                   color="primary" 
                   onClick={() => handlePrintReceipt('auto')}
                   disabled={loading}
-                  className="me-2"
                 >
                   <FaPrint className="me-1" />
                   Print Receipt
@@ -600,22 +651,23 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
               </>
             )}
             
-            {/* Process Payment Button */}
             {!orderCreated && (
               <Button 
                 color="success" 
+                size="lg"
                 onClick={handleProcessPayment}
                 disabled={loading}
+                className="px-4"
               >
                 {loading ? (
                   <>
                     <Spinner size="sm" className="me-2" />
-                    Processing...
+                    {isSettling ? 'Settling Table...' : 'Processing...'}
                   </>
                 ) : (
                   <>
                     <FaCheck className="me-2" />
-                    Process Payment
+                    {isSettling ? `Settle Table - ${formatPrice(totalAmount)}` : `Settle - ${formatPrice(totalAmount)}`}
                   </>
                 )}
               </Button>
@@ -624,40 +676,6 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
         </div>
       </ModalFooter>
     </Modal>
-    
-    {/* Receipt Preview Modal */}
-    {orderCreated && (
-      <ReceiptPreview
-        isOpen={showReceiptPreview}
-        toggle={() => setShowReceiptPreview(false)}
-        orderData={{
-          order: orderCreated,
-          paymentDetails: {
-            method: paymentData.method,
-            amountReceived: paymentData.method === 'cash' ? parseFloat(paymentData.amountReceived) : orderTotal,
-            change: paymentData.method === 'cash' ? calculateChange() : 0,
-            cardNumber: paymentData.method === 'card' ? paymentData.cardNumber : null,
-            cardHolder: paymentData.method === 'card' ? paymentData.cardHolder : null,
-            upiId: paymentData.method === 'upi' ? paymentData.upiId : null,
-            transactionId: paymentData.method === 'upi' ? paymentData.transactionId : null
-          },
-          customerInfo,
-          tableInfo: selectedTable
-        }}
-        restaurantInfo={{
-          name: 'OrderEase Restaurant',
-          address: '123 Main Street, City, State 12345',
-          phone: '+91 98765 43210',
-          email: 'info@orderease.com',
-          gst: 'GST123456789'
-        }}
-        printerConfig={printerConfig}
-        onPrintSuccess={() => {
-          toast.success('Receipt printed successfully');
-          setShowReceiptPreview(false);
-        }}
-      />
-    )}
     </>
   );
 };
