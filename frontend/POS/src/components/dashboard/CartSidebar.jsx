@@ -241,6 +241,89 @@ const CartSidebar = () => {
     }
   };
 
+  // Update batch item quantity
+  const updateBatchItemQuantity = (orderId, itemIndex, newQuantity) => {
+    try {
+      const tableId = selectedTable?._id || 'no-table';
+      const batchesKey = 'pos_table_batches';
+      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      const entry = batchesAll[tableId];
+      
+      if (!entry || !entry.batches) return;
+      
+      // Find the batch by orderId
+      const batchIndex = entry.batches.findIndex(b => b.orderId === orderId);
+      if (batchIndex === -1) return;
+      
+      // Update the item quantity
+      if (entry.batches[batchIndex].items && entry.batches[batchIndex].items[itemIndex]) {
+        entry.batches[batchIndex].items[itemIndex].quantity = newQuantity;
+        
+        // Recalculate batch total
+        const batchTotal = entry.batches[batchIndex].items.reduce((sum, item) => {
+          return sum + ((item.price || 0) * (item.quantity || 1));
+        }, 0);
+        entry.batches[batchIndex].totalAmount = batchTotal;
+        
+        // Save back to localStorage
+        batchesAll[tableId] = entry;
+        localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        
+        toast.success('Item quantity updated');
+        
+        // Force re-render by updating a state
+        setIsProcessing(false);
+      }
+    } catch (error) {
+      console.error('Error updating batch item quantity:', error);
+      toast.error('Failed to update item quantity');
+    }
+  };
+
+  // Delete batch item
+  const deleteBatchItem = (orderId, itemIndex) => {
+    try {
+      const tableId = selectedTable?._id || 'no-table';
+      const batchesKey = 'pos_table_batches';
+      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      const entry = batchesAll[tableId];
+      
+      if (!entry || !entry.batches) return;
+      
+      // Find the batch by orderId
+      const batchIndex = entry.batches.findIndex(b => b.orderId === orderId);
+      if (batchIndex === -1) return;
+      
+      // Remove the item
+      if (entry.batches[batchIndex].items && entry.batches[batchIndex].items[itemIndex]) {
+        entry.batches[batchIndex].items.splice(itemIndex, 1);
+        
+        // If no items left in batch, remove the entire batch
+        if (entry.batches[batchIndex].items.length === 0) {
+          entry.batches.splice(batchIndex, 1);
+        } else {
+          // Recalculate batch total
+          const batchTotal = entry.batches[batchIndex].items.reduce((sum, item) => {
+            return sum + ((item.price || 0) * (item.quantity || 1));
+          }, 0);
+          entry.batches[batchIndex].totalAmount = batchTotal;
+        }
+        
+        // Save back to localStorage
+        batchesAll[tableId] = entry;
+        localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        
+        toast.success('Item removed from batch');
+        
+        // Force re-render by updating a state
+        setIsProcessing(false);
+      }
+    } catch (error) {
+      console.error('Error deleting batch item:', error);
+      toast.error('Failed to remove item');
+    }
+  };
+
   const handleSaveOrder = async () => {
     if (!saveOrderName.trim()) {
       toast.error('Please enter a name for the saved order');
@@ -838,43 +921,100 @@ const CartSidebar = () => {
               )}
 
               {/* Cart Items */}
-              <div className="cart-items mb-4">
-                <h6>Order Items</h6>
-                <ListGroup flush>
-                  {cartItems.map(item => (
-                    <CartItem key={item.cartItemId} item={item} />
-                  ))}
-                </ListGroup>
+              <div className="cart-items mb-1">
+                {/* <h6>Order Items</h6> */}
+                {cartItems.length === 0 ? (
+                  <div className="text-center text-muted py-3">
+                    <small>No items in cart</small>
+                  </div>
+                ) : (
+                  <>
+                    {/* Batch Header */}
+                    <div className="batch-headers">
+                      <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
+                    </div>
+                    
+                    {/* Cart Items List */}
+                    {cartItems.map((item) => (
+                      <div key={item.cartItemId} className="cart-item-row d-flex justify-content-between align-items-center">
+                        <div className="item-info">
+                          <div className="item-name">{item.name}</div>
+                        </div>
+                        <div className="item-controls d-flex align-items-center">
+                          <button 
+                            className="qty-btn"
+                            onClick={() => updateQuantity(item.cartItemId, Math.max(1, item.quantity - 1))}
+                            disabled={item.quantity <= 1}
+                          >
+                            −
+                          </button>
+                          <span className="qty-display">{item.quantity}</span>
+                          <button 
+                            className="qty-btn"
+                            onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
+                          >
+                            +
+                          </button>
+                          <span className="item-price">{formatPrice(item.price * item.quantity)}</span>
+                          <button 
+                            className="delete-btn"
+                            onClick={() => removeFromCart(item.cartItemId)}
+                          >
+                            <FaTrash size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
 
               {/* Batch Summary for this table */}
               {batchCount > 0 && (
-                <div className="batch-summary mb-4">
-                  <div className="d-flex justify-content-between align-items-center">
-                    <h6 className="mb-0">Batches for this Table</h6>
-                    <small className="text-muted">{batchCount} batch{batchCount>1?'es':''}</small>
-                  </div>
-                  <ListGroup className="mt-2" flush>
-                    {tableBatches.batches.map((b, idx) => (
-                      <ListGroupItem key={`${b.orderId || idx}`} className="d-flex justify-content-between align-items-center px-0">
-                        <div>
-                          <div className="fw-bold">KOT #{b.orderNumber || (batchCount - idx)}</div>
-                          <small className="text-muted">{(b.items?.length || 0)} items • {formatPrice(b.totalAmount || 0)}</small>
+                <div className="batch-summary mb-2">
+                  {/* <h6>Batches for this Table</h6> */}
+                  {tableBatches.batches.map((batch, batchIdx) => (
+                    <div key={`${batch.orderId || batchIdx}`} className="batch-section">
+                      {/* Batch Header */}
+                      <div className="batch-headers">
+                        <small className="text-decoration-underline fst-italic">Batch #{batch.orderNumber || (batchCount - batchIdx)}</small>
+                      </div>
+                      
+                      {/* Batch Items */}
+                      {batch.items?.map((item, itemIdx) => (
+                        <div key={`${batch.orderId}-${itemIdx}`} className="cart-item-row d-flex justify-content-between align-items-center">
+                          <div className="item-info">
+                            <div className="item-name">{item.name}</div>
+                          </div>
+                          <div className="item-controls d-flex align-items-center">
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, Math.max(1, item.quantity - 1))}
+                              disabled={item.quantity <= 1}
+                            >
+                              −
+                            </button>
+                            <span className="qty-display">{item.quantity}</span>
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, item.quantity + 1)}
+                            >
+                              +
+                            </button>
+                            <span className="item-price">{formatPrice((item.price || 0) * (item.quantity || 1))}</span>
+                            <button 
+                              className="delete-btn"
+                              onClick={() => deleteBatchItem(batch.orderId, itemIdx)}
+                            >
+                              <FaTrash size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <small className="text-muted">{new Date(b.createdAt).toLocaleTimeString()}</small>
-                      </ListGroupItem>
-                    ))}
-                  </ListGroup>
-                  <div className="d-flex justify-content-between fw-bold mt-2">
-                    <span>Total (all batches)</span>
-                    <span className="text-primary">{formatPrice(batchesTotal)}</span>
-                  </div>
-                  <div className="text-end mt-2">
-                    <Button color="success" size="sm" onClick={handleSettleTable} disabled={isProcessing}>
-                      {isProcessing && processingAction==='settle' ? (<Spinner size="sm" className="me-2" />) : null}
-                      Settle Table
-                    </Button>
-                  </div>
+                      ))}
+                    </div>
+                  ))}
+                  
+                  
                 </div>
               )}
 
@@ -980,7 +1120,7 @@ const CartSidebar = () => {
                 <div className="total-display">
                   <div className="d-flex justify-content-between fw-bold">
                     <span>Total:</span>
-                    <span className="text-primary">{formatPrice(getTotal())}</span>
+                    <span className="text-primary">{formatPrice(getTotal() + batchesTotal)}</span>
                   </div>
                 </div>
               </div>
@@ -1094,22 +1234,22 @@ const CartSidebar = () => {
                 </div>
                 <div className="col-4">
                   <Button
-                    color="danger"
+                    color="success"
                     size="sm"
-                    onClick={() => handlePOSSaveOrder(false, true)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    onClick={handleSettleTable}
+                    disabled={isProcessing || batchCount === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save with electronic bill'}
+                    title={batchCount === 0 ? 'No batches to settle' : 'Settle all table batches and free table'}
                   >
-                    {isProcessing && processingAction === 'save-ebill' ? (
+                    {isProcessing && processingAction === 'settle' ? (
                       <>
                         <Spinner size="sm" className="me-1" />
-                        Processing...
+                        Settling...
                       </>
                     ) : (
                       <>
                         <FaCreditCard className="me-1" />
-                        Save & eBill
+                        Settle Table
                       </>
                     )}
                   </Button>
