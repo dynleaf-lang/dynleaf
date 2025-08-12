@@ -33,6 +33,7 @@ import {
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
+import { useOrder } from '../../context/OrderContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
@@ -53,10 +54,12 @@ const CartSidebar = () => {
     saveOrder,
     savedOrders,
     loadSavedOrder,
-    deleteSavedOrder
+    deleteSavedOrder,
+    replaceCart
   } = useCart();
   
-  const { selectedTable } = usePOS();
+  const { selectedTable, updateTableStatus } = usePOS();
+  const { createOrder, updatePaymentStatus } = useOrder();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
   // Dynamic currency formatting function
@@ -69,6 +72,82 @@ const CartSidebar = () => {
       currency: 'USD',
       minimumFractionDigits: 0
     }).format(price || 0);
+  };
+
+  // Get batches for the currently selected table from localStorage
+  const getCurrentTableBatches = () => {
+    const tableId = selectedTable?._id;
+    if (!tableId) return null;
+    try {
+      const map = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+      return map[tableId] || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const tableBatches = getCurrentTableBatches();
+  const batchCount = tableBatches?.batches?.length || 0;
+  const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
+
+  // Settle: mark all batch orders paid, clear storage, free the table
+  const handleSettleTable = async () => {
+    if (!selectedTable?._id) {
+      toast.error('No table selected');
+      return;
+    }
+    if (!batchCount) {
+      toast.error('No batches to settle for this table');
+      return;
+    }
+    if (!window.confirm('Settle this table and complete all batches?')) return;
+
+    try {
+      setIsProcessing(true);
+      setProcessingAction('settle');
+
+      // Pay all batch orders (default to selected payment method or cash)
+      const method = (selectedPaymentMethod || 'cash');
+      const ordersToPay = tableBatches.batches.filter(b => b.orderId);
+      const results = await Promise.allSettled(
+        ordersToPay.map(b => updatePaymentStatus(b.orderId, 'paid', method))
+      );
+      const failures = results
+        .map((r, idx) => ({ r, b: ordersToPay[idx] }))
+        .filter(({ r }) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success));
+      if (failures.length) {
+        const first = failures[0];
+        const msg = (first.r.status === 'fulfilled' ? first.r.value?.error : first.r.reason?.message) || 'Failed to update payment status';
+        // Show compact summary
+        toast.error(`Failed to settle ${failures.length}/${ordersToPay.length} batch(es). ${msg}`);
+        throw new Error(msg);
+      }
+
+      // Clear this table's cart and batches from localStorage
+      try {
+        const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+        delete carts[selectedTable._id];
+        localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+      } catch {}
+      try {
+        const batches = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+        delete batches[selectedTable._id];
+        localStorage.setItem('pos_table_batches', JSON.stringify(batches));
+      } catch {}
+
+      // Reset cart UI and free the table
+      replaceCart([], { orderType: 'dine-in' });
+      setKotSent(false);
+      await updateTableStatus(selectedTable._id, 'available');
+
+      toast.success('Table settled and freed');
+    } catch (e) {
+      console.error('Settle error:', e);
+      toast.error(e.message || 'Failed to settle table');
+    } finally {
+      setIsProcessing(false);
+      setProcessingAction('');
+    }
   };
   
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -90,6 +169,21 @@ const CartSidebar = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
   const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
+
+  // Persist current table's cart and customer info to localStorage whenever they change
+  React.useEffect(() => {
+    try {
+      if (!selectedTable?._id) return;
+      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+      carts[selectedTable._id] = {
+        items: cartItems,
+        customerInfo
+      };
+      localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+    } catch (e) {
+      console.error('Failed to persist table cart:', e);
+    }
+  }, [cartItems, customerInfo, selectedTable && selectedTable._id]);
 
   // Order type options
   const orderTypes = [
@@ -205,12 +299,14 @@ const CartSidebar = () => {
       errors.push('Cart is empty. Add items before proceeding.');
     }
     
-    if (!customerInfo.name.trim()) {
-      errors.push('Customer name is required');
-    }
-    
-    if (!customerInfo.phone.trim()) {
-      errors.push('Phone number is required');
+    // For dine-in, customer name/phone are NOT mandatory
+    if (customerInfo.orderType !== 'dine-in') {
+      if (!customerInfo.name.trim()) {
+        errors.push('Customer name is required');
+      }
+      if (!customerInfo.phone.trim()) {
+        errors.push('Phone number is required');
+      }
     }
     
     if (customerInfo.orderType === 'dine-in' && !selectedTable) {
@@ -236,7 +332,8 @@ const CartSidebar = () => {
       errors.push('KOT has already been sent for this order.');
     }
     
-    if (!customerInfo.name.trim()) {
+    // For dine-in, customer name is NOT mandatory
+    if (customerInfo.orderType !== 'dine-in' && !customerInfo.name.trim()) {
       errors.push('Customer name is required');
     }
     
@@ -333,35 +430,78 @@ const CartSidebar = () => {
     setProcessingAction(withPrint ? 'kot-print' : 'kot');
     
     try {
-      // Prepare KOT data
-      const kotData = {
-        items: cartItems.map(item => ({
+      // Build order data for this batch (send only current cart items)
+      const orderItems = cartItems.map(item => {
+        const price = Number(item.price) || 0;
+        const quantity = Number(item.quantity) || 0;
+        const subtotal = price * quantity;
+        return {
+          menuItemId: item.menuItemId,
           name: item.name,
-          quantity: item.quantity,
-          customizations: item.customizations || [],
-          specialInstructions: item.specialInstructions || ''
-        })),
-        customerInfo,
-        tableInfo: selectedTable,
-        timestamp: new Date().toISOString(),
+          price,
+          quantity,
+          subtotal,
+          customizations: item.customizations || {}
+        };
+      });
+
+      const orderData = {
+        tableId: selectedTable?._id || null,
+        tableName: selectedTable?.TableName || selectedTable?.name || null,
         orderType: customerInfo.orderType || 'dine-in',
-        specialInstructions: customerInfo.specialInstructions || ''
+        customer: {
+          name: customerInfo.name || '',
+          phone: customerInfo.phone || ''
+        },
+        specialInstructions: customerInfo.specialInstructions || '',
+        items: orderItems,
+        totalAmount: getTotal()
       };
-      
-      // TODO: Replace with actual API call
-      // await sendKOTToKitchen(kotData, withPrint);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+
+      const result = await createOrder(orderData);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to create order');
+      }
+
+      const createdOrder = result.order;
+
+      // Update table status to occupied for dine-in tables and link current order
+      if (selectedTable?._id && (customerInfo.orderType || 'dine-in') === 'dine-in') {
+        try {
+          await updateTableStatus(selectedTable._id, 'occupied', createdOrder);
+        } catch (e) {
+          console.warn('Failed to set table occupied:', e);
+        }
+      }
+
+      // Record batch for this table with incremental order number
+      const tableId = selectedTable?._id || 'no-table';
+      const batchesKey = 'pos_table_batches';
+      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
+      const orderNumber = entry.nextOrderNumber;
+      entry.batches = [
+        {
+          orderId: createdOrder._id,
+          orderNumber,
+          items: orderItems,
+          totalAmount: orderData.totalAmount,
+          createdAt: new Date().toISOString()
+        },
+        ...entry.batches
+      ];
+      entry.nextOrderNumber = orderNumber + 1;
+      batchesAll[tableId] = entry;
+      localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+
+      // Clear only current table's cart items but keep customer info
+      replaceCart([], { ...customerInfo });
+
       setKotSent(true);
-      const message = withPrint 
-        ? 'KOT sent to kitchen and printed successfully' 
-        : 'KOT sent to kitchen successfully';
+      const message = withPrint
+        ? `KOT sent and printed (Order #${createdOrder.orderNumber || orderNumber})`
+        : `KOT sent (Order #${createdOrder.orderNumber || orderNumber})`;
       toast.success(message);
-      
-      // Log for debugging
-      console.log('KOT Data:', kotData);
       
     } catch (error) {
       console.error('KOT Error:', error);
@@ -613,11 +753,25 @@ const CartSidebar = () => {
         </div>
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {cartItems.length === 0 ? (
-            <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
-              <FaShoppingCart size={48} className="text-muted mb-3" />
-              <h5>No items added to cart</h5>
-              <p>Add some items from the menu to get started!</p>
-            </Alert>
+            (() => {
+              const tableId = selectedTable?._id;
+              const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+              const tableBatches = tableId ? batchesMap[tableId] : null;
+              const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
+              const nextOrderNumber = tableBatches?.nextOrderNumber || 1;
+              const isOccupied = selectedTable?.status === 'occupied';
+              const title = isOccupied || hasBatches ? 'No new items in cart' : 'No items added to cart';
+              const subtitle = isOccupied || hasBatches
+                ? `Table is occupied${hasBatches ? ` • ${tableBatches.batches.length} batch${tableBatches.batches.length>1?'es':''} sent` : ''}. Add items to create KOT #${nextOrderNumber}.`
+                : 'Add some items from the menu to get started!';
+              return (
+                <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
+                  <FaShoppingCart size={48} className="text-muted mb-3" />
+                  <h5>{title}</h5>
+                  <p>{subtitle}</p>
+                </Alert>
+              );
+            })()
           ) : (
             <>
               {/* Customer Information - Collapsible */}
@@ -693,11 +847,36 @@ const CartSidebar = () => {
                 </ListGroup>
               </div>
 
-             
-
-             
-
-
+              {/* Batch Summary for this table */}
+              {batchCount > 0 && (
+                <div className="batch-summary mb-4">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <h6 className="mb-0">Batches for this Table</h6>
+                    <small className="text-muted">{batchCount} batch{batchCount>1?'es':''}</small>
+                  </div>
+                  <ListGroup className="mt-2" flush>
+                    {tableBatches.batches.map((b, idx) => (
+                      <ListGroupItem key={`${b.orderId || idx}`} className="d-flex justify-content-between align-items-center px-0">
+                        <div>
+                          <div className="fw-bold">KOT #{b.orderNumber || (batchCount - idx)}</div>
+                          <small className="text-muted">{(b.items?.length || 0)} items • {formatPrice(b.totalAmount || 0)}</small>
+                        </div>
+                        <small className="text-muted">{new Date(b.createdAt).toLocaleTimeString()}</small>
+                      </ListGroupItem>
+                    ))}
+                  </ListGroup>
+                  <div className="d-flex justify-content-between fw-bold mt-2">
+                    <span>Total (all batches)</span>
+                    <span className="text-primary">{formatPrice(batchesTotal)}</span>
+                  </div>
+                  <div className="text-end mt-2">
+                    <Button color="success" size="sm" onClick={handleSettleTable} disabled={isProcessing}>
+                      {isProcessing && processingAction==='settle' ? (<Spinner size="sm" className="me-2" />) : null}
+                      Settle Table
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Conditional alerts based on order type and validation */}
               {customerInfo.orderType === 'dine-in' && !selectedTable && (

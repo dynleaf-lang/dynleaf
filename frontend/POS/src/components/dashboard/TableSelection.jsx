@@ -42,6 +42,7 @@ import {
 } from 'react-icons/fa';
 import { usePOS } from '../../context/POSContext';
 import { useOrder } from '../../context/OrderContext';
+import { useCart } from '../../context/CartContext';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import './TableSelection.css';
@@ -60,6 +61,7 @@ const TableSelection = () => {
   } = usePOS();
   
   const { getOrdersByTable } = useOrder();
+  const { cartItems, customerInfo, replaceCart } = useCart();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -116,8 +118,36 @@ const TableSelection = () => {
   };
 
   const handleTableSelect = (table) => {
-    selectTable(table);
-    toast.success(`Table ${table.TableName || table.name} selected`);
+    try {
+      // Persist current selected table's cart before switching
+      if (selectedTable?._id) {
+        const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+        carts[selectedTable._id] = {
+          items: cartItems,
+          customerInfo
+        };
+        localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+      }
+
+      // Switch selection
+      selectTable(table);
+
+      // Load the new table's persisted cart if present
+      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+      const saved = carts[table._id];
+      if (saved && Array.isArray(saved.items)) {
+        replaceCart(saved.items, saved.customerInfo || {});
+      } else {
+        // No saved cart -> start clean for this table (do not affect global if same table)
+        replaceCart([], { orderType: 'dine-in' });
+      }
+
+      toast.success(`Table ${table.TableName || table.name} selected`);
+    } catch (e) {
+      console.error('Error switching tables:', e);
+      selectTable(table);
+      toast.success(`Table ${table.TableName || table.name} selected`);
+    }
   };
 
   const handleTableDetails = (table) => {

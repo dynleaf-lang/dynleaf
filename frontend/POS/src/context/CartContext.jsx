@@ -149,6 +149,19 @@ export const CartProvider = ({ children }) => {
     }));
   };
 
+  // Replace entire cart (used when switching tables to load per-table carts)
+  // customerInfoOverride is optional; if provided, it replaces customer info; otherwise preserve existing
+  const replaceCart = (items, customerInfoOverride = null) => {
+    try {
+      setCartItems(Array.isArray(items) ? items : []);
+      if (customerInfoOverride && typeof customerInfoOverride === 'object') {
+        setCustomerInfo(prev => ({ ...prev, ...customerInfoOverride }));
+      }
+    } catch (e) {
+      console.error('Error replacing cart:', e);
+    }
+  };
+
   // Calculate totals
   const getSubtotal = () => {
     return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -228,6 +241,7 @@ export const CartProvider = ({ children }) => {
     clearCart,
     updateCustomerInfo,
     updateItemCustomizations,
+    replaceCart,
 
     // Save/Load functionality
     saveOrder,

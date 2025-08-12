@@ -22,7 +22,7 @@ export const OrderProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   // API base URL
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
+  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
   // Fetch orders when user is authenticated
   useEffect(() => {
@@ -119,6 +119,7 @@ export const OrderProvider = ({ children }) => {
       return { success: true, order: createdOrder };
 
     } catch (error) {
+      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to create order';
       toast.error(errorMessage);
       setError(errorMessage);
       return { success: false, error: errorMessage };
@@ -149,38 +150,57 @@ export const OrderProvider = ({ children }) => {
       return { success: true, order: updatedOrder };
 
     } catch (error) {
+      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update order status';
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
   };
 
   const updatePaymentStatus = async (orderId, paymentStatus, paymentMethod = null) => {
+    const updateData = { paymentStatus };
+    if (paymentMethod) updateData.paymentMethod = paymentMethod;
+
     try {
-      const updateData = { paymentStatus };
-      if (paymentMethod) {
-        updateData.paymentMethod = paymentMethod;
-      }
-
+      // Primary endpoint
       const response = await axios.patch(`${API_BASE_URL}/public/orders/${orderId}/payment-status`, updateData);
-      const updatedOrder = response.data.order;
+      const updatedOrder = response.data.order || response.data;
 
-      // Update local state
       updateOrderInState(orderId, updateData);
-
-      // Emit to admin/kitchen via socket
       emitPaymentStatusUpdate({
         orderId,
-        orderNumber: updatedOrder.orderNumber,
+        orderNumber: updatedOrder?.orderNumber || orderId,
         paymentStatus,
         paymentMethod,
         updatedBy: user.name
       });
-
       toast.success(`Payment status updated to ${paymentStatus}`);
       return { success: true, order: updatedOrder };
+    } catch (primaryError) {
+      // Fallback: some backends accept generic PATCH to update fields
+      const statusCode = primaryError?.response?.status;
+      if (statusCode === 404 || statusCode === 405) {
+        try {
+          const fallbackResp = await axios.patch(`${API_BASE_URL}/public/orders/${orderId}`, updateData);
+          const updatedOrder = fallbackResp.data.order || fallbackResp.data;
 
-    } catch (error) { 
-      const errorMessage = error.response?.data?.message || 'Failed to update payment status';
+          updateOrderInState(orderId, updateData);
+          emitPaymentStatusUpdate({
+            orderId,
+            orderNumber: updatedOrder?.orderNumber || orderId,
+            paymentStatus,
+            paymentMethod,
+            updatedBy: user.name
+          });
+          toast.success(`Payment status updated to ${paymentStatus}`);
+          return { success: true, order: updatedOrder };
+        } catch (fallbackError) {
+          const msg = fallbackError?.response?.data?.message || primaryError?.response?.data?.message || fallbackError?.message || 'Failed to update payment status';
+          toast.error(msg);
+          return { success: false, error: msg };
+        }
+      }
+
+      const errorMessage = primaryError?.response?.data?.message || primaryError?.message || 'Failed to update payment status';
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
