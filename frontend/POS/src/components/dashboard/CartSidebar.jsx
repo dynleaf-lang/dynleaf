@@ -86,6 +86,30 @@ const CartSidebar = () => {
     }
   };
 
+  // Debug function to clear persistent batch data
+  const clearTableBatchData = (tableId) => {
+    try {
+      const batchesKey = 'pos_table_batches';
+      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      delete batchesAll[tableId];
+      localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+      
+      // Also clear cart data
+      const cartsKey = 'pos_table_carts';
+      const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
+      delete cartsAll[tableId];
+      localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
+      
+      toast.success(`Cleared persistent data for table ${tableId}`);
+      
+      // Force re-render
+      setIsProcessing(false);
+    } catch (error) {
+      console.error('Error clearing table data:', error);
+      toast.error('Failed to clear table data');
+    }
+  };
+
   const tableBatches = getCurrentTableBatches();
   const batchCount = tableBatches?.batches?.length || 0;
   const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
@@ -910,6 +934,20 @@ const CartSidebar = () => {
                   )}
                 </>
               </div>
+
+              {/* Debug: Clear persistent data button (temporary) */}
+              {batchCount > 0 && selectedTable?.name === 'Table 01' && (
+                <div className="mb-2">
+                  <Button
+                    size="sm"
+                    color="warning"
+                    onClick={() => clearTableBatchData(selectedTable._id)}
+                    className="w-100"
+                  >
+                    🗑️ Clear Persistent Data for {selectedTable.name}
+                  </Button>
+                </div>
+              )}
 
               {/* Batch Summary for this table */}
               {batchCount > 0 && (
