@@ -1064,6 +1064,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         <OrderTypeProvider initialCheckoutStep={checkoutStep} initialOrderType={orderType}>
           {/* Backdrop overlay */}
           <motion.div
+            className="oe-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1083,6 +1084,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
           
           {/* Cart container */}
           <motion.div
+            className="oe-glass-surface oe-glass-border oe-glass-shadow oe-promote"
             variants={slideIn}
             initial="hidden"
             animate="visible"
@@ -1105,7 +1107,8 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             }}
           >
             {/* Cart header with improved styling */}
-            <div style={{ 
+            <div className="oe-glass-surface oe-glass-border oe-glass-shadow"
+              style={{ 
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center',

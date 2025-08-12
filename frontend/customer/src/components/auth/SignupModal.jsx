@@ -352,6 +352,7 @@ const SignupModal = ({ isOpen, onClose }) => {
       </style>
       {isOpen && (
         <div
+          className="oe-backdrop"
           style={{
             position: "fixed",
             top: 0,
@@ -368,6 +369,7 @@ const SignupModal = ({ isOpen, onClose }) => {
           onClick={onClose}
         >
           <div
+            className="oe-glass-surface oe-glass-border oe-glass-shadow oe-promote"
             style={{
               width: "100%",
               maxWidth: "400px",

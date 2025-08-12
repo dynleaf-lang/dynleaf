@@ -15,6 +15,7 @@ import ServerStatusCheck from "./components/Utils/ServerStatusCheck";
 import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager";
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
+import './App.css';
 
 const App = () => {
 	// Handle session expiration globally
@@ -71,33 +72,33 @@ const App = () => {
 	}, []);
 
 	return (
-		<ResponsiveProvider>
-			<RestaurantProvider>
-				<CurrencyProvider>
-					<TaxProvider>
-						<AuthProvider>
-							<FavoritesProvider>
-								<SocketProvider>
-									<NotificationProvider>
-											<CartProvider>						<ServerStatusCheck />
-						<ConnectionStatusModal />
-						<NetworkErrorHandler />
-						<SessionTimeoutManager />
-						<OrderEaseApp />
-						<CartAnimationEffect />
-						<NotificationToast />
-										</CartProvider>
-									</NotificationProvider>
-								</SocketProvider>
-							</FavoritesProvider>
-						</AuthProvider>
-					</TaxProvider>
-				</CurrencyProvider>
-			</RestaurantProvider>
-		</ResponsiveProvider>
+		<div className="oe-theme-liquid">
+			<ResponsiveProvider>
+				<RestaurantProvider>
+					<CurrencyProvider>
+						<TaxProvider>
+							<AuthProvider>
+								<FavoritesProvider>
+									<SocketProvider>
+										<NotificationProvider>
+												<CartProvider>							<ServerStatusCheck />
+											<ConnectionStatusModal />
+											<NetworkErrorHandler />
+											<SessionTimeoutManager />
+											<OrderEaseApp />
+											<CartAnimationEffect />
+											<NotificationToast />
+											</CartProvider>
+										</NotificationProvider>
+									</SocketProvider>
+								</FavoritesProvider>
+							</AuthProvider>
+						</TaxProvider>
+					</CurrencyProvider>
+				</RestaurantProvider>
+			</ResponsiveProvider>
+		</div>
 	);
 };
  
 export default App;
-
-

@@ -1,7 +1,7 @@
 #root {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 0rem;
   text-align: center;
 }
 
@@ -39,4 +39,186 @@
 
 .read-the-docs {
   color: #888;
+}
+
+/* ---- Glassmorphism Tokens & Utilities (Customer Module) ---- */
+:root {
+  /* Colors */
+  --oe-surface: rgba(255, 255, 255, 0.6);
+  --oe-surface-strong: rgba(255, 255, 255, 0.8);
+  --oe-border: rgba(255, 255, 255, 0.35);
+  --oe-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --oe-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.08);
+
+  /* Blur scale */
+  --oe-blur-xs: 4px;
+  --oe-blur-s: 6px;
+  --oe-blur-m: 10px;
+  --oe-blur-l: 16px;
+
+  /* Radii */
+  --oe-radius-m: 14px;
+  --oe-radius-l: 20px;
+
+  /* Opacity helpers */
+  --oe-opacity-strong: 0.85;
+  --oe-opacity-medium: 0.65;
+  --oe-opacity-weak: 0.45;
+}
+
+/* Backdrop support gate */
+@supports ((backdrop-filter: blur(0)) or (-webkit-backdrop-filter: blur(0))) {
+  .oe-backdrop {
+    backdrop-filter: blur(var(--oe-blur-m));
+    -webkit-backdrop-filter: blur(var(--oe-blur-m));
+  }
+}
+
+/* Fallbacks when backdrop-filter unsupported */
+@supports not ((backdrop-filter: blur(0)) or (-webkit-backdrop-filter: blur(0))) {
+  .oe-backdrop {
+    /* No blur available: strengthen surface and border for perceived depth */
+    background: var(--oe-surface-strong);
+    border: 1px solid var(--oe-border);
+  }
+}
+
+/* Glass surfaces */
+.oe-glass-surface {
+  background: var(--oe-surface);
+  border-radius: var(--oe-radius-l);
+}
+
+/* Stronger surface (e.g., inputs or dense text areas) */
+.oe-glass-surface--strong {
+  background: var(--oe-surface-strong);
+}
+
+/* Border + subtle inner highlight */
+.oe-glass-border {
+  border: 1px solid var(--oe-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* Depth shadow */
+.oe-glass-shadow {
+  box-shadow: var(--oe-shadow);
+}
+
+/* Softer shadow option */
+.oe-glass-shadow--soft {
+  box-shadow: var(--oe-shadow-soft);
+}
+
+/* Hover/interaction transitions */
+.oe-glass-hover {
+  transition: box-shadow 0.25s ease, transform 0.2s ease, background-color 0.25s ease;
+}
+.oe-glass-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+/* Accessibility: reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .oe-glass-hover {
+    transition: none !important;
+  }
+  .oe-glass-hover:hover {
+    transform: none !important;
+  }
+}
+
+/* Accessibility: increased contrast – reduce transparency, strengthen borders */
+@media (prefers-contrast: more) {
+  .oe-glass-surface {
+    background: rgba(255, 255, 255, 0.9);
+  }
+  .oe-glass-border {
+    border-color: rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* Utility: promote to its own layer sparingly (use only where necessary) */
+.oe-promote {
+  transform: translateZ(0);
+}
+
+/* ---- Liquid Glass Theme (opt-in via .oe-theme-liquid) ---- */
+/* Scoped variable overrides and enhanced styling for a richer glass look. */
+.oe-theme-liquid {
+  /* Elevate translucency, contrast, and borders slightly */
+  --oe-surface: rgba(255, 255, 255, 0.52);
+  --oe-surface-strong: rgba(255, 255, 255, 0.82);
+  --oe-border: rgba(255, 255, 255, 0.5);
+
+  /* Increase blur scale for more liquid depth */
+  --oe-blur-m: 12px;
+  --oe-blur-l: 20px;
+
+  /* Optional tint for a neutral Apple-like feel */
+  --oe-glass-tint: rgba(255, 255, 255, 0.6);
+  --oe-glass-tint-strong: rgba(255, 255, 255, 0.75);
+}
+
+/* Stronger backdrop in liquid mode (with graceful fallback) */
+@supports ((backdrop-filter: blur(0)) or (-webkit-backdrop-filter: blur(0))) {
+  .oe-theme-liquid .oe-backdrop {
+    backdrop-filter: blur(var(--oe-blur-l)) saturate(1.25) contrast(1.03);
+    -webkit-backdrop-filter: blur(var(--oe-blur-l)) saturate(1.25) contrast(1.03);
+  }
+}
+
+@supports not ((backdrop-filter: blur(0)) or (-webkit-backdrop-filter: blur(0))) {
+  .oe-theme-liquid .oe-backdrop {
+    background: var(--oe-surface-strong);
+    border: 1px solid var(--oe-border);
+  }
+}
+
+/* Liquid surface uses subtle gradient layering for depth */
+.oe-theme-liquid .oe-glass-surface {
+  background: 
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.4) 100%),
+    var(--oe-surface);
+}
+
+/* Slightly stronger borders and inner highlights */
+.oe-theme-liquid .oe-glass-border {
+  border-color: var(--oe-border);
+  /* dual inner highlights for depth */
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Optional sheen utility for hero surfaces (apply class only where needed) */
+.oe-liquid-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.oe-liquid-sheen::after {
+  content: "";
+  position: absolute;
+  top: -120%;
+  left: -120%;
+  width: 240%;
+  height: 240%;
+  background: radial-gradient(
+    120% 120% at 20% 20%,
+    rgba(255, 255, 255, 0.35) 0%,
+    rgba(255, 255, 255, 0.15) 35%,
+    rgba(255, 255, 255, 0.06) 55%,
+    transparent 70%
+  );
+  pointer-events: none;
+  opacity: 0.45;
+  transform: rotate(15deg);
+}
+
+/* Respect reduced motion: disable sheen */
+@media (prefers-reduced-motion: reduce) {
+  .oe-liquid-sheen::after {
+    display: none !important;
+  }
 }

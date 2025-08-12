@@ -140,7 +140,7 @@ const BottomNav = ({ activeTab = "menu", onTabChange, onOpenCart }) => {
   };
 
   return (
-    <nav className="bottom-navigation" style={{
+    <nav className="bottom-navigation oe-glass-surface oe-backdrop oe-glass-border oe-glass-shadow oe-glass-hover oe-promote" style={{
       position: "fixed",
       bottom: 0,
       left: 0,

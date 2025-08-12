@@ -6,7 +6,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "cross-env PORT=5001 nodemon src/index.js",
+    "free": "kill-port 5001",
+    "start:free": "npm run free && npm start",
+    "dev:free": "npm run free && npm run dev"
   },
   "keywords": [],
   "author": "",
@@ -30,5 +33,9 @@
     "socket.io": "^4.7.5",
     "socket.io-client": "^4.8.1",
     "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "kill-port": "^2.0.1"
   }
 }

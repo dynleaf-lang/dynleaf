@@ -100,7 +100,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
   };
   
   return (
-    <header
+    <header className="oe-glass-surface oe-backdrop oe-glass-border oe-glass-shadow oe-glass-hover oe-promote"
       style={{
         position: "sticky",
         top: 0,

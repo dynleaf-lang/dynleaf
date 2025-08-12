@@ -258,6 +258,7 @@ const ConnectionStatusModal = () => {
     <AnimatePresence>
       {isVisible && (
         <motion.div
+          className="oe-glass-surface oe-backdrop oe-glass-border oe-glass-shadow oe-promote"
           key={`status-${connectionStatus}-${lastUpdated.getTime()}`}
           initial={{ opacity: 0, y: -50 }}
           animate={{ opacity: 1, y: 0 }}
