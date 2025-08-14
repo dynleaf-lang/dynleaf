@@ -16,6 +16,7 @@ export const CartProvider = ({ children }) => {
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
+    customerId: null,
     orderType: 'dine-in', // dine-in, takeaway, delivery
     specialInstructions: ''
   });
@@ -134,6 +135,7 @@ export const CartProvider = ({ children }) => {
     setCustomerInfo({
       name: '',
       phone: '',
+      customerId: null,
       orderType: 'dine-in',
       specialInstructions: ''
     });

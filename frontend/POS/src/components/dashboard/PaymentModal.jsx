@@ -29,6 +29,7 @@ import {
   FaUser,
   FaUtensils
 } from 'react-icons/fa';
+import axios from 'axios';
 import { useOrder } from '../../context/OrderContext';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
@@ -37,6 +38,8 @@ import { useCurrency } from '../../context/CurrencyContext';
 import ReceiptPreview from '../receipt/ReceiptPreview';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 import toast from 'react-hot-toast';
+
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
 const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, orderTotal }) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
@@ -59,7 +62,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   });
 
   const { createOrder, updatePaymentStatus } = useOrder();
-  const { clearCart, replaceCart } = useCart();
+  const { clearCart, replaceCart, updateCustomerInfo } = useCart();
   const { updateTableStatus, clearSelectedTable } = usePOS();
   const { emitNewOrder } = useSocket();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
@@ -123,6 +126,62 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     setErrors(prev => ({ ...prev, amountReceived: null }));
   };
 
+  // Helpers to normalize phone and resolve/create customer
+  const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
+
+  const findOrCreateCustomer = async () => {
+    try {
+      const name = (customerInfo?.name || '').trim();
+      const phoneRaw = customerInfo?.phone || '';
+      const phone = normalizePhone(phoneRaw);
+
+      // If we already have a selected customerId, return it
+      if (customerInfo?.customerId) {
+        return customerInfo.customerId;
+      }
+
+      // If no phone/name provided, skip
+      if (!phone && !name) return null;
+
+      // Prefer search by phone if present
+      if (phone) {
+        const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: phone } });
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        // Try exact phone match first (normalize comparison)
+        const exact = list.find(c => normalizePhone(c.phone) === phone);
+        if (exact && exact._id) {
+          updateCustomerInfo({ customerId: exact._id, name: exact.name || name, phone: exact.phone || phone });
+          return exact._id;
+        }
+      }
+
+      // Fallback: search by name if provided
+      if (!phone && name) {
+        const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: name } });
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        const byName = list.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
+        if (byName && byName._id) {
+          updateCustomerInfo({ customerId: byName._id, name: byName.name, phone: byName.phone || '' });
+          return byName._id;
+        }
+      }
+
+      // Create new customer if we have at least a phone or name
+      const payload = { name: name || 'Walk-in', phone };
+      const createResp = await axios.post(`${API_BASE_URL}/customers`, payload);
+      const created = createResp.data || {};
+      if (created && created._id) {
+        updateCustomerInfo({ customerId: created._id, name: created.name || name, phone: created.phone || phone });
+        return created._id;
+      }
+
+      return null;
+    } catch (err) {
+      console.warn('Customer resolve/create failed:', err?.response?.data || err?.message);
+      return null;
+    }
+  };
+
   const validatePayment = () => {
     const newErrors = {};
     
@@ -165,6 +224,11 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     
     try {
       let orderData = null;
+      // Ensure customer is resolved/created before creating order
+      let resolvedCustomerId = null;
+      try {
+        resolvedCustomerId = await findOrCreateCustomer();
+      } catch (_) {}
       
       // If there are current cart items, create a new order
       if (cartItems && cartItems.length > 0) {
@@ -174,7 +238,8 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           orderType: customerInfo?.orderType || 'dine-in',
           customer: {
             name: customerInfo?.name || '',
-            phone: customerInfo?.phone || ''
+            phone: customerInfo?.phone || '',
+            customerId: resolvedCustomerId || customerInfo?.customerId || null
           },
           specialInstructions: customerInfo?.specialInstructions || '',
           items: cartItems.map(item => ({
@@ -189,8 +254,10 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
             name: customerInfo?.name || 'Walk-in',
             phone: customerInfo?.phone || '',
             orderType: customerInfo?.orderType || 'dine-in',
-            deliveryAddress: customerInfo?.deliveryAddress || ''
+            deliveryAddress: customerInfo?.deliveryAddress || '',
+            customerId: resolvedCustomerId || customerInfo?.customerId || null
           },
+          customerId: resolvedCustomerId || customerInfo?.customerId || null,
           totalAmount: orderTotal,
           paymentMethod: paymentData.method,
           paymentStatus: 'paid'

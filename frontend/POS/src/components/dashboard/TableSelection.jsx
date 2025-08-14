@@ -118,6 +118,7 @@ const TableSelection = () => {
   };
 
   const handleTableSelect = (table) => {
+    console.log('Table selected:', table.TableName || table.name, table);
     try {
       // Persist current selected table's cart before switching
       if (selectedTable?._id) {
@@ -130,6 +131,7 @@ const TableSelection = () => {
       }
 
       // Switch selection
+      console.log('Calling selectTable function...');
       selectTable(table);
 
       // Load the new table's persisted cart if present

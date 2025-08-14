@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import { 
   Card,
   CardHeader,
@@ -12,7 +12,13 @@ import {
   FormGroup,
   Label,
   Alert,
-  Spinner
+  Spinner,
+  Row,
+  Col,
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter
 } from 'reactstrap';
 import { 
   FaShoppingCart, 
@@ -29,7 +35,10 @@ import {
   FaUser,
   FaChevronDown,
   FaChevronUp,
-  FaClipboardList
+  FaClipboardList,
+  FaPhone,
+  FaMapMarkerAlt,
+  FaStickyNote
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
@@ -38,6 +47,9 @@ import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
 import './CartSidebar.css';
+import axios from 'axios';
+
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
 const CartSidebar = () => {
   const { 
@@ -61,6 +73,154 @@ const CartSidebar = () => {
   const { selectedTable, updateTableStatus } = usePOS();
   const { createOrder, updatePaymentStatus } = useOrder();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
+
+  // Autocomplete state for customers
+  const [custQueryName, setCustQueryName] = useState('');
+  const [custQueryPhone, setCustQueryPhone] = useState('');
+  const [customerSuggestions, setCustomerSuggestions] = useState([]);
+  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
+  const searchDebounceRef = useRef(null);
+  
+  // Local draft state for order notes (special instructions)
+  const [notesDraft, setNotesDraft] = useState('');
+  const notesInputRef = useRef(null);
+  
+  // Modal visibility states
+  const [showInstructionsModal, setShowInstructionsModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+
+  const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
+
+  const triggerCustomerSearch = (query) => {
+    if (!query || query.trim().length < 2) {
+      setCustomerSuggestions([]);
+      return;
+    }
+    setIsSearchingCustomers(true);
+    axios
+      .get(`${API_BASE_URL}/customers`, { params: { search: query.trim() } })
+      .then((resp) => {
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        setCustomerSuggestions(list.slice(0, 8));
+      })
+      .catch(() => setCustomerSuggestions([]))
+      .finally(() => setIsSearchingCustomers(false));
+  };
+
+  // Resolve or create customer prior to save actions (for held orders)
+  const findOrCreateCustomerLocal = async () => {
+    try {
+      const name = (customerInfo?.name || '').trim();
+      const phoneRaw = customerInfo?.phone || '';
+      const phone = normalizePhone(phoneRaw);
+      if (customerInfo?.customerId) return customerInfo.customerId;
+      if (!phone && !name) return null;
+
+      if (phone) {
+        const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: phone } });
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        const exact = list.find(c => normalizePhone(c.phone) === phone);
+        if (exact && exact._id) {
+          updateCustomerInfo({ customerId: exact._id, name: exact.name || name, phone: exact.phone || phone });
+          return exact._id;
+        }
+      }
+
+      if (!phone && name) {
+        const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: name } });
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        const byName = list.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
+        if (byName && byName._id) {
+          updateCustomerInfo({ customerId: byName._id, name: byName.name, phone: byName.phone || '' });
+          return byName._id;
+        }
+      }
+
+      const payload = { name: name || 'Walk-in', phone };
+      const createResp = await axios.post(`${API_BASE_URL}/customers`, payload);
+      const created = createResp.data || {};
+      if (created && created._id) {
+        updateCustomerInfo({ customerId: created._id, name: created.name || name, phone: created.phone || phone });
+        return created._id;
+      }
+      return null;
+    } catch (err) {
+      console.warn('findOrCreateCustomerLocal error:', err?.response?.data || err?.message);
+      return null;
+    }
+  };
+
+  const debouncedSearch = (query) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => triggerCustomerSearch(query), 300);
+  };
+
+  const handleNameInputChange = (val) => {
+    setCustQueryName(val);
+    setShowNameSuggestions(true);
+    debouncedSearch(val);
+  };
+
+  const handlePhoneInputChange = (val) => {
+    const cleaned = normalizePhone(val);
+    setCustQueryPhone(cleaned);
+    setShowPhoneSuggestions(true);
+    if (cleaned.length >= 3) {
+      debouncedSearch(cleaned);
+    } else {
+      setCustomerSuggestions([]);
+    }
+  };
+
+  const handleSelectCustomer = (cust) => {
+
+    updateCustomerInfo({
+      name: cust.name || customerInfo.name || 'Walk-in',
+      phone: cust.phone || customerInfo.phone || '',
+      customerId: cust._id || null,
+    });
+    setCustQueryName(cust.name || '');
+    setCustQueryPhone(normalizePhone(cust.phone || ''));
+    setShowNameSuggestions(false);
+    setShowPhoneSuggestions(false);
+    setCustomerSuggestions([]);
+    toast.success('Customer selected');
+  };
+
+  // Initialize query fields from context on open/mount
+  useEffect(() => {
+    setCustQueryName(customerInfo?.name || '');
+    setCustQueryPhone(customerInfo?.phone || '');
+  }, [customerInfo?.name, customerInfo?.phone]);
+
+  // Initialize notes draft from context when opening instructions modal or when context changes externally
+  useEffect(() => {
+    setNotesDraft(customerInfo?.specialInstructions || '');
+  }, [customerInfo?.specialInstructions, showInstructionsModal]);
+
+  // Strong event isolation for notes textarea to prevent global listeners from triggering rerenders
+  useEffect(() => {
+    const el = notesInputRef.current;
+    if (!el) return;
+    const stopAll = (e) => {
+      e.stopPropagation();
+      if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
+        e.nativeEvent.stopImmediatePropagation();
+      }
+    };
+    const handlers = [
+      ['keydown', stopAll, true],
+      ['keyup', stopAll, true],
+      ['keypress', stopAll, true],
+      ['input', stopAll, true],
+      ['click', stopAll, true],
+      ['focus', stopAll, true]
+    ];
+    handlers.forEach(([type, fn, cap]) => el.addEventListener(type, fn, { capture: cap }));
+    return () => handlers.forEach(([type, fn, cap]) => el.removeEventListener(type, fn, { capture: cap }));
+  }, [notesInputRef.current]);
 
   // Dynamic currency formatting function
   const formatPrice = (price) => {
@@ -110,12 +270,28 @@ const CartSidebar = () => {
     }
   };
 
+  // Sync to context on blur to avoid frequent re-renders while typing
+  const syncNameToContext = () => {
+    const val = (custQueryName || '').trim();
+    const shouldClearId = !!customerInfo?.customerId && val !== (customerInfo?.name || '');
+    updateCustomerInfo({ name: val, ...(shouldClearId ? { customerId: null } : {}) });
+  };
+  const syncPhoneToContext = () => {
+    const val = normalizePhone(custQueryPhone || '');
+    const shouldClearId = !!customerInfo?.customerId && val !== normalizePhone(customerInfo?.phone || '');
+    updateCustomerInfo({ phone: val, ...(shouldClearId ? { customerId: null } : {}) });
+  };
+
+  // Hide suggestions with a slight delay to allow onMouseDown selection
+  const hideNameSuggestions = () => setTimeout(() => setShowNameSuggestions(false), 100);
+  const hidePhoneSuggestions = () => setTimeout(() => setShowPhoneSuggestions(false), 100);
+
   const tableBatches = getCurrentTableBatches();
   const batchCount = tableBatches?.batches?.length || 0;
   const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
 
   // Settle: open payment modal for table settlement
-  const handleSettleTable = () => {
+  const handleSettleTable = async () => {
     if (!selectedTable?._id) {
       toast.error('No table selected');
       return;
@@ -126,17 +302,16 @@ const CartSidebar = () => {
     }
     
     // Open payment modal for settlement
+    try { await findOrCreateCustomerLocal(); } catch {}
     setShowPaymentModal(true);
     toast.info('Complete payment to settle the table');
   };
   
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveOrderName, setSaveOrderName] = useState('');
-  const [showSavedOrders, setShowSavedOrders] = useState(false);
-  const [showCustomerInfo, setShowCustomerInfo] = useState(false);
-  const [showSpecialInstructions, setShowSpecialInstructions] = useState(false);
-  
+  const [showSavedOrders, setShowSavedOrders] = useState(false); 
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+
   // POS functionality state
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [orderStatus, setOrderStatus] = useState({
@@ -304,6 +479,8 @@ const CartSidebar = () => {
     }
   };
 
+  
+
   const handleSaveOrder = async () => {
     if (!saveOrderName.trim()) {
       toast.error('Please enter a name for the saved order');
@@ -319,6 +496,10 @@ const CartSidebar = () => {
     setProcessingAction('saving');
     
     try {
+      // Ensure we have customerId if details provided
+      try {
+        await findOrCreateCustomerLocal();
+      } catch {}
       await saveOrder(saveOrderName);
       setSaveOrderName('');
       setShowSaveModal(false);
@@ -404,7 +585,7 @@ const CartSidebar = () => {
   };
 
   // Handle proceed to payment with validation
-  const handleProceedToPayment = () => {
+  const handleProceedToPayment = async () => {
     const validationErrors = validateOrderForPayment();
     
     if (validationErrors.length > 0) {
@@ -412,6 +593,7 @@ const CartSidebar = () => {
       return;
     }
     
+    try { await findOrCreateCustomerLocal(); } catch {}
     setShowPaymentModal(true);
     toast.info('Opening payment modal...');
   };
@@ -654,7 +836,7 @@ const CartSidebar = () => {
     }
   };
 
-  const CartItem = ({ item }) => (
+  const CartItem = memo(({ item }) => (
     <ListGroupItem className="d-flex justify-content-between align-items-center px-0">
       <div className="flex-grow-1">
         <h6 className="mb-1">{item.name}</h6>
@@ -709,7 +891,7 @@ const CartSidebar = () => {
         </div>
       </div>
     </ListGroupItem>
-  );
+  ));
 
   return (
     <>
@@ -770,49 +952,52 @@ const CartSidebar = () => {
           )} */}
         </div>
 
-        {/* Customer Info & Special Instructions Icons Row */}
-        <div className="info-icons-row d-flex border-bottom">
-          {/* Customer Information Icon */}
-          <Button
-            color="link"
-            className="flex-fill d-flex justify-content-center align-items-center p-3 text-decoration-none border-end"
-            onClick={() => setShowCustomerInfo(!showCustomerInfo)}
-            title="Customer Information"
-          >
-            <div className="position-relative">
-              <FaUser size={20} className={showCustomerInfo ? 'text-primary' : 'text-muted'} />
-              {(customerInfo.name || customerInfo.phone) && (
-                <Badge 
-                  color="success" 
-                  className="position-absolute top-0 start-100 translate-middle badge-sm"
-                  style={{ fontSize: '0.6rem', padding: '0.2em 0.4em' }}
-                >
-                  ✓
-                </Badge>
-              )}
-            </div>
-          </Button>
-          
-          {/* Special Instructions Icon */}
-          <Button
-            color="link"
-            className="flex-fill d-flex justify-content-center align-items-center p-3 text-decoration-none"
-            onClick={() => setShowSpecialInstructions(!showSpecialInstructions)}
-            title="Special Instructions"
-          >
-            <div className="position-relative">
-              <FaClipboardList size={20} className={showSpecialInstructions ? 'text-primary' : 'text-muted'} />
-              {customerInfo.specialInstructions && (
-                <Badge 
-                  color="success" 
-                  className="position-absolute top-0 start-100 translate-middle badge-sm"
-                  style={{ fontSize: '0.6rem', padding: '0.2em 0.4em' }}
-                >
-                  ✓
-                </Badge>
-              )}
-            </div>
-          </Button>
+        {/* Enhanced Customer Info & Special Instructions Section */}
+        <div className="customer-section-container">
+          {/* Quick Access Buttons Row */}
+          <div className="info-quick-access d-flex">
+            {/* Customer Information Button */}
+            <Button
+              color={(customerInfo.name || customerInfo.phone) ? 'primary' : 'outline-secondary'}
+              size="sm"
+              className={`flex-fill customer-info-toggle ${(customerInfo.name || customerInfo.phone) ? 'active' : ''}`}
+              onClick={() => setShowCustomerModal(true)}
+            >
+              <div className="d-flex align-items-center justify-content-center position-relative">
+                <FaUser size={16} className="me-2" />
+                <span className="fw-medium">Customer</span>
+                {(customerInfo.name || customerInfo.phone) && (
+                  <Badge 
+                    color="success" 
+                    className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                  >
+                    ✓
+                  </Badge>
+                )}
+              </div>
+            </Button>
+            
+            {/* Special Instructions Button */}
+            <Button
+              color={customerInfo.specialInstructions ? 'primary' : 'outline-secondary'}
+              size="sm"
+              className={`flex-fill special-instructions-toggle ms-2 ${customerInfo.specialInstructions ? 'active' : ''}`}
+              onClick={() => setShowInstructionsModal(true)}
+            >
+              <div className="d-flex align-items-center justify-content-center position-relative">
+                <FaClipboardList size={16} className="me-2" />
+                <span className="fw-medium">Instructions</span>
+                {customerInfo.specialInstructions && (
+                  <Badge 
+                    color="success" 
+                    className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                  >
+                    ✓
+                  </Badge>
+                )}
+              </div>
+            </Button>
+          </div>
         </div>
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {(() => {
@@ -825,68 +1010,7 @@ const CartSidebar = () => {
             if (cartItems.length > 0 || hasBatches) {
               return (
             <>
-              {/* Customer Information - Collapsible */}
-              {showCustomerInfo && (
-                <div className="customer-info mb-4">
-                  <h6>Customer Information</h6>
-                <Form>
-                  <FormGroup>
-                    <Label size="sm">Customer Name</Label>
-                    <Input
-                      size="sm"
-                      type="text"
-                      placeholder="Enter customer name"
-                      value={customerInfo.name}
-                      onChange={(e) => updateCustomerInfo({ name: e.target.value })}
-                    />
-                  </FormGroup>
-                  <FormGroup>
-                    <Label size="sm">Phone Number</Label>
-                    <Input
-                      size="sm"
-                      type="tel"
-                      placeholder="Enter phone number"
-                      value={customerInfo.phone}
-                      onChange={(e) => updateCustomerInfo({ phone: e.target.value })}
-                    />
-                  </FormGroup>
-                  {/* Conditional fields based on order type */}
-                  {customerInfo.orderType === 'delivery' && (
-                    <FormGroup>
-                      <Label size="sm">Delivery Address</Label>
-                      <Input
-                        size="sm"
-                        type="textarea"
-                        rows="2"
-                        placeholder="Enter delivery address"
-                        value={customerInfo.deliveryAddress || ''}
-                        onChange={(e) => updateCustomerInfo({ deliveryAddress: e.target.value })}
-                      />
-                    </FormGroup>
-                  )}
-                </Form>
-                </div>
-              )}
-
-              {/* Special Instructions - Collapsible */}
-              {showSpecialInstructions && (
-                <div className="special-instructions mb-4">
-                  <h6>Special Instructions</h6>
-                  <Form>
-                    <FormGroup>
-                      <Label size="sm">Order Notes</Label>
-                      <Input
-                        size="sm"
-                        type="textarea"
-                        rows="3"
-                        placeholder="Enter any special instructions for this order..."
-                        value={customerInfo.specialInstructions || ''}
-                        onChange={(e) => updateCustomerInfo({ specialInstructions: e.target.value })}
-                      />
-                    </FormGroup>
-                  </Form>
-                </div>
-              )}
+              {/* Customer Information and Special Instructions moved to modals */}
 
               {/* Cart Items */}
               <div className="cart-items mb-1">
@@ -1013,7 +1137,7 @@ const CartSidebar = () => {
               
               {customerInfo.orderType === 'takeaway' && (
                 <Alert color="success" className="mt-3" fade={false}>
-                  <small>Customer will pick up this order at the restaurant</small>
+                  <small>Customer will pick up this order</small>
                 </Alert>
               )}
             </>
@@ -1375,6 +1499,210 @@ const CartSidebar = () => {
           </div>
         </div>
       )}
+
+      {/* Customer Info Modal */}
+      <Modal isOpen={showCustomerModal} toggle={() => setShowCustomerModal(false)}>
+        <ModalHeader toggle={() => setShowCustomerModal(false)}>Customer Information</ModalHeader>
+        <ModalBody>
+          <Form>
+            <Row>
+              <Col xs={12} className="mb-3">
+                <Label className="form-label-enhanced">
+                  <FaUser size={14} className="me-2 text-muted" />
+                  Customer Name
+                </Label>
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    type="text"
+                    className="form-input-enhanced"
+                    placeholder="Search or enter customer name"
+                    value={custQueryName}
+                    onChange={(e) => handleNameInputChange(e.target.value)}
+                    onFocus={() => setShowNameSuggestions(true)}
+                    onKeyDown={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyDownCapture={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyUp={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyUpCapture={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyPress={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onInput={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onBlur={() => { syncNameToContext(); hideNameSuggestions(); }}
+                    autoFocus
+                  />
+                  {showNameSuggestions && (customerSuggestions.length > 0 || isSearchingCustomers) && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1050 }} className="bg-white border rounded shadow-sm">
+                      {isSearchingCustomers && (
+                        <div className="p-2 text-muted small">Searching...</div>
+                      )}
+                      {customerSuggestions.map((c) => (
+                        <div
+                          key={c._id}
+                          className="p-2 suggestion-item"
+                          style={{ cursor: 'pointer' }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleSelectCustomer(c);
+                          }}
+                        >
+                          <div className="d-flex justify-content-between">
+                            <span>{c.name || 'Unnamed'}</span>
+                            <small className="text-muted">{c.customerId || ''}</small>
+                          </div>
+                          <small className="text-muted">{c.phone || '—'}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Col>
+              <Col xs={12} className="mb-3">
+                <Label className="form-label-enhanced">
+                  <FaPhone size={14} className="me-2 text-muted" />
+                  Phone Number
+                </Label>
+                <div style={{ position: 'relative' }}>
+                  <Input
+                    type="tel"
+                    className="form-input-enhanced"
+                    placeholder="Search or enter phone number"
+                    value={custQueryPhone}
+                    onChange={(e) => handlePhoneInputChange(e.target.value)}
+                    onFocus={() => setShowPhoneSuggestions(true)}
+                    onKeyDown={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyDownCapture={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyUp={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyUpCapture={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onKeyPress={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onInput={(e) => { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); }}
+                    onBlur={() => { syncPhoneToContext(); hidePhoneSuggestions(); }}
+                  />
+                  {showPhoneSuggestions && (customerSuggestions.length > 0 || isSearchingCustomers) && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1050 }} className="bg-white border rounded shadow-sm">
+                      {isSearchingCustomers && (
+                        <div className="p-2 text-muted small">Searching...</div>
+                      )}
+                      {customerSuggestions.map((c) => (
+                        <div
+                          key={c._id}
+                          className="p-2 suggestion-item"
+                          style={{ cursor: 'pointer' }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleSelectCustomer(c);
+                          }}
+                        >
+                          <div className="d-flex justify-content-between">
+                            <span>{c.name || 'Unnamed'}</span>
+                            <small className="text-muted">{c.customerId || ''}</small>
+                          </div>
+                          <small className="text-muted">{c.phone || '—'}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Col>
+              {customerInfo.orderType === 'delivery' && (
+                <Col xs={12} className="mb-2">
+                  <Label className="form-label-enhanced">
+                    <FaMapMarkerAlt size={14} className="me-2 text-muted" />
+                    Delivery Address <span className="text-danger">*</span>
+                  </Label>
+                  <Input
+                    type="textarea"
+                    rows="3"
+                    className="form-input-enhanced"
+                    placeholder="Enter complete delivery address with landmarks"
+                    value={customerInfo.deliveryAddress || ''}
+                    onChange={(e) => updateCustomerInfo({ deliveryAddress: e.target.value })}
+                  />
+                  <small className="text-muted d-block mt-1">Include building name, floor, and nearby landmarks</small>
+                </Col>
+              )}
+            </Row>
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowCustomerModal(false)}>
+            Close
+          </Button>
+          <Button color="primary" onClick={() => setShowCustomerModal(false)}>
+            Done
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Special Instructions Modal */}
+      <Modal isOpen={showInstructionsModal} toggle={() => setShowInstructionsModal(false)}>
+        <ModalHeader toggle={() => setShowInstructionsModal(false)}>Special Instructions</ModalHeader>
+        <ModalBody>
+          <Form>
+            <Label className="form-label-enhanced">
+              <FaStickyNote size={14} className="me-2 text-muted" />
+              Order Notes
+            </Label>
+            <Input
+              type="textarea"
+              rows="4"
+              className="form-input-enhanced instructions-textarea"
+              placeholder="e.g., Extra spicy, No onions, Less oil, Separate packaging..."
+              value={notesDraft}
+              innerRef={notesInputRef}
+              onKeyDownCapture={(e) => { e.stopPropagation(); if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation(); }}
+              onKeyUpCapture={(e) => { e.stopPropagation(); if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation(); }}
+              onInputCapture={(e) => { e.stopPropagation(); if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation(); }}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              onBlur={() => {
+                const val = (notesDraft || '').slice(0, 500).trim();
+                if (val !== (customerInfo?.specialInstructions || '')) {
+                  updateCustomerInfo({ specialInstructions: val });
+                }
+              }}
+            />
+            <div className="d-flex justify-content-between align-items-center mt-2">
+              <small className="text-muted">Be specific to help kitchen staff prepare your order perfectly</small>
+              <small className="text-muted">{(notesDraft || '').length}/500</small>
+            </div>
+            <div className="quick-tags mt-3">
+              <small className="text-muted mb-2 d-block">Quick tags:</small>
+              <div className="d-flex flex-wrap gap-2">
+                {[
+                  { label: 'Extra Spicy', icon: '🌶️' },
+                  { label: 'Less Oil', icon: '🫒' },
+                  { label: 'No Onions', icon: '🧅' },
+                  { label: 'Extra Cheese', icon: '🧀' },
+                  { label: 'Well Done', icon: '🔥' },
+                  { label: 'Separate Pack', icon: '📦' }
+                ].map((tag, index) => (
+                  <Button
+                    key={index}
+                    size="sm"
+                    color="outline-secondary"
+                    className="quick-tag-btn"
+                    onClick={() => {
+                      const currentInstructions = notesDraft || '';
+                      const newInstructions = currentInstructions
+                        ? `${currentInstructions}, ${tag.label}`
+                        : tag.label;
+                      setNotesDraft(newInstructions);
+                    }}
+                  >
+                    <span className="me-1">{tag.icon}</span>
+                    {tag.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </Form>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowInstructionsModal(false)}>
+            Close
+          </Button>
+          <Button color="primary" onClick={() => setShowInstructionsModal(false)}>
+            Done
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Payment Modal */}
       <PaymentModal

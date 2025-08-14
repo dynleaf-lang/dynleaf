@@ -22,12 +22,14 @@ const POSDashboard = () => {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const { user, logout } = useAuth();
   const { connected } = useSocket();
-  const { selectedTable } = usePOS();
+  const { selectedTable, clearSelectedTable } = usePOS();
   const { getOrderStats } = useOrder();
 
   // Auto-switch to menu when table is selected
   useEffect(() => {
+    console.log('Auto-navigation check:', { selectedTable: selectedTable?.TableName || selectedTable?.name, activeTab });
     if (selectedTable && activeTab === 'tables') {
+      console.log('Auto-navigating to menu tab');
       setActiveTab('menu');
     }
   }, [selectedTable, activeTab]);
@@ -46,6 +48,13 @@ const POSDashboard = () => {
     setSidebarVisible(!sidebarVisible);
   };
 
+  const handleNavigateToTables = () => {
+    // Clear selected table first to prevent auto-switch to menu
+    clearSelectedTable();
+    // Then navigate to tables tab
+    setActiveTab('tables');
+  };
+
   const orderStats = getOrderStats();
 
   // Navigate to Tables when requested (e.g., after settlement)
@@ -61,8 +70,10 @@ const POSDashboard = () => {
         user={user}
         connected={connected}
         selectedTable={selectedTable}
+        activeTab={activeTab}
         onLogout={handleLogout}
         onToggleSidebar={handleToggleSidebar}
+        onNavigateToTables={handleNavigateToTables}
       />
 
       <Container fluid className="dashboard-content">

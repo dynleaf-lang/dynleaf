@@ -25,7 +25,7 @@ import {
 } from 'react-icons/fa';
 import { format } from 'date-fns';
 
-const Header = ({ user, connected, selectedTable, onLogout, onToggleSidebar }) => {
+const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleSidebar, onNavigateToTables }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   
@@ -71,29 +71,34 @@ const Header = ({ user, connected, selectedTable, onLogout, onToggleSidebar }) =
         </div>
       </NavbarBrand>
   
-      {/* New Order Button */}
-      <Button
-        color="success"
-        size="sm"
-        className="me-3 d-flex align-items-center"
-        onClick={() => {
-          // Clear current cart and navigate to table selection
-          if (window.confirm('Start a new order? This will clear the current cart.')) {
+      {/* New Order Button - Hidden on table selection page */}
+      {activeTab !== 'tables' && (
+        <Button
+          color="success"
+          size="sm"
+          className="me-3 d-flex align-items-center"
+          onClick={() => {
+            // Clear current cart and navigate to table selection 
+            // Clear localStorage data
             localStorage.removeItem('pos_cart');
             localStorage.removeItem('pos_customer');
-            window.location.href = '/dashboard';
-          }
-        }}
-        style={{
-          borderRadius: '20px',
-          padding: '0.5rem 1rem',
-          fontWeight: '600',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-        }}
-      >
-        <FaPlus className="me-2" size={14} />
-        New Order
-      </Button>
+            
+            // Navigate to tables tab without page refresh
+            if (onNavigateToTables) {
+              onNavigateToTables();
+            }
+          }}
+          style={{
+            borderRadius: '20px',
+            padding: '0.5rem 1rem',
+            fontWeight: '600',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+          }}
+        >
+          <FaPlus className="me-2" size={14} />
+          New Order
+        </Button>
+      )}
 
       <Nav className="ms-auto d-flex align-items-center" navbar>
         {/* Selected Table Indicator */}
