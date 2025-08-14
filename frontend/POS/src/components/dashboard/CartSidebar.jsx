@@ -1622,6 +1622,21 @@ const CartSidebar = () => {
           </Form>
         </ModalBody>
         <ModalFooter>
+          <Button
+            color="warning"
+            outline
+            onClick={() => {
+              setCustQueryName('');
+              setCustQueryPhone('');
+              setCustomerSuggestions([]);
+              setShowNameSuggestions(false);
+              setShowPhoneSuggestions(false);
+              updateCustomerInfo({ name: '', phone: '', customerId: null });
+              toast.success('Customer fields cleared');
+            }}
+          >
+            Clear
+          </Button>
           <Button color="secondary" onClick={() => setShowCustomerModal(false)}>
             Close
           </Button>
@@ -1695,6 +1710,18 @@ const CartSidebar = () => {
           </Form>
         </ModalBody>
         <ModalFooter>
+          <Button
+            color="warning"
+            outline
+            onClick={() => {
+              setNotesDraft('');
+              updateCustomerInfo({ specialInstructions: '' });
+              notesInputRef.current?.focus?.();
+              toast.success('Instructions cleared');
+            }}
+          >
+            Clear
+          </Button>
           <Button color="secondary" onClick={() => setShowInstructionsModal(false)}>
             Close
           </Button>
