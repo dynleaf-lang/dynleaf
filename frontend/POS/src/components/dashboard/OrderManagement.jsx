@@ -207,9 +207,14 @@ const OrderManagement = () => {
     // Filter by main view (orders vs kot)
     if (mainView === 'kot') {
       // KOT view shows only orders that need kitchen attention
-      filtered = filtered.filter(order => 
-        ['confirmed', 'preparing'].includes(order.status)
-      );
+      filtered = filtered.filter(order => ['confirmed', 'preparing'].includes(order.status));
+
+      // Apply KOT sub-tab filter if selected
+      if (activeTab !== 'all') {
+        if (['confirmed', 'preparing'].includes(activeTab)) {
+          filtered = filtered.filter(order => order.status === activeTab);
+        }
+      }
     }
 
     // Filter by order type for Order View

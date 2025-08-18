@@ -48,6 +48,7 @@ import PaymentModal from './PaymentModal';
 import toast from 'react-hot-toast';
 import './CartSidebar.css';
 import axios from 'axios';
+import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
@@ -90,6 +91,16 @@ const CartSidebar = () => {
   // Modal visibility states
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [lastSavedOrder, setLastSavedOrder] = useState(null);
+  const [printerConfig, setPrinterConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pos_printer_config');
+      return saved ? JSON.parse(saved) : { printerType: 'browser' };
+    } catch {
+      return { printerType: 'browser' };
+    }
+  });
 
   const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
 
@@ -764,54 +775,133 @@ const CartSidebar = () => {
       validationErrors.forEach(error => toast.error(error));
       return;
     }
-    
+
     setIsProcessing(true);
     const actionType = withEBill ? 'save-ebill' : withPrint ? 'save-print' : 'save';
     setProcessingAction(actionType);
-    
+
     try {
-      // Prepare order data
-      const orderData = {
-        items: cartItems,
-        customerInfo,
-        tableInfo: selectedTable,
-        orderType: customerInfo.orderType || 'dine-in',
+      // Resolve or create customer to obtain a customerId
+      let resolvedCustomerId = null;
+      try { resolvedCustomerId = await findOrCreateCustomerLocal(); } catch {}
+
+      // Build order items
+      const orderItems = cartItems.map(item => {
+        const price = Number(item.price) || 0;
+        const quantity = Number(item.quantity) || 0;
+        return {
+          menuItemId: item.menuItemId,
+          name: item.name,
+          price,
+          quantity,
+          subtotal: price * quantity,
+          customizations: item.customizations || {}
+        };
+      });
+
+      // Build backend order payload (explicit unpaid)
+      const orderPayload = {
+        tableId: selectedTable?._id || null,
+        tableName: selectedTable?.name || selectedTable?.TableName || null,
+        orderType: customerInfo?.orderType || 'dine-in',
+        customer: {
+          name: customerInfo?.name || '',
+          phone: customerInfo?.phone || '',
+          customerId: resolvedCustomerId || customerInfo?.customerId || null
+        },
+        specialInstructions: customerInfo?.specialInstructions || '',
+        items: orderItems,
+        totalAmount: getTotal(),
         paymentMethod: selectedPaymentMethod,
-        orderStatus,
-        activeOffer,
-        subtotal: getSubtotal(),
-        tax: getTax(),
-        total: getTotal(),
-        timestamp: new Date().toISOString(),
-        kotSent,
-        specialInstructions: customerInfo.specialInstructions || ''
+        paymentStatus: 'unpaid'
       };
-      
-      // TODO: Replace with actual API call
-      // const response = await saveOrderToPOS(orderData, { withPrint, withEBill });
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const action = withEBill ? 'saved with e-bill' : withPrint ? 'saved and printed' : 'saved';
-      toast.success(`Order ${action} successfully`);
-      
-      // Log for debugging
-      console.log('Order Data:', orderData);
-      
-      // Clear cart after successful save
-      if (window.confirm('Order saved successfully. Clear cart?')) {
-        clearCart();
-        setKotSent(false);
-        setActiveOffer(null);
-        setOrderStatus({
-          isPaid: false,
-          isLoyalty: false,
-          sendFeedbackSMS: false,
-          isComplimentary: false
-        });
+
+      const result = await createOrder(orderPayload);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to create order');
       }
-      
+
+      const createdOrder = result.order;
+
+      // For dine-in: mark table occupied and store batch in localStorage
+      if (selectedTable?._id && (customerInfo?.orderType || 'dine-in') === 'dine-in') {
+        try {
+          await updateTableStatus(selectedTable._id, 'occupied', createdOrder);
+        } catch (e) {
+          console.warn('Failed to set table occupied:', e);
+        }
+
+        try {
+          const tableId = selectedTable._id;
+          const batchesKey = 'pos_table_batches';
+          const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+          const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
+          const orderNumberSeq = entry.nextOrderNumber;
+          entry.batches = [
+            {
+              orderId: createdOrder._id,
+              orderNumber: orderNumberSeq,
+              items: orderItems,
+              totalAmount: orderPayload.totalAmount,
+              createdAt: new Date().toISOString()
+            },
+            ...entry.batches
+          ];
+          entry.nextOrderNumber = orderNumberSeq + 1;
+          batchesAll[tableId] = entry;
+          localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        } catch (e) {
+          console.warn('Failed to persist batch entry:', e);
+        }
+      }
+
+      // Save last order for UI context
+      setLastSavedOrder(createdOrder);
+
+      // Optional print
+      if (withPrint) {
+        try {
+          const restaurantInfo = {
+            name: 'OrderEase Restaurant',
+            address: '123 Main Street, City, State 12345',
+            phone: '+91 98765 43210',
+            email: 'info@orderease.com',
+            gst: 'GST123456789'
+          };
+
+          const receiptData = {
+            order: createdOrder,
+            paymentDetails: {
+              method: selectedPaymentMethod,
+              amountReceived: 0,
+              change: 0
+            },
+            customerInfo,
+            tableInfo: selectedTable
+          };
+
+          if (printerConfig?.printerType === 'network') {
+            const payload = generateThermalReceipt(receiptData, restaurantInfo);
+            const res = await printThermalReceipt(payload, printerConfig);
+            if (!res?.success) throw new Error(res?.error || 'Thermal print failed');
+            toast.success(res?.message || 'Printed to thermal printer');
+          } else {
+            const html = generateHTMLReceipt(receiptData, restaurantInfo);
+            const res = printHTMLReceipt(html);
+            if (!res?.success) throw new Error(res?.error || 'Browser print failed');
+            toast.success(res?.message || 'Sent to printer');
+          }
+        } catch (printErr) {
+          console.error('Save & Print error:', printErr);
+          toast.error(`Print failed: ${printErr?.message || 'Unknown error'}`);
+        }
+      }
+
+      const displayNumber = createdOrder.orderNumber || createdOrder._id || '';
+      toast.success(`Order #${displayNumber} saved${withPrint ? ' & printed' : ''}`);
+
+      // Ask user via modal if they want to clear cart
+      setShowClearConfirm(true);
     } catch (error) {
       console.error('Save Order Error:', error);
       toast.error('Failed to save order. Please try again.');
@@ -1568,6 +1658,49 @@ const CartSidebar = () => {
           </div>
         </div>
       )}
+
+      {/* Clear Cart Confirmation Modal */}
+      <Modal isOpen={showClearConfirm} toggle={() => setShowClearConfirm(false)}>
+        <ModalHeader toggle={() => setShowClearConfirm(false)}>
+          Clear Cart?
+        </ModalHeader>
+        <ModalBody>
+          {lastSavedOrder ? (
+            <>
+              <p className="mb-2">
+                Order <strong>#{lastSavedOrder.orderNumber || lastSavedOrder._id}</strong> has been saved{processingAction === 'save-print' ? ' & printed' : ''}.
+              </p>
+              <p className="mb-0">Do you want to clear the cart for the next order? Customer details will be preserved.</p>
+            </>
+          ) : (
+            <p className="mb-0">Order saved. Do you want to clear the cart? Customer details will be preserved.</p>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowClearConfirm(false)}>
+            Keep Cart
+          </Button>
+          <Button
+            color="danger"
+            onClick={() => {
+              // Preserve customer info but clear items and POS flags
+              replaceCart([], { ...customerInfo });
+              setKotSent(false);
+              setActiveOffer(null);
+              setOrderStatus({
+                isPaid: false,
+                isLoyalty: false,
+                sendFeedbackSMS: false,
+                isComplimentary: false
+              });
+              setShowClearConfirm(false);
+              toast.success('Cart cleared');
+            }}
+          >
+            Clear Cart
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Customer Info Modal */}
       <Modal isOpen={showCustomerModal} toggle={() => setShowCustomerModal(false)}>
