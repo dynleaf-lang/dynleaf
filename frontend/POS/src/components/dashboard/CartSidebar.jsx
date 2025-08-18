@@ -953,52 +953,64 @@ const CartSidebar = () => {
         </div>
 
         {/* Enhanced Customer Info & Special Instructions Section */}
-        <div className="customer-section-container">
-          {/* Quick Access Buttons Row */}
-          <div className="info-quick-access d-flex">
-            {/* Customer Information Button */}
-            <Button
-              color={(customerInfo.name || customerInfo.phone) ? 'primary' : 'outline-secondary'}
-              size="sm"
-              className={`flex-fill customer-info-toggle ${(customerInfo.name || customerInfo.phone) ? 'active' : ''}`}
-              onClick={() => setShowCustomerModal(true)}
-            >
-              <div className="d-flex align-items-center justify-content-center position-relative">
-                <FaUser size={16} className="me-2" />
-                <span className="fw-medium">Customer</span>
-                {(customerInfo.name || customerInfo.phone) && (
-                  <Badge 
-                    color="success" 
-                    className="position-absolute top-0 start-100 translate-middle badge-indicator"
-                  >
-                    ✓
-                  </Badge>
-                )}
+        {(() => {
+          const tableId = selectedTable?._id;
+          const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
+          const tableBatches = tableId ? batchesMap[tableId] : null;
+          const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
+
+          // Hide section when "No items added to cart" state (no cart items AND no batches)
+          if (cartItems.length === 0 && !hasBatches) return null;
+
+          return (
+            <div className="customer-section-container">
+              {/* Quick Access Buttons Row */}
+              <div className="info-quick-access d-flex">
+                {/* Customer Information Button */}
+                <Button
+                  color={(customerInfo.name || customerInfo.phone) ? 'primary' : 'outline-secondary'}
+                  size="sm"
+                  className={`flex-fill customer-info-toggle ${(customerInfo.name || customerInfo.phone) ? 'active' : ''}`}
+                  onClick={() => setShowCustomerModal(true)}
+                >
+                  <div className="d-flex align-items-center justify-content-center position-relative">
+                    <FaUser size={16} className="me-2" />
+                    <span className="fw-medium">Customer</span>
+                    {(customerInfo.name || customerInfo.phone) && (
+                      <Badge 
+                        color="success" 
+                        className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                      >
+                        ✓
+                      </Badge>
+                    )}
+                  </div>
+                </Button>
+                
+                {/* Special Instructions Button */}
+                <Button
+                  color={customerInfo.specialInstructions ? 'primary' : 'outline-secondary'}
+                  size="sm"
+                  className={`flex-fill special-instructions-toggle ms-2 ${customerInfo.specialInstructions ? 'active' : ''}`}
+                  onClick={() => setShowInstructionsModal(true)}
+                >
+                  <div className="d-flex align-items-center justify-content-center position-relative">
+                    <FaClipboardList size={16} className="me-2" />
+                    <span className="fw-medium">Instructions</span>
+                    {customerInfo.specialInstructions && (
+                      <Badge 
+                        color="success" 
+                        className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                      >
+                        ✓
+                      </Badge>
+                    )}
+                  </div>
+                </Button>
               </div>
-            </Button>
-            
-            {/* Special Instructions Button */}
-            <Button
-              color={customerInfo.specialInstructions ? 'primary' : 'outline-secondary'}
-              size="sm"
-              className={`flex-fill special-instructions-toggle ms-2 ${customerInfo.specialInstructions ? 'active' : ''}`}
-              onClick={() => setShowInstructionsModal(true)}
-            >
-              <div className="d-flex align-items-center justify-content-center position-relative">
-                <FaClipboardList size={16} className="me-2" />
-                <span className="fw-medium">Instructions</span>
-                {customerInfo.specialInstructions && (
-                  <Badge 
-                    color="success" 
-                    className="position-absolute top-0 start-100 translate-middle badge-indicator"
-                  >
-                    ✓
-                  </Badge>
-                )}
-              </div>
-            </Button>
-          </div>
-        </div>
+            </div>
+          );
+        })()}
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {(() => {
             const tableId = selectedTable?._id;

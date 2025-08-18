@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+  import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Row, 
   Col, 
@@ -54,7 +54,7 @@ const MenuSelection = () => {
  
   
   
-  const { addToCart, cartItems, getItemCount } = useCart();
+  const { addToCart } = useCart();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
   // Dynamic currency formatting function
@@ -119,7 +119,7 @@ const MenuSelection = () => {
  
 
   // Filter menu items based on category and search
-  const filteredItems = React.useMemo(() => {
+  const filteredItems = useMemo(() => {
     let items = selectedCategory === 'all' 
       ? menuItems 
       : getMenuItemsByCategory(selectedCategory);
@@ -140,6 +140,46 @@ const MenuSelection = () => {
     
     return items;
   }, [menuItems, selectedCategory, searchTerm, getMenuItemsByCategory, searchMenuItems]);
+
+  // Stable handlers to avoid recreations in memoized grids
+  // Stable click handler reference so item grid doesn't re-render on unrelated state changes
+  const onSmartCardClick = useCallback((item) => {
+    handleSmartCardClick(item);
+  }, []);
+  
+  // Memoized wrapper to prevent re-renders when parent re-renders without props changes
+  // Defined before first usage in itemsGrid to avoid temporal dead zone errors
+  const MemoItemCard = React.memo(ItemCard);
+
+  // Memoized grid of items to prevent re-rendering when unrelated POS actions occur
+  const itemsGrid = useMemo(() => {
+    if (loading) {
+      return (
+        <div className="text-center py-5">
+          <Spinner color="primary" />
+          <p className="mt-2">Loading menu items...</p>
+        </div>
+      );
+    }
+    if (filteredItems.length === 0) {
+      return (
+        <Alert color="info" className="text-center">
+          <h5>No items found</h5>
+          <p>Try adjusting your search or category filter.</p>
+        </Alert>
+      );
+    }
+    return (
+      <Row className="g-3">
+        {filteredItems.map(item => (
+          <Col key={item._id} sm={6} md={4} lg={4} xl={3} >
+            {/* Pass through item; ItemCard uses internal click guard */}
+            <MemoItemCard item={item} onSmartClick={onSmartCardClick} />
+          </Col>
+        ))}
+      </Row>
+    );
+  }, [filteredItems, loading, menuSettings, onSmartCardClick]);
   
  
   
@@ -281,14 +321,40 @@ const MenuSelection = () => {
     }
   };
 
-  const ItemCard = ({ item }) => {
-    const itemInCart = getItemInCart(item._id);
-    const itemCount = getItemCount(item._id);
+  // Tiny badge component that subscribes to cart context; only this re-renders on cart changes
+  const ItemCountBadge = React.memo(({ itemId }) => {
+    const { getItemCount } = useCart();
+    const itemCount = getItemCount ? getItemCount(itemId) : 0;
+    if (!itemCount) return null;
+    return (
+      <Badge 
+        color="success" 
+        className="position-absolute top-0 start-0 m-2"
+        style={{ 
+          fontSize: '0.7rem',
+          borderRadius: '12px',
+          fontWeight: '600'
+        }}
+      >
+        {itemCount}
+      </Badge>
+    );
+  });
+
+  function ItemCard({ item, onSmartClick }) {
     const hasVariants = hasVariantsOrSizes(item);
     
     const cardHeight = menuSettings.compactView ? '60px' : '80px';
     const imageHeight = menuSettings.showCardImages ? `${menuSettings.cardImageHeight}px` : '0px';
     
+    const handleCardClick = (e) => {
+      // Only respond to primary mouse button
+      if (e && typeof e.button === 'number' && e.button !== 0) return;
+      // If any reactstrap/Bootstrap modal is open, ignore card clicks
+      if (typeof document !== 'undefined' && document.querySelector('.modal.show')) return;
+      onSmartClick ? onSmartClick(item) : handleSmartCardClick(item);
+    };
+
     return (
       <Card 
         className={`menu-item-card h-100 shadow-sm border-0`}
@@ -297,7 +363,7 @@ const MenuSelection = () => {
           borderRadius: '12px',
           overflow: 'hidden'
         }}
-        onClick={() => handleSmartCardClick(item)}
+        onClick={handleCardClick}
       >
         {/* Conditional Image Section */}
         {menuSettings.showCardImages && (
@@ -317,19 +383,7 @@ const MenuSelection = () => {
             />
             
             {/* Item Count Badge on Image */}
-            {itemCount > 0 && (
-              <Badge 
-                color="success" 
-                className="position-absolute top-0 start-0 m-2"
-                style={{ 
-                  fontSize: '0.7rem',
-                  borderRadius: '12px',
-                  fontWeight: '600'
-                }}
-              >
-                {itemCount}
-              </Badge>
-            )}
+            <ItemCountBadge itemId={item._id} />
             
             {/* Variants Indicator on Image */}
             {hasVariants && (
@@ -445,27 +499,6 @@ const MenuSelection = () => {
         </div>
       </Card>
     );
-  };
-
-  if (!selectedTable) {
-    return (
-      <Alert color="warning" className="m-4" fade={false}>
-        <h5>No Table Selected</h5>
-        <p>Please select a table first before browsing the menu.</p>
-      </Alert>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="text-center py-5">
-        <Spinner color="primary" style={{ width: '3rem', height: '3rem' }} />
-        <div className="mt-3">
-          <h5>Loading Menu...</h5>
-          <p className="text-muted">Please wait while we fetch the menu items</p>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -557,30 +590,12 @@ const MenuSelection = () => {
             overflowX: 'hidden',
             maxHeight: 'calc(100vh - 200px)',
           }}>
-            {loading ? (
-              <div className="text-center py-5">
-                <Spinner color="primary" />
-                <p className="mt-2">Loading menu items...</p>
-              </div>
-            ) : filteredItems.length === 0 ? (
-              <Alert color="info" className="text-center">
-                <h5>No items found</h5>
-                <p>Try adjusting your search or category filter.</p>
-              </Alert>
-            ) : (
-              <Row className="g-3">
-                {filteredItems.map(item => (
-                  <Col key={item._id} sm={6} md={4} lg={4} xl={3} >
-                    <ItemCard item={item} />
-                  </Col>
-                ))}
-              </Row>
-            )}
+            {itemsGrid}
           </div>
         </Col>
 
         {/* Cart Sidebar - Right Side */}
-        <Col lg={4} className="ps-3">
+        <Col lg={4} className="ps-3 pos-right-col">
           <CartSidebar />
         </Col>
       </Row>

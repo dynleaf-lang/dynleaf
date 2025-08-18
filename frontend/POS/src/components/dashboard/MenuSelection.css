@@ -7,6 +7,12 @@
   overflow: hidden;
 }
 
+/* Ensure the right cart column is above the left menu grid to avoid click-through */
+.pos-right-col {
+  position: relative;
+  z-index: 20;
+}
+
 /* Header styling */
 .menu-header {
   background: white;
@@ -109,6 +115,7 @@
   transition: opacity 0.2s ease;
   border-radius: 12px;
   z-index: 2;
+  pointer-events: none; /* Do not block clicks; let Card onClick handle */
 }
 
 .menu-item-card:hover .hover-overlay {
@@ -262,15 +269,13 @@
   }
 }
 
+/* Disable repeated animations to avoid flicker on cart updates */
 .menu-item-card {
-  animation: fadeInUp 0.3s ease-out;
+  animation: none;
 }
 
 /* Hover effects for better UX */
-.menu-selection .row.g-3 .col:nth-child(odd) .menu-item-card {
-  animation-delay: 0.1s;
-}
-
+.menu-selection .row.g-3 .col:nth-child(odd) .menu-item-card,
 .menu-selection .row.g-3 .col:nth-child(even) .menu-item-card {
-  animation-delay: 0.2s;
+  animation: none;
 }
