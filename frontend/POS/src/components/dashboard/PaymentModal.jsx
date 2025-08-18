@@ -56,6 +56,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [errors, setErrors] = useState({});
   const [isSettling, setIsSettling] = useState(false);
+  const [generalError, setGeneralError] = useState('');
   const [printerConfig, setPrinterConfig] = useState(() => {
     const saved = localStorage.getItem('pos_printer_config');
     return saved ? JSON.parse(saved) : { printerType: 'browser' };
@@ -221,6 +222,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
 
     setLoading(true);
     setIsSettling(batchCount > 0);
+    setGeneralError('');
     
     try {
       let orderData = null;
@@ -363,7 +365,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
       
     } catch (error) {
       console.error('Payment processing error:', error);
-      toast.error(error.message || 'Failed to process payment');
+      const msg = error.message || 'Failed to process payment';
+      setGeneralError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
       setIsSettling(false);
@@ -470,7 +474,16 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   // Main payment modal
   return (
     <>
-    <Modal isOpen={isOpen} toggle={handleClose} size="lg" backdrop="static" keyboard={false}>
+    <Modal
+      isOpen={isOpen}
+      toggle={handleClose}
+      size="md"
+      centered
+      scrollable
+      backdrop="static"
+      keyboard={false}
+      unmountOnClose
+    >
       <ModalHeader toggle={!loading ? handleClose : undefined} className="bg-primary text-white">
         <div className="d-flex align-items-center">
           <FaCreditCard className="me-2" />
@@ -484,9 +497,21 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
       </ModalHeader>
       
       <ModalBody className="p-0">
+        {/* Inline status & error indicators */}
+        {loading && (
+          <Alert color="info" className="rounded-0 d-flex align-items-center m-0 py-2">
+            <Spinner size="sm" className="me-2" />
+            {isSettling ? 'Settling table, please wait...' : 'Processing payment...'}
+          </Alert>
+        )}
+        {!!generalError && !loading && (
+          <Alert color="danger" className="rounded-0 m-0 py-2">
+            {generalError}
+          </Alert>
+        )}
         {/* Order Summary Card */}
         <Card className="border-0 border-bottom">
-          <CardBody className="bg-light">
+          <CardBody className="bg-light py-3">
             <div className="row">
               <div className="col-md-6">
                 <div className="d-flex align-items-center mb-2">
@@ -528,18 +553,18 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
         </Card>
         
         {/* Payment Method Selection */}
-        <div className="p-4">
+        <div className="p-3">
           <h6 className="mb-3">Select Payment Method</h6>
           <div className="row g-3 mb-4">
             {paymentMethods.map(method => (
               <div key={method.id} className="col-4">
                 <Button
                   color={selectedPaymentMethod === method.id ? method.color : 'outline-secondary'}
-                  className="w-100 h-100 d-flex flex-column align-items-center justify-content-center p-3"
+                  className="w-100 h-100 d-flex flex-column align-items-center justify-content-center p-2"
                   onClick={() => handlePaymentMethodChange(method.id)}
                   disabled={loading}
                 >
-                  <method.icon size={24} className="mb-2" />
+                  <method.icon size={20} className="mb-1" />
                   <span>{method.label}</span>
                 </Button>
               </div>
@@ -548,7 +573,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           
           {/* Payment Details Form */}
           <Card className="border">
-            <CardBody>
+            <CardBody className="py-3">
               {selectedPaymentMethod === 'cash' && (
                 <>
                   <FormGroup>
@@ -565,40 +590,43 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                       disabled={loading}
                       step="0.01"
                       min="0"
+                      aria-label="Amount received"
                     />
                     {errors.amountReceived && (
                       <div className="invalid-feedback d-block">{errors.amountReceived}</div>
                     )}
                   </FormGroup>
-                  
-                  {/* Quick Amount Buttons */}
-                  <div className="mb-3">
-                    <Label className="small text-muted">Quick Amounts</Label>
-                    <div className="d-flex gap-2 flex-wrap">
-                      {quickAmounts.map(amount => (
-                        <Button
-                          key={amount}
-                          size="sm"
-                          color="outline-primary"
-                          onClick={() => handleQuickAmount(amount)}
-                          disabled={loading}
-                        >
-                          {amount === 0 ? 'Exact' : formatPrice(amount)}
-                        </Button>
-                      ))}
+
+                  {quickAmounts.length > 0 && (
+                    <div className="mb-3">
+                      <small className="text-muted d-block mb-2">Quick Amounts</small>
+                      <div className="d-flex flex-wrap gap-2">
+                        {quickAmounts.map((amt) => (
+                          <Button
+                            key={amt}
+                            size="sm"
+                            color="secondary"
+                            outline
+                            onClick={() => handleQuickAmount(amt === 0 ? totalAmount : amt)}
+                            disabled={loading}
+                          >
+                            {amt === 0 ? `Exact (${formatPrice(totalAmount)})` : formatPrice(amt)}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  
+                  )}
+
                   {/* Change Calculation */}
                   {paymentData.amountReceived && parseFloat(paymentData.amountReceived) > totalAmount && (
                     <Alert color="info" className="d-flex justify-content-between align-items-center">
                       <span><FaCalculator className="me-2" />Change to Return:</span>
-                      <strong className="fs-5">{formatPrice(calculateChange())}</strong>
+                      <strong className="fs-6">{formatPrice(calculateChange())}</strong>
                     </Alert>
                   )}
                 </>
               )}
-              
+
               {selectedPaymentMethod === 'card' && (
                 <>
                   <FormGroup>
@@ -613,13 +641,14 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                       }}
                       invalid={!!errors.cardNumber}
                       disabled={loading}
+                      aria-label="Card number"
                     />
                     {errors.cardNumber && (
                       <div className="invalid-feedback d-block">{errors.cardNumber}</div>
                     )}
                   </FormGroup>
                   <FormGroup>
-                    <Label>Card Holder Name <span className="text-danger">*</span></Label>
+                    <Label>Card Holder <span className="text-danger">*</span></Label>
                     <Input
                       type="text"
                       placeholder="Enter card holder name"
@@ -630,24 +659,25 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                       }}
                       invalid={!!errors.cardHolder}
                       disabled={loading}
+                      aria-label="Card holder name"
                     />
                     {errors.cardHolder && (
                       <div className="invalid-feedback d-block">{errors.cardHolder}</div>
                     )}
                   </FormGroup>
-                  <Alert color="success">
+                  <Alert color="success" className="py-2">
                     <strong>Amount:</strong> {formatPrice(totalAmount)}
                   </Alert>
                 </>
               )}
-              
+
               {selectedPaymentMethod === 'upi' && (
                 <>
                   <FormGroup>
                     <Label>UPI ID <span className="text-danger">*</span></Label>
                     <Input
                       type="text"
-    
+                      placeholder="customer@upi"
                       value={paymentData.upiId}
                       onChange={(e) => {
                         setPaymentData(prev => ({ ...prev, upiId: e.target.value }));
@@ -655,6 +685,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                       }}
                       invalid={!!errors.upiId}
                       disabled={loading}
+                      aria-label="UPI ID"
                     />
                     {errors.upiId && (
                       <div className="invalid-feedback d-block">{errors.upiId}</div>
@@ -664,7 +695,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                     <Label>Transaction ID <span className="text-danger">*</span></Label>
                     <Input
                       type="text"
-                      placeholder="Enter transaction ID"
+                      placeholder="Enter transaction reference"
                       value={paymentData.transactionId}
                       onChange={(e) => {
                         setPaymentData(prev => ({ ...prev, transactionId: e.target.value }));
@@ -672,12 +703,13 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                       }}
                       invalid={!!errors.transactionId}
                       disabled={loading}
+                      aria-label="Transaction ID"
                     />
                     {errors.transactionId && (
                       <div className="invalid-feedback d-block">{errors.transactionId}</div>
                     )}
                   </FormGroup>
-                  <Alert color="success">
+                  <Alert color="success" className="py-2">
                     <strong>Amount:</strong> {formatPrice(totalAmount)}
                   </Alert>
                 </>
@@ -721,7 +753,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
             {!orderCreated && (
               <Button 
                 color="success" 
-                size="lg"
+                size="md"
                 onClick={handleProcessPayment}
                 disabled={loading}
                 className="px-4"
