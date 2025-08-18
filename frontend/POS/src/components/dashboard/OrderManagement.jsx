@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Row, 
   Col, 
@@ -42,7 +42,8 @@ import {
   FaClipboardList,
   FaConciergeBell,
   FaPhone,
-  FaMapMarkerAlt
+  FaMapMarkerAlt,
+  FaBell
 } from 'react-icons/fa';
 import { useOrder } from '../../context/OrderContext';
 import { format } from 'date-fns';
@@ -70,6 +71,116 @@ const OrderManagement = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
 
+  // SLA settings (minutes) with persistence
+  const SLA_STORAGE_KEY = 'pos_sla_settings';
+  const [slaSettings, setSlaSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SLA_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { warnMinutes: 10, dangerMinutes: 20, enableSound: true };
+  });
+  const [showSlaModal, setShowSlaModal] = useState(false);
+
+  // periodic tick to update timers
+  const [tick, setTick] = useState(0);
+  const prevCountsRef = useRef({ total: 0, ready: 0 });
+
+  // Ref to focus search via keyboard shortcut
+  const searchInputRef = useRef(null);
+
+  // Global key handler: F -> focus search (avoid when typing or modifiers pressed)
+  useEffect(() => {
+    const isTypingContext = (target) => {
+      if (!target) return false;
+      const tag = (target.tagName || '').toUpperCase();
+      const editable = target.isContentEditable;
+      return editable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+    const onKeyDown = (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (isTypingContext(e.target)) return;
+      const key = (e.key || '').toLowerCase();
+      if (key === 'f') {
+        e.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          try { searchInputRef.current.select?.(); } catch {}
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Persist SLA settings
+  useEffect(() => {
+    try {
+      localStorage.setItem(SLA_STORAGE_KEY, JSON.stringify(slaSettings));
+    } catch {}
+  }, [slaSettings]);
+
+  // Interval tick for timers
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 10000); // 10s
+    return () => clearInterval(id);
+  }, []);
+
+  // Simple beep using Web Audio API
+  const playBeep = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880; // A5
+      o.connect(g);
+      g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.01);
+      o.start();
+      o.stop(ctx.currentTime + 0.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+    } catch {}
+  };
+
+  // Sound alerts for new/ready orders
+  useEffect(() => {
+    const total = orders.length || 0;
+    const readyCount = orders.filter(o => o.status === 'ready').length;
+    const prev = prevCountsRef.current;
+    if (slaSettings.enableSound) {
+      if (total > prev.total || readyCount > prev.ready) {
+        playBeep();
+      }
+    }
+    prevCountsRef.current = { total, ready: readyCount };
+  }, [orders, slaSettings.enableSound]);
+
+  // Helpers for SLA computation
+  const getCreatedAt = (o) => {
+    return o?.createdAt || o?.orderDate || Date.now();
+  };
+  const getElapsedMs = (o) => {
+    try {
+      return Date.now() - new Date(getCreatedAt(o)).getTime();
+    } catch {
+      return 0;
+    }
+  };
+  const formatDuration = (ms) => {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const mm = Math.floor(totalSec / 60);
+    const ss = totalSec % 60;
+    return `${mm}m ${ss.toString().padStart(2, '0')}s`;
+  };
+  const getSlaClass = (o) => {
+    const mins = getElapsedMs(o) / 60000;
+    if (mins >= slaSettings.dangerMinutes) return 'sla-danger';
+    if (mins >= slaSettings.warnMinutes) return 'sla-warn';
+    return 'sla-ok';
+  };
+
   // Helper to display table info with fallbacks
   const getTableLabel = (o) => {
     try {
@@ -90,8 +201,7 @@ const OrderManagement = () => {
   // Filter orders based on main view, active tab, search, and filters
   const filteredOrders = React.useMemo(() => {
     let filtered = orders;
-
-  console.log("orders",orders);
+ 
   
 
     // Filter by main view (orders vs kot)
@@ -134,7 +244,7 @@ const OrderManagement = () => {
     }
 
     return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [orders, mainView, activeTab, searchTerm, paymentFilter, getOrdersByStatus]);
+  }, [orders, mainView, activeTab, searchTerm, paymentFilter, getOrdersByStatus, tick]);
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
@@ -281,7 +391,7 @@ const OrderManagement = () => {
                 </Badge>
               </div>
               <small className="order-time text-muted">
-                {format(new Date(order.orderDate), 'HH:mm')}
+                {format(new Date(order.orderDate || order.createdAt), 'HH:mm')}
               </small>
             </div>
             <div className="order-status-badges">
@@ -292,6 +402,9 @@ const OrderManagement = () => {
               <Badge color={getPaymentStatusColor(order.paymentStatus)}>
                 {order.paymentStatus.toUpperCase()}
               </Badge>
+              <div className={`mt-2 sla-badge ${getSlaClass(order)}`} title="Service time elapsed">
+                <FaClock className="me-1" /> {formatDuration(getElapsedMs(order))}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -415,10 +528,16 @@ const OrderManagement = () => {
           <h3>Order Management</h3>
           <p className="text-muted mb-0">Manage and track all orders</p>
         </div>
-        <Button color="outline-primary" onClick={fetchOrders}>
-          <FaSync className="me-2" />
-          Refresh
-        </Button>
+        <div className="d-flex gap-2">
+          <Button color="outline-primary" onClick={fetchOrders}>
+            <FaSync className="me-2" />
+            Refresh
+          </Button>
+          <Button color="outline-warning" onClick={() => setShowSlaModal(true)}>
+            <FaBell className="me-2" />
+            SLA Settings
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -430,6 +549,7 @@ const OrderManagement = () => {
               placeholder="Search orders..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              innerRef={searchInputRef}
             />
             <Button color="outline-secondary">
               <FaSearch />
@@ -709,6 +829,62 @@ const OrderManagement = () => {
           <Button color="primary" onClick={() => window.print()}>
             <FaPrint className="me-2" />
             Print Receipt
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* SLA Settings Modal */}
+      <Modal isOpen={showSlaModal} toggle={() => setShowSlaModal(false)}>
+        <ModalHeader toggle={() => setShowSlaModal(false)}>
+          SLA Settings
+        </ModalHeader>
+        <ModalBody>
+          <div className="mb-3">
+            <label className="form-label">Warning Threshold (minutes)</label>
+            <Input
+              type="number"
+              min={1}
+              value={slaSettings.warnMinutes}
+              onChange={(e) => setSlaSettings(s => ({ ...s, warnMinutes: Math.max(1, parseInt(e.target.value || '0', 10)) }))}
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Danger Threshold (minutes)</label>
+            <Input
+              type="number"
+              min={1}
+              value={slaSettings.dangerMinutes}
+              onChange={(e) => setSlaSettings(s => ({ ...s, dangerMinutes: Math.max(1, parseInt(e.target.value || '0', 10)) }))}
+            />
+            <small className="text-muted">Danger should be greater than Warning.</small>
+          </div>
+          <div className="form-check">
+            <Input
+              id="enableSound"
+              type="checkbox"
+              className="form-check-input"
+              checked={!!slaSettings.enableSound}
+              onChange={(e) => setSlaSettings(s => ({ ...s, enableSound: e.target.checked }))}
+            />
+            <label className="form-check-label ms-2" htmlFor="enableSound">
+              Enable sound alert for new and ready orders
+            </label>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowSlaModal(false)}>Close</Button>
+          <Button
+            color="primary"
+            onClick={() => {
+              if (slaSettings.dangerMinutes <= slaSettings.warnMinutes) {
+                toast.error('Danger threshold must be greater than Warning');
+                return;
+              }
+              toast.success('SLA settings saved');
+              setShowSlaModal(false);
+            }}
+          >
+            Save
           </Button>
         </ModalFooter>
       </Modal>

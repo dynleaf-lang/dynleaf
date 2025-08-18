@@ -94,7 +94,7 @@
 }
 
 .order-header-info .order-number {
-  font-size: 1.1rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: #495057;
 }
@@ -130,6 +130,43 @@
   padding: 4px 8px;
   border-radius: 12px;
   font-weight: 600;
+}
+
+/* SLA Timer Badge */
+.sla-badge {
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.sla-ok {
+  background: linear-gradient(135deg, #e8f5e9, #d0f0d6);
+  color: #1e7e34;
+  border: 1px solid #b7e4c7;
+}
+.sla-warn {
+  background: linear-gradient(135deg, #fff3cd, #ffe8a1);
+  color: #856404;
+  border: 1px solid #ffe08a;
+  animation: pulseSlow 1.5s infinite;
+}
+.sla-danger {
+  background: linear-gradient(135deg, #f8d7da, #f3bfc4);
+  color: #721c24;
+  border: 1px solid #f1aeb5;
+  animation: pulseFast 1s infinite;
+}
+
+@keyframes pulseSlow {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pulseFast {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+  100% { transform: scale(1); }
 }
 
 /* Order Card Body */

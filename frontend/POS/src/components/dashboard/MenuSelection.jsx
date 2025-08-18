@@ -1,4 +1,4 @@
-  import React, { useState, useEffect, useMemo, useCallback } from 'react';
+  import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Row, 
   Col, 
@@ -71,6 +71,7 @@ const MenuSelection = () => {
   
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showItemModal, setShowItemModal] = useState(false);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -115,6 +116,30 @@ const MenuSelection = () => {
     return () => {
       window.removeEventListener('menuSettingsChanged', handleSettingsChange);
     };
+  }, []);
+
+  // Global key handler: F -> focus menu search (with guards)
+  useEffect(() => {
+    const isTypingContext = (target) => {
+      if (!target) return false;
+      const tag = (target.tagName || '').toUpperCase();
+      const editable = target.isContentEditable;
+      return editable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+    const onKeyDown = (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (isTypingContext(e.target)) return;
+      const key = (e.key || '').toLowerCase();
+      if (key === 'f') {
+        e.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          try { searchInputRef.current.select?.(); } catch {}
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
  
 
@@ -536,6 +561,7 @@ const MenuSelection = () => {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   style={{ fontSize: '0.9rem' }}
+                  innerRef={searchInputRef}
                 />
                 <Button color="outline-secondary" size="sm">
                   <FaSearch />

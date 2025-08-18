@@ -92,8 +92,8 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     { id: 'upi', label: 'UPI', icon: FaMobile, color: 'info' }
   ];
 
-  // Quick amount buttons for cash payments
-  const quickAmounts = [0, 50, 100, 200, 500, 1000].filter(amount => amount === 0 || amount >= totalAmount);
+  // Quick tender buttons for cash payments
+  const tenderButtons = [100, 200, 500];
 
   const formatPrice = (price) => {
     if (currencyReady && formatCurrencyDynamic) {
@@ -106,10 +106,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     }).format(price || 0);
   };
 
-  const calculateChange = () => {
-    const received = parseFloat(paymentData.amountReceived) || 0;
-    return Math.max(0, received - totalAmount);
-  };
+  const parseReceived = () => parseFloat(paymentData.amountReceived) || 0;
+  const calculateChange = () => Math.max(0, parseReceived() - totalAmount);
+  const remainingBalance = () => Math.max(0, totalAmount - parseReceived());
 
   const handlePaymentMethodChange = (method) => {
     setSelectedPaymentMethod(method);
@@ -123,7 +122,15 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
   };
 
   const handleQuickAmount = (amount) => {
+    // Set absolute amount (used for Exact)
     setPaymentData(prev => ({ ...prev, amountReceived: amount.toString() }));
+    setErrors(prev => ({ ...prev, amountReceived: null }));
+  };
+
+  const handleAddAmount = (delta) => {
+    const current = parseReceived();
+    const next = current + delta;
+    setPaymentData(prev => ({ ...prev, amountReceived: next.toString() }));
     setErrors(prev => ({ ...prev, amountReceived: null }));
   };
 
@@ -188,11 +195,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     
     switch (paymentData.method) {
       case 'cash':
-        const received = parseFloat(paymentData.amountReceived) || 0;
-        if (!paymentData.amountReceived) {
-          newErrors.amountReceived = 'Amount received is required';
-        } else if (received < totalAmount) {
-          newErrors.amountReceived = `Amount cannot be less than ${formatPrice(totalAmount)}`;
+        const received = parseFloat(paymentData.amountReceived);
+        if (paymentData.amountReceived === '' || paymentData.amountReceived === null || isNaN(received) || received < 0) {
+          newErrors.amountReceived = 'Enter a valid amount';
         }
         break;
       case 'card':
@@ -597,28 +602,49 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                     )}
                   </FormGroup>
 
-                  {quickAmounts.length > 0 && (
-                    <div className="mb-3">
-                      <small className="text-muted d-block mb-2">Quick Amounts</small>
-                      <div className="d-flex flex-wrap gap-2">
-                        {quickAmounts.map((amt) => (
-                          <Button
-                            key={amt}
-                            size="sm"
-                            color="secondary"
-                            outline
-                            onClick={() => handleQuickAmount(amt === 0 ? totalAmount : amt)}
-                            disabled={loading}
-                          >
-                            {amt === 0 ? `Exact (${formatPrice(totalAmount)})` : formatPrice(amt)}
-                          </Button>
-                        ))}
-                      </div>
+                  <div className="mb-3">
+                    <small className="text-muted d-block mb-2">Quick Tender</small>
+                    <div className="d-flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        color="secondary"
+                        outline
+                        onClick={() => handleQuickAmount(totalAmount)}
+                        disabled={loading}
+                      >
+                        {`Exact (${formatPrice(totalAmount)})`}
+                      </Button>
+                      {tenderButtons.map((amt) => (
+                        <Button
+                          key={amt}
+                          size="sm"
+                          color="secondary"
+                          outline
+                          onClick={() => handleAddAmount(amt)}
+                          disabled={loading}
+                        >
+                          {formatPrice(amt)}
+                        </Button>
+                      ))}
+                      <Button
+                        size="sm"
+                        color="light"
+                        onClick={() => handleQuickAmount(0)}
+                        disabled={loading}
+                      >
+                        Reset
+                      </Button>
                     </div>
-                  )}
+                  </div>
 
                   {/* Change Calculation */}
-                  {paymentData.amountReceived && parseFloat(paymentData.amountReceived) > totalAmount && (
+                  {paymentData.amountReceived && parseReceived() < totalAmount && (
+                    <Alert color="warning" className="d-flex justify-content-between align-items-center">
+                      <span><FaCalculator className="me-2" />Remaining Balance:</span>
+                      <strong className="fs-6">{formatPrice(remainingBalance())}</strong>
+                    </Alert>
+                  )}
+                  {paymentData.amountReceived && parseReceived() > totalAmount && (
                     <Alert color="info" className="d-flex justify-content-between align-items-center">
                       <span><FaCalculator className="me-2" />Change to Return:</span>
                       <strong className="fs-6">{formatPrice(calculateChange())}</strong>
@@ -755,7 +781,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
                 color="success" 
                 size="md"
                 onClick={handleProcessPayment}
-                disabled={loading}
+                disabled={loading || (selectedPaymentMethod === 'cash' && parseReceived() < totalAmount)}
                 className="px-4"
               >
                 {loading ? (

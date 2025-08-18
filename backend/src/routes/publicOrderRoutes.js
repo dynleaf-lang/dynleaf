@@ -698,39 +698,67 @@ router.get('/statistics', async (req, res) => {
     }
 });
 
-// Update order status
+// Update order status (supports legacy 'orderStatus' and modern 'status')
 router.patch('/:id/status', async (req, res) => {
     try {
-        const { orderStatus } = req.body;
         const { id } = req.params;
-        
-        if (!orderStatus) {
+        const { orderStatus: legacyStatusInput, status: modernStatusInput } = req.body;
+
+        // Accept either legacy or modern field
+        if (!legacyStatusInput && !modernStatusInput) {
             return res.status(400).json({
                 success: false,
                 message: 'Order status is required'
             });
         }
-            
-        // Validate status values
-        const validStatuses = ['Pending', 'Processing', 'Completed', 'Cancelled'];
-        if (!validStatuses.includes(orderStatus)) {
-            return res.status(400).json({
-                success: false,
-                message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
-            });
-        }
 
-        // Map legacy status to new status format
-        const statusMapping = {
+        // Define valid sets and mappings between legacy and modern statuses
+        const validLegacyStatuses = ['Pending', 'Processing', 'Completed', 'Cancelled'];
+        const validModernStatuses = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+
+        // Legacy -> Modern
+        const legacyToModern = {
             'Pending': 'pending',
             'Processing': 'preparing',
             'Completed': 'ready',
             'Cancelled': 'cancelled'
         };
 
-        const newStatus = statusMapping[orderStatus];
+        // Modern -> Legacy (best-effort mapping; both ready and delivered map to Completed)
+        const modernToLegacy = {
+            'pending': 'Pending',
+            'confirmed': 'Processing',
+            'preparing': 'Processing',
+            'ready': 'Completed',
+            'delivered': 'Completed',
+            'cancelled': 'Cancelled'
+        };
 
-        // Get the current order to track old status
+        let legacyToSet;
+        let modernToSet;
+
+        if (modernStatusInput) {
+            if (!validModernStatuses.includes(modernStatusInput)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid status. Must be one of: ${validModernStatuses.join(', ')}`
+                });
+            }
+            modernToSet = modernStatusInput;
+            legacyToSet = modernToLegacy[modernStatusInput] || 'Pending';
+        } else {
+            // legacy provided
+            if (!validLegacyStatuses.includes(legacyStatusInput)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid order status. Must be one of: ${validLegacyStatuses.join(', ')}`
+                });
+            }
+            legacyToSet = legacyStatusInput;
+            modernToSet = legacyToModern[legacyStatusInput] || 'pending';
+        }
+
+        // Get current order for old status (use modern status field primarily)
         const currentOrder = await Order.findById(id);
         if (!currentOrder) {
             return res.status(404).json({
@@ -738,46 +766,47 @@ router.patch('/:id/status', async (req, res) => {
                 message: 'Order not found'
             });
         }
-        
-        const oldStatus = currentOrder.orderStatus;
+
+        const oldModern = currentOrder.status || legacyToModern[currentOrder.orderStatus] || 'pending';
 
         const order = await Order.findByIdAndUpdate(
             id,
-            { 
-                orderStatus,  // Update legacy field
-                status: newStatus  // Update new field
+            {
+                orderStatus: legacyToSet,
+                status: modernToSet
             },
             { new: true, runValidators: true }
-        ).populate('restaurantId', 'name address country')
-         .populate('branchId', 'name address phone')
-         .populate('customerId', 'name email phone')
-         .populate('items.itemId', 'name description')
-         .populate('items.menuItemId', 'name description')
-         .populate('items.categoryId', 'name');
-        
+        )
+        .populate('restaurantId', 'name address country')
+        .populate('branchId', 'name address phone')
+        .populate('customerId', 'name email phone')
+        .populate('items.itemId', 'name description')
+        .populate('items.menuItemId', 'name description')
+        .populate('items.categoryId', 'name');
+
         if (!order) {
             return res.status(404).json({
                 success: false,
                 message: 'Order not found'
             });
         }
-        
-        // Emit real-time status update notification
+
+        // Emit real-time status update notification (use modern statuses)
         try {
             const { emitStatusUpdate } = require('../utils/socketUtils');
-            console.log(`[SOCKET] Emitting status update: ${oldStatus} → ${orderStatus}`);
+            console.log(`[SOCKET] Emitting status update: ${oldModern} → ${modernToSet}`);
             console.log(`[SOCKET] Order ID: ${order._id}, Order Number: ${order.orderId}`);
-            emitStatusUpdate(order, oldStatus, orderStatus);
+            emitStatusUpdate(order, oldModern, modernToSet);
             console.log(`[SOCKET] Status update emitted successfully`);
         } catch (socketError) {
             console.error('Error emitting status update notification:', socketError);
             // Don't fail the status update if socket emission fails
         }
-        
+
         res.status(200).json({
             success: true,
             data: order,
-            message: `Order status updated to ${orderStatus}`
+            message: `Order status updated to ${modernToSet}`
         });
     } catch (error) {
         console.error(`Error updating order status:`, error);

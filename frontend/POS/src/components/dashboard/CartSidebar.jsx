@@ -836,6 +836,63 @@ const CartSidebar = () => {
     }
   };
 
+  // Global keyboard shortcuts for faster POS actions
+  useEffect(() => {
+    const isTypingContext = (target) => {
+      if (!target) return false;
+      const tag = (target.tagName || '').toUpperCase();
+      const editable = target.isContentEditable;
+      return editable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const onKeyDown = (e) => {
+      // Ignore if any modifier keys are pressed
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      // Avoid triggering inside inputs or when a modal expects text input
+      if (isTypingContext(e.target)) return;
+
+      const key = (e.key || '').toLowerCase();
+      // Map 1/2/3 to order type selection
+      if (key === '1') {
+        e.preventDefault();
+        handleOrderTypeChange('dine-in');
+        return;
+      }
+      if (key === '2') {
+        e.preventDefault();
+        handleOrderTypeChange('takeaway');
+        return;
+      }
+      if (key === '3') {
+        e.preventDefault();
+        handleOrderTypeChange('delivery');
+        return;
+      }
+
+      // P -> proceed to payment (if valid)
+      if (key === 'p') {
+        e.preventDefault();
+        const errs = validateOrderForPayment();
+        if (errs.length) {
+          toast.error(errs[0]);
+          return;
+        }
+        handleProceedToPayment();
+        return;
+      }
+
+      // S -> save/hold order
+      if (key === 's') {
+        e.preventDefault();
+        handleHoldOrder();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [customerInfo?.orderType, cartItems, selectedTable, showPaymentModal]);
+
   const CartItem = memo(({ item }) => (
     <ListGroupItem className="d-flex justify-content-between align-items-center px-0">
       <div className="flex-grow-1">
