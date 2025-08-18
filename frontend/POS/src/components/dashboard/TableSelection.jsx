@@ -46,6 +46,7 @@ import { useCart } from '../../context/CartContext';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import './TableSelection.css';
+import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
 
 const TableSelection = () => {
   const { 
@@ -71,6 +72,9 @@ const TableSelection = () => {
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [showReservationModal, setShowReservationModal] = useState(false);
   const [showContactlessModal, setShowContactlessModal] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveTargetTableId, setMoveTargetTableId] = useState('');
+  const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
 
   // Helper function to get floor name by ObjectId
   const getFloorName = (floorId) => {
@@ -79,7 +83,26 @@ const TableSelection = () => {
     return floor ? floor.name : 'Unassigned Floor';
   };
 
-  // Filter tables based on search, status, and floor
+  // Helpers for quick filters
+  const tableHasPrinted = (tableId) => {
+    try {
+      const orders = getOrdersByTable(tableId) || [];
+      return orders.some(o => o?.printed === true || o?.kotPrinted === true || o?.billPrinted === true);
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const tableHasActiveKOT = (tableId) => {
+    try {
+      const orders = getOrdersByTable(tableId) || [];
+      return orders.some(o => ['pending','confirmed','preparing','ready'].includes(o?.status));
+    } catch (_) {
+      return false;
+    }
+  };
+
+  // Filter tables based on search, status, floor, and quick filters
   const filteredTables = tables.filter(table => {
     const tableName = table.TableName || table.name || '';
     const floorName = getFloorName(table.location?.floor);
@@ -92,8 +115,18 @@ const TableSelection = () => {
     
     // For floor filtering, use actual floor ObjectId
     const matchesFloor = selectedFloor === 'all' || table.location?.floor === selectedFloor;
+
+    // Quick filter logic
+    let matchesQuick = true;
+    if (quickFilter === 'running') {
+      matchesQuick = table.status === 'occupied' || tableHasActiveKOT(table._id);
+    } else if (quickFilter === 'printed') {
+      matchesQuick = tableHasPrinted(table._id);
+    } else if (quickFilter === 'kot') {
+      matchesQuick = tableHasActiveKOT(table._id);
+    }
     
-    return matchesSearch && matchesStatus && matchesFloor;
+    return matchesSearch && matchesStatus && matchesFloor && matchesQuick;
   });
 
   // Group tables by actual floor (using ObjectId reference)
@@ -115,6 +148,79 @@ const TableSelection = () => {
     reserved: tables.filter(t => t.status === 'reserved').length,
     cleaning: tables.filter(t => t.status === 'cleaning').length,
     blocked: tables.filter(t => t.status === 'blocked').length
+  };
+
+  // Print helper: builds a minimal orderData and prints via browser
+  const handlePrintForTable = (table, activeOrderCandidate = null) => {
+    try {
+      const tableOrders = getTableOrders(table._id) || [];
+      // Prefer active order else pick most recent by createdAt
+      let order = activeOrderCandidate;
+      if (!order) {
+        order = [...tableOrders].sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
+      }
+
+      if (!order) {
+        toast.error('No orders found for this table to print.');
+        return;
+      }
+
+      const safeItems = Array.isArray(order.items) ? order.items : [];
+      const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+      const orderData = {
+        order: {
+          orderNumber: order.orderNumber || order._id || 'N/A',
+          createdAt: order.createdAt || new Date().toISOString(),
+          items: safeItems.map(it => ({
+            name: it.name || it.itemName || 'Item',
+            price: Number(it.price) || 0,
+            quantity: Number(it.quantity) || 1,
+            customizations: it.customizations || []
+          })),
+          subtotal,
+          tax: Number(order.tax) || 0,
+          discount: Number(order.discount) || 0,
+          totalAmount: Number(order.totalAmount) || subtotal
+        },
+        paymentDetails: {
+          method: (order.paymentMethod || order.paymentMode || 'cash').toString(),
+          amountReceived: Number(order.amountReceived) || Number(order.totalAmount) || subtotal,
+          change: Number(order.change) || 0,
+          cardNumber: order.cardNumber || '',
+          cardHolder: order.cardHolder || '',
+          upiId: order.upiId || '',
+          transactionId: order.transactionId || ''
+        },
+        customerInfo: order.customerInfo || {
+          name: order.customerName || 'Walk-in Customer',
+          phone: order.customerPhone || '',
+          orderType: order.orderType || 'dine-in'
+        },
+        tableInfo: {
+          name: table.TableName || table.name || table.tableNumber || 'Table',
+          _id: table._id
+        }
+      };
+
+      const restaurantInfo = {
+        name: (order.restaurantName || 'Restaurant'),
+        address: order.branchAddress || 'Address',
+        phone: order.branchPhone || 'Phone',
+        email: '',
+        gst: order.gstNumber || ''
+      };
+
+      const html = generateHTMLReceipt(orderData, restaurantInfo, { duplicateReceipt: false });
+      const result = printHTMLReceipt(html);
+      if (result?.success) {
+        toast.success('Printing started');
+      } else {
+        toast.error(result?.error || 'Failed to print');
+      }
+    } catch (err) {
+      console.error('Print error:', err);
+      toast.error('Print failed');
+    }
   };
 
   const handleTableSelect = (table) => {
@@ -163,6 +269,60 @@ const TableSelection = () => {
       toast.success('Table status updated successfully');
     } catch (error) {
       toast.error('Failed to update table status');
+    }
+  };
+
+  const handleBlockSelectedTable = async () => {
+    if (!selectedTable?._id) {
+      return toast.error('Please select a table to block.');
+    }
+    if (!window.confirm(`Block table ${selectedTable.TableName || selectedTable.name}?`)) return;
+    await handleStatusChange(selectedTable._id, 'blocked');
+  };
+
+  const handleHoldSelectedTable = async () => {
+    if (!selectedTable?._id) {
+      return toast.error('Please select a table to hold.');
+    }
+    // Using 'reserved' as Hold semantics
+    await handleStatusChange(selectedTable._id, 'reserved');
+  };
+
+  const openMoveModal = () => {
+    if (!selectedTable?._id) {
+      return toast.error('Select a source table first to move items from.');
+    }
+    setMoveTargetTableId('');
+    setShowMoveModal(true);
+  };
+
+  const performMoveCart = () => {
+    try {
+      if (!selectedTable?._id) return toast.error('No source table selected.');
+      if (!moveTargetTableId) return toast.error('Select a destination table.');
+      if (moveTargetTableId === selectedTable._id) return toast.error('Source and destination cannot be the same.');
+
+      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+      const sourceSaved = carts[selectedTable._id] || { items: cartItems, customerInfo };
+      const destSaved = carts[moveTargetTableId] || { items: [], customerInfo: {} };
+
+      // Move by concatenating; adjust to business rule as needed
+      carts[moveTargetTableId] = {
+        items: [...(destSaved.items || []), ...(sourceSaved.items || [])],
+        customerInfo: { ...(destSaved.customerInfo || {}), ...(sourceSaved.customerInfo || {}) }
+      };
+      carts[selectedTable._id] = { items: [], customerInfo: { orderType: 'dine-in' } };
+
+      localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+
+      // If currently on source, clear current cart in UI
+      replaceCart([], { orderType: 'dine-in' });
+
+      toast.success('Items moved successfully');
+      setShowMoveModal(false);
+    } catch (e) {
+      console.error('Move cart error', e);
+      toast.error('Failed to move items');
     }
   };
 
@@ -216,14 +376,22 @@ const TableSelection = () => {
   };
 
   const getTableOrders = (tableId) => {
-    return getOrdersByTable(tableId);
+    try {
+      const orders = getOrdersByTable(tableId);
+      return Array.isArray(orders) ? orders : [];
+    } catch (_) {
+      return [];
+    }
   };
 
   const FloorPlanTable = ({ table, index }) => {
     const tableOrders = getTableOrders(table._id);
-    const activeOrder = tableOrders.find(order => 
-      ['pending', 'confirmed', 'preparing', 'ready'].includes(order.status)
-    );
+    const activeStatuses = ['pending','confirmed','preparing','ready','accepted','placed','in_progress'];
+    const activeOrder = (tableOrders || []).find(order => {
+      const s = (order?.status || '').toLowerCase();
+      return activeStatuses.includes(s);
+    });
+    const shouldShowPrint = (table.status && table.status.toLowerCase() !== 'available') || !!activeOrder;
  
     
 
@@ -255,48 +423,68 @@ const TableSelection = () => {
           {table.TableName}
         </div>
         
-        {/* Table status indicators */}
-        <div style={{ 
-          position: 'absolute', 
-          bottom: '2px', 
-          right: '2px',
-          display: 'flex',
-          gap: '2px'
-        }}>
-          {table.status === 'occupied' && (
-            <FaUsers size={15} color="#F44336" />
-          )}
-          {table.status === 'reserved' && (
-            <FaClock size={15} color="#FF9800" />
-          )}
-          {table.status === 'cleaning' && (
-            <FaExclamationTriangle size={15} color="#2196F3" />
-          )}
-          {activeOrder && (
-            <FaUtensils size={15} color="#4CAF50" />
-          )}
-        </div>
+        
         
         {/* Print icon for orders */}
-        {activeOrder && (
-          <div style={{ 
-            position: 'absolute', 
-            top: '2px', 
-            left: '2px'
-          }}>
-            <FaPrint size={15} color="#666" />
-          </div>
+        {shouldShowPrint && (
+          <button
+            type="button"
+            aria-label="Print order"
+            title={activeOrder ? 'Print order' : 'Select table to print from Order Management'}
+            onClick={(e) => {
+              e.stopPropagation();
+              try {
+                // Select table for context and trigger print
+                handleTableSelect(table);
+                handlePrintForTable(table, activeOrder);
+              } catch (err) {
+                console.error('Print action error', err);
+                toast.error('Unable to start print action');
+              }
+            }}
+            style={{ 
+              position: 'absolute', 
+              top: '2px', 
+              left: '2px',
+              border: 'none',
+              background: 'rgba(0,0,0,0.04)',
+              borderRadius: '6px',
+              padding: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <FaPrint size={15} color="#555" />
+          </button>
         )}
         
         {/* Eye icon for viewing */}
         {table.status === 'occupied' && (
-          <div style={{ 
-            position: 'absolute', 
-            top: '2px', 
-            right: '2px'
-          }}>
-            <FaEye size={15} color="#666" />
-          </div>
+          <button
+            type="button"
+            aria-label="View table details"
+            title="View table details"
+            onClick={(e) => {
+              e.stopPropagation();
+              try {
+                handleTableDetails(table);
+              } catch (err) {
+                console.error('Open details error', err);
+                toast.error('Unable to open table details');
+              }
+            }}
+            style={{ 
+              position: 'absolute', 
+              top: '2px', 
+              right: '2px',
+              border: 'none',
+              background: 'rgba(0,0,0,0.04)',
+              borderRadius: '6px',
+              padding: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <FaEye size={15} color="#555" />
+          </button>
         )}
       </div>
     );
@@ -362,27 +550,27 @@ const TableSelection = () => {
         {/* Action Bar */}
         <div className="action-bar">
           <div className="action-buttons">
-            <Button size="sm" color="light" className="action-btn">
+            <Button size="sm" color="light" className="action-btn" onClick={openMoveModal}>
               <FaHandPaper className="me-1" />
               Move KOT/ Items
             </Button>
-            <Button size="sm" color="light" className="action-btn">
+            <Button size="sm" color="light" className="action-btn" onClick={handleBlockSelectedTable}>
               <FaHandPaper className="me-1" />
               Block Table
             </Button>
-            <Button size="sm" color="info" className="action-btn">
+            <Button size="sm" color="info" className="action-btn" onClick={() => setQuickFilter(prev => prev === 'running' ? 'none' : 'running')}>
               <FaTable className="me-1" />
               Running Table
             </Button>
-            <Button size="sm" color="warning" className="action-btn">
+            <Button size="sm" color="warning" className="action-btn" onClick={() => setQuickFilter(prev => prev === 'printed' ? 'none' : 'printed')}>
               <FaPrint className="me-1" />
               Printed Table
             </Button>
-            <Button size="sm" color="success" className="action-btn">
+            <Button size="sm" color="success" className="action-btn" onClick={handleHoldSelectedTable}>
               <FaCheckCircle className="me-1" />
               Hold Table
             </Button>
-            <Button size="sm" color="primary" className="action-btn">
+            <Button size="sm" color="primary" className="action-btn" onClick={() => setQuickFilter(prev => prev === 'kot' ? 'none' : 'kot')}>
               <FaUtensils className="me-1" />
               Running KOT Table
             </Button>
@@ -596,6 +784,39 @@ const TableSelection = () => {
               Select This Table
             </Button>
           )}
+        </ModalFooter>
+      </Modal>
+
+      {/* Move KOT/Items Modal */}
+      <Modal
+        isOpen={showMoveModal}
+        toggle={() => setShowMoveModal(false)}
+        size="md"
+      >
+        <ModalHeader toggle={() => setShowMoveModal(false)}>
+          <FaHandPaper className="me-2" />
+          Move KOT/Items
+        </ModalHeader>
+        <ModalBody>
+          <p className="mb-3">
+            Select a destination table to move current table's items/cart. This moves unsent items stored locally. Printed/placed orders are not altered here.
+          </p>
+          <div className="mb-2"><strong>From:</strong> {selectedTable?.TableName || selectedTable?.name || 'Not selected'}</div>
+          <div className="mb-2"><strong>To:</strong></div>
+          <Input type="select" value={moveTargetTableId} onChange={(e) => setMoveTargetTableId(e.target.value)}>
+            <option value="">-- Select Destination Table --</option>
+            {tables
+              .filter(t => t._id !== selectedTable?._id)
+              .map(t => (
+                <option key={t._id} value={t._id}>
+                  {t.TableName || t.name} [{t.status}]
+                </option>
+              ))}
+          </Input>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowMoveModal(false)}>Cancel</Button>
+          <Button color="primary" onClick={performMoveCart}>Move Items</Button>
         </ModalFooter>
       </Modal>
       

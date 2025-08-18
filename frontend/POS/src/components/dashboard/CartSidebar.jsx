@@ -336,6 +336,17 @@ const CartSidebar = () => {
   const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
   const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
 
+  // Reset KOT sent flag when cart gets new items (new batch) or when table changes
+  useEffect(() => {
+    if (cartItems.length > 0) {
+      setKotSent(false);
+    }
+  }, [cartItems]);
+
+  useEffect(() => {
+    setKotSent(false);
+  }, [selectedTable && selectedTable._id]);
+
   // Persist current table's cart and customer info to localStorage whenever they change
   React.useEffect(() => {
     try {
@@ -583,9 +594,8 @@ const CartSidebar = () => {
       errors.push('Cart is empty. Add items before proceeding.');
     }
     
-    if (actionType === 'kot' && kotSent) {
-      errors.push('KOT has already been sent for this order.');
-    }
+    // Allow multiple KOT batches within the same table session.
+    // Duplicate prevention is handled by processing state and cart emptiness.
     
     // For dine-in, customer name is NOT mandatory
     if (customerInfo.orderType !== 'dine-in' && !customerInfo.name.trim()) {

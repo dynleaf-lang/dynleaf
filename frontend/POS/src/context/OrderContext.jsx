@@ -221,7 +221,29 @@ export const OrderProvider = ({ children }) => {
   };
 
   const getOrdersByTable = (tableId) => {
-    return orders.filter(order => order.tableId === tableId);
+    try {
+      const targetId = typeof tableId === 'object' && tableId !== null
+        ? (tableId._id || tableId.id || tableId.tableId || '')
+        : tableId;
+
+      return orders.filter(order => {
+        const oTid = order?.tableId;
+        if (!oTid) return false;
+        // If stored as a plain id
+        if (typeof oTid === 'string') return oTid === targetId;
+        // If stored as a populated object
+        if (typeof oTid === 'object') {
+          return (
+            oTid._id === targetId ||
+            oTid.tableId === targetId ||
+            oTid.id === targetId
+          );
+        }
+        return false;
+      });
+    } catch (_) {
+      return [];
+    }
   };
 
   const getOrdersByStatus = (status) => {
