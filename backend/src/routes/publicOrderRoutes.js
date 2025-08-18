@@ -227,13 +227,13 @@ router.post('/', async (req, res) => {
                 status: { $in: ['pending', 'confirmed', 'preparing'] }
             }).countDocuments();
 
-            // For now, be more permissive - allow up to 5 active orders per table
-            // This handles group dining and ensures customers aren't blocked unnecessarily
+            // Previously: hard-block when active orders >= 5
+            // Change: do NOT block creation, only log a warning so POS can proceed (handles group dining/KOT batching)
+            // If needed, enforce via configurable threshold in the future
             if (activeOrders >= 5) {
-                console.log('[PUBLIC ORDER CREATE] Table has many active orders:', { tableId, activeOrders });
-                return res.status(400).json({ 
-                    message: `Table has too many active orders (${activeOrders}). Please contact staff for assistance.` 
-                });
+                console.warn('[PUBLIC ORDER CREATE][WARNING] High active orders for table, proceeding anyway:', { tableId, activeOrders });
+                // Optionally include a response header for observability
+                res.setHeader('X-Table-Active-Orders', String(activeOrders));
             }
 
             console.log('[PUBLIC ORDER CREATE] Table check passed:', { tableId, activeOrders });
