@@ -90,7 +90,7 @@ router.get('/', async (req, res) => {
             .limit(Number(limit))
             .populate('restaurantId', 'name')
             .populate('branchId', 'name')
-            .populate('tableId', 'tableNumber');
+            .populate('tableId', 'TableName tableId');
             
         console.log(`[PUBLIC ORDERS] Found ${orders.length} orders`);
 

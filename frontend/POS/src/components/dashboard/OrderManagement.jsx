@@ -70,9 +70,29 @@ const OrderManagement = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
 
+  // Helper to display table info with fallbacks
+  const getTableLabel = (o) => {
+    try {
+      const label =
+        o?.tableName ||
+        o?.tableId?.TableName ||
+        o?.tableId?.tableNumber ||
+        o?.tableId?.name ||
+        o?.tableId?.label ||
+        o?.tableId?.tableId ||
+        o?.tableId?._id;
+      return label ? String(label) : 'N/A';
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
   // Filter orders based on main view, active tab, search, and filters
   const filteredOrders = React.useMemo(() => {
     let filtered = orders;
+
+  console.log("orders",orders);
+  
 
     // Filter by main view (orders vs kot)
     if (mainView === 'kot') {
@@ -84,7 +104,7 @@ const OrderManagement = () => {
 
     // Filter by order type for Order View
     if (mainView === 'orders' && activeTab !== 'all') {
-      if (['dine-in', 'delivery', 'pickup', 'online', 'other'].includes(activeTab)) {
+      if (['dine-in', 'delivery', 'takeaway', 'online', 'other'].includes(activeTab)) {
         filtered = filtered.filter(order => {
           const orderType = order.customerInfo?.orderType || order.orderType || 'dine-in';
           return orderType.toLowerCase().replace(/[^a-z]/g, '') === activeTab.replace(/[^a-z]/g, '');
@@ -98,11 +118,14 @@ const OrderManagement = () => {
     // Filter by search term
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase();
-      filtered = filtered.filter(order => 
-        order.orderNumber?.toLowerCase().includes(searchLower) ||
-        order.customerInfo?.name?.toLowerCase().includes(searchLower) ||
-        order.tableName?.toLowerCase().includes(searchLower)
-      );
+      filtered = filtered.filter(order => {
+        const tableText = getTableLabel(order).toLowerCase();
+        return (
+          order.orderNumber?.toLowerCase().includes(searchLower) ||
+          order.customerInfo?.name?.toLowerCase().includes(searchLower) ||
+          tableText.includes(searchLower)
+        );
+      });
     }
 
     // Filter by payment status
@@ -208,7 +231,7 @@ const OrderManagement = () => {
         return <FaUtensils />;
       case 'delivery':
         return <FaTruck />;
-      case 'pickup':
+      case 'takeaway':
       case 'takeaway':
         return <FaShoppingBag />;
       case 'online':
@@ -225,7 +248,7 @@ const OrderManagement = () => {
         return 'primary';
       case 'delivery':
         return 'info';
-      case 'pickup':
+      case 'takeaway':
       case 'takeaway':
         return 'warning';
       case 'online':
@@ -247,7 +270,7 @@ const OrderManagement = () => {
                 <div className="status-icon me-2">
                   {getStatusIcon(order.status)}
                 </div>
-                <h6 className="order-number mb-0">#{order.orderNumber}</h6>
+                <h6 className="order-number mb-0">#{order.orderId}</h6>
               </div>
               <div className="d-flex align-items-center mb-2">
                 <div className="order-type-badge me-2">
@@ -258,7 +281,7 @@ const OrderManagement = () => {
                 </Badge>
               </div>
               <small className="order-time text-muted">
-                {format(new Date(order.createdAt), 'HH:mm')}
+                {format(new Date(order.orderDate), 'HH:mm')}
               </small>
             </div>
             <div className="order-status-badges">
@@ -277,7 +300,7 @@ const OrderManagement = () => {
             <div className="detail-item">
               <FaTable className="detail-icon" />
               <span className="detail-label">Table:</span>
-              <span className="detail-value">{order.tableName}</span>
+              <span className="detail-value">{getTableLabel(order)}</span>
             </div>
             <div className="detail-item">
               <FaPhone className="detail-icon" />
@@ -500,12 +523,12 @@ const OrderManagement = () => {
           </NavItem>
           <NavItem>
             <NavLink
-              className={activeTab === 'pickup' ? 'active' : ''}
-              onClick={() => setActiveTab('pickup')}
+              className={activeTab === 'takeaway' ? 'active' : ''}
+              onClick={() => setActiveTab('takeaway')}
               style={{ cursor: 'pointer' }}
             >
               <FaShoppingBag className="me-2" />
-              Pickup
+              takeaway
             </NavLink>
           </NavItem>
           <NavItem>
@@ -600,7 +623,7 @@ const OrderManagement = () => {
                   <h6>Order Information</h6>
                   <p><strong>Order Number:</strong> {selectedOrder.orderNumber}</p>
                   <p><strong>Date:</strong> {format(new Date(selectedOrder.createdAt), 'dd/MM/yyyy HH:mm')}</p>
-                  <p><strong>Table:</strong> {selectedOrder.tableName}</p>
+                  <p><strong>Table:</strong> {getTableLabel(selectedOrder)}</p>
                   <p>
                     <strong>Status:</strong> 
                     <Badge color={getStatusColor(selectedOrder.status)} className="ms-2">
