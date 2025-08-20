@@ -1,13 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Form, FormGroup, Label, Input } from 'reactstrap';
 import { InventoryAPI } from '../inventoryService';
 
-const AdjustStockModal = ({ isOpen, toggle, item, onAdjusted }) => {
+const AdjustStockModal = ({ isOpen, toggle, item, onAdjusted, initialDeltaQty, initialReason, initialNotes }) => {
   const [deltaQty, setDeltaQty] = useState('');
   const [reason, setReason] = useState('manual');
   const [refOrderId, setRefOrderId] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setDeltaQty(typeof initialDeltaQty !== 'undefined' && initialDeltaQty !== null ? String(initialDeltaQty) : '');
+      setReason(initialReason || 'manual');
+      setNotes(initialNotes || '');
+      setRefOrderId('');
+    }
+  }, [isOpen, initialDeltaQty, initialReason, initialNotes]);
 
   const onSubmit = async (e) => {
     e.preventDefault();

@@ -16,7 +16,7 @@ import {
   Table,
   Spinner,  
 } from 'reactstrap';
-import { FaPlus, FaSync, FaFilter, FaHistory, FaEdit, FaBoxes, FaSearch, FaBalanceScale, FaTruck } from 'react-icons/fa';
+import { FaPlus, FaSync, FaFilter, FaHistory, FaEdit, FaBoxes, FaSearch, FaBalanceScale, FaTruck, FaExclamationTriangle, FaClock } from 'react-icons/fa';
 import { InventoryAPI } from './inventoryService';
 import { AuthContext } from '../../context/AuthContext';
 import AdjustStockModal from './components/AdjustStockModal';
@@ -87,6 +87,75 @@ const InventoryManagement = () => {
   // Recent adjustments (consumption/purchases)
   const [recentAdjustments, setRecentAdjustments] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+
+  // For preset adjustments (e.g., wastage)
+  const [adjustingInitial, setAdjustingInitial] = useState(null);
+  // Quick wastage form state
+  const [wastageItemId, setWastageItemId] = useState('');
+  const [wastageQty, setWastageQty] = useState('');
+  const [wastageNotes, setWastageNotes] = useState('');
+
+  // Dashboard derivations
+  const computeStatus = (it) => {
+    const currentQty = it.currentQty ?? 0;
+    const low = it.lowThreshold ?? 0;
+    const critical = it.criticalThreshold ?? 0;
+    const now = new Date();
+    if (it.expiryDate && currentQty > 0) {
+      const exp = new Date(it.expiryDate);
+      if (!isNaN(exp) && exp < now) return 'expired';
+    }
+    if (currentQty <= 0) return 'out';
+    if (currentQty <= (typeof critical === 'number' ? critical : 0)) return 'critical';
+    if (currentQty <= (typeof low === 'number' ? low : 0)) return 'low';
+    return 'in_stock';
+  };
+
+  const upcomingDays = 14;
+  const stats = useMemo(() => {
+    const totals = { total: items.length, in_stock: 0, low: 0, critical: 0, out: 0, expired: 0, expiringSoon: 0 };
+    const soonCutoff = new Date(Date.now() + upcomingDays * 24 * 60 * 60 * 1000);
+    items.forEach(it => {
+      const s = computeStatus(it);
+      totals[s] = (totals[s] || 0) + 1;
+      if (it.expiryDate && (it.currentQty ?? 0) > 0) {
+        const exp = new Date(it.expiryDate);
+        if (!isNaN(exp) && exp >= new Date() && exp <= soonCutoff) totals.expiringSoon += 1;
+      }
+    });
+    return totals;
+  }, [items]);
+
+  const expiredItems = useMemo(() => {
+    const now = new Date();
+    return items
+      .filter(it => (it.currentQty ?? 0) > 0 && it.expiryDate)
+      .filter(it => {
+        const d = new Date(it.expiryDate);
+        return !isNaN(d) && d < now;
+      })
+      .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+  }, [items]);
+
+  const lowList = useMemo(() => {
+    return items
+      .filter(it => ['low', 'critical', 'out'].includes(computeStatus(it)))
+      .sort((a, b) => (a.currentQty ?? 0) - (b.currentQty ?? 0))
+      .slice(0, 10);
+  }, [items]);
+
+  const upcomingExpiry = useMemo(() => {
+    const now = new Date();
+    const cutoff = new Date(Date.now() + upcomingDays * 24 * 60 * 60 * 1000);
+    return items
+      .filter(it => (it.currentQty ?? 0) > 0 && it.expiryDate)
+      .filter(it => {
+        const d = new Date(it.expiryDate);
+        return !isNaN(d) && d >= now && d <= cutoff;
+      })
+      .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))
+      .slice(0, 10);
+  }, [items]);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -199,6 +268,128 @@ const InventoryManagement = () => {
           </div>
         </CardHeader>
         <CardBody>
+          {/* Dashboard overview */}
+          <Row className="mb-3">
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small">Total Items</div>
+                  <div className="h4 mb-0">{stats.total}</div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small">In Stock</div>
+                  <div className="h4 mb-0 text-success">{stats.in_stock}</div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small">Low</div>
+                  <div className="h4 mb-0 text-warning">{stats.low}</div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small">Critical</div>
+                  <div className="h4 mb-0 text-danger">{stats.critical}</div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small">Out</div>
+                  <div className="h4 mb-0 text-danger">{stats.out}</div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="2" sm="4" xs="6" className="mb-2">
+              <Card className="shadow-sm">
+                <CardBody className="py-3">
+                  <div className="text-muted small d-flex align-items-center"><FaClock className="mr-1"/>Expiring ≤ {upcomingDays}d</div>
+                  <div className="h4 mb-0 text-info">{stats.expiringSoon}</div>
+                </CardBody>
+              </Card>
+            </Col>
+          </Row>
+
+          {/* Quick insights */}
+          <Row className="mb-4">
+            <Col md="6" className="mb-3">
+              <Card className="shadow-sm h-100">
+                <CardHeader className="py-2"><FaExclamationTriangle className="mr-2"/>Low / Critical / Out</CardHeader>
+                <CardBody className="p-0">
+                  {lowList.length ? (
+                    <div className="table-responsive">
+                      <Table className="table-sm mb-0">
+                        <thead className="thead-light">
+                          <tr>
+                            <th>Name</th>
+                            <th className="text-right">Qty</th>
+                            <th>Low</th>
+                            <th>Critical</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lowList.map(it => (
+                            <tr key={it._id}>
+                              <td>{it.name}</td>
+                              <td className="text-right">{it.currentQty ?? 0}</td>
+                              <td className="small">{it.lowThreshold ?? 0}</td>
+                              <td className="small">{it.criticalThreshold ?? 0}</td>
+                              <td>{statusBadge(it.currentQty ?? 0, it.lowThreshold, it.criticalThreshold, it.expiryDate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-muted small">All good. No low stock items.</div>
+                  )}
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="6" className="mb-3">
+              <Card className="shadow-sm h-100">
+                <CardHeader className="py-2"><FaClock className="mr-2"/>Upcoming Expiry (≤ {upcomingDays} days)</CardHeader>
+                <CardBody className="p-0">
+                  {upcomingExpiry.length ? (
+                    <div className="table-responsive">
+                      <Table className="table-sm mb-0">
+                        <thead className="thead-light">
+                          <tr>
+                            <th>Name</th>
+                            <th>Expiry</th>
+                            <th className="text-right">Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {upcomingExpiry.map(it => (
+                            <tr key={it._id}>
+                              <td>{it.name}</td>
+                              <td className="small">{new Date(it.expiryDate).toLocaleDateString()}</td>
+                              <td className="text-right">{it.currentQty ?? 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-muted small">No items expiring soon.</div>
+                  )}
+                </CardBody>
+              </Card>
+            </Col>
+          </Row>
+
           <Form onSubmit={(e) => { e.preventDefault(); fetchItems(); }}>
             <Row className="align-items-center">
               <Col md="3">
@@ -280,6 +471,90 @@ const InventoryManagement = () => {
               </Col>
             </Row>
           </Form>
+
+          {/* Wastage & Expiry */}
+          <Row className="mb-4">
+            <Col md="7" className="mb-3">
+              <Card className="shadow-sm h-100">
+                <CardHeader className="py-2">Expired Items</CardHeader>
+                <CardBody className="p-0">
+                  {expiredItems.length ? (
+                    <div className="table-responsive">
+                      <Table className="table-sm mb-0">
+                        <thead className="thead-light">
+                          <tr>
+                            <th>Name</th>
+                            <th>Expired On</th>
+                            <th className="text-right">Qty</th>
+                            <th>Unit</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {expiredItems.map(it => (
+                            <tr key={it._id}>
+                              <td>{it.name}</td>
+                              <td className="small">{new Date(it.expiryDate).toLocaleDateString()}</td>
+                              <td className="text-right">{it.currentQty ?? 0}</td>
+                              <td>{it.unit || '-'}</td>
+                              <td>
+                                <Button size="sm" color="danger" onClick={() => { setAdjustingItem(it); setAdjustingInitial({ initialDeltaQty: -(Math.abs(it.currentQty ?? 0) || 1), initialReason: 'wastage', initialNotes: 'Expired disposal' }); }}>
+                                  Record Wastage
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="p-3 text-muted small">No expired stock requiring disposal.</div>
+                  )}
+                </CardBody>
+              </Card>
+            </Col>
+            <Col md="5" className="mb-3">
+              <Card className="shadow-sm h-100">
+                <CardHeader className="py-2">Quick Wastage Record</CardHeader>
+                <CardBody>
+                  <Form onSubmit={(e) => {
+                    e.preventDefault();
+                    const qty = Number(wastageQty);
+                    if (!wastageItemId || !qty || qty <= 0) return;
+                    const it = items.find(x => x._id === wastageItemId);
+                    if (!it) return;
+                    setAdjustingItem(it);
+                    setAdjustingInitial({ initialDeltaQty: -Math.abs(qty), initialReason: 'wastage', initialNotes: wastageNotes || 'Wastage' });
+                  }}>
+                    <FormGroup>
+                      <Label>Item</Label>
+                      <Input type="select" value={wastageItemId} onChange={(e) => setWastageItemId(e.target.value)} required>
+                        <option value="">Select item…</option>
+                        {items.map(it => (
+                          <option key={it._id} value={it._id}>{it.name}</option>
+                        ))}
+                      </Input>
+                    </FormGroup>
+                    <Row>
+                      <Col md="6">
+                        <FormGroup>
+                          <Label>Quantity</Label>
+                          <Input type="number" min="0" step="any" value={wastageQty} onChange={(e) => setWastageQty(e.target.value)} placeholder="e.g. 2.5" required />
+                        </FormGroup>
+                      </Col>
+                      <Col md="6">
+                        <FormGroup>
+                          <Label>Notes</Label>
+                          <Input value={wastageNotes} onChange={(e) => setWastageNotes(e.target.value)} placeholder="Optional notes" />
+                        </FormGroup>
+                      </Col>
+                    </Row>
+                    <Button color="danger" type="submit">Record Wastage</Button>
+                  </Form>
+                </CardBody>
+              </Card>
+            </Col>
+          </Row>
 
           {/* Recent consumption panel */}
           <div className="mb-4">
@@ -441,9 +716,20 @@ const InventoryManagement = () => {
       {!!adjustingItem && (
         <AdjustStockModal
           isOpen={!!adjustingItem}
-          toggle={() => setAdjustingItem(null)}
+          toggle={() => { setAdjustingItem(null); setAdjustingInitial(null); }}
           item={adjustingItem}
-          onAdjusted={async () => { setAdjustingItem(null); await fetchItems(); }}
+          initialDeltaQty={adjustingInitial?.initialDeltaQty}
+          initialReason={adjustingInitial?.initialReason}
+          initialNotes={adjustingInitial?.initialNotes}
+          onAdjusted={async () => {
+            setAdjustingItem(null);
+            setAdjustingInitial(null);
+            setWastageItemId('');
+            setWastageQty('');
+            setWastageNotes('');
+            await fetchItems();
+            await loadRecentAdjustments();
+          }}
         />
       )}
 
