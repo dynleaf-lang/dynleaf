@@ -61,6 +61,8 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     const saved = localStorage.getItem('pos_printer_config');
     return saved ? JSON.parse(saved) : { printerType: 'browser' };
   });
+  const [insufficiencyDetails, setInsufficiencyDetails] = useState([]);
+  const [insufficiencyMessage, setInsufficiencyMessage] = useState('');
 
   const { createOrder, updatePaymentStatus } = useOrder();
   const { clearCart, replaceCart, updateCustomerInfo } = useCart();
@@ -228,6 +230,8 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     setLoading(true);
     setIsSettling(batchCount > 0);
     setGeneralError('');
+    setInsufficiencyDetails([]);
+    setInsufficiencyMessage('');
     
     try {
       let orderData = null;
@@ -270,7 +274,23 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           paymentStatus: 'paid'
         };
         
-        const result = await createOrder(orderData);
+        // First attempt with stock enforcement ON and override OFF
+        let result = await createOrder(orderData, { enforceStock: true, allowInsufficientOverride: false });
+        if (!result.success && result.insufficient) {
+          // Show details and ask for override confirmation
+          setInsufficiencyDetails(result.details || []);
+          setInsufficiencyMessage(result.message || 'Insufficient stock for some ingredients');
+          const proceed = window.confirm(`${result.message || 'Insufficient stock'}\n\nDo you want to place the order anyway and override the stock check?`);
+          if (!proceed) {
+            throw new Error(result.message || 'Order blocked due to insufficient stock');
+          }
+          // Retry with override enabled
+          result = await createOrder(orderData, { enforceStock: true, allowInsufficientOverride: true });
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to create order with override');
+          }
+        }
+        
         if (!result.success) {
           throw new Error(result.error || 'Failed to create order');
         }
@@ -512,6 +532,18 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
         {!!generalError && !loading && (
           <Alert color="danger" className="rounded-0 m-0 py-2">
             {generalError}
+          </Alert>
+        )}
+        {!!insufficiencyMessage && insufficiencyDetails?.length > 0 && (
+          <Alert color="warning" className="rounded-0 m-0 py-2">
+            <div className="fw-bold mb-1">{insufficiencyMessage}</div>
+            <ul className="mb-0 ps-3">
+              {insufficiencyDetails.map((d, idx) => (
+                <li key={idx}>
+                  {d.itemName || d.ingredientName || 'Ingredient'}: need {d.required?.toFixed ? d.required.toFixed(2) : d.required}, have {d.available?.toFixed ? d.available.toFixed(2) : d.available}
+                </li>
+              ))}
+            </ul>
           </Alert>
         )}
         {/* Order Summary Card */}

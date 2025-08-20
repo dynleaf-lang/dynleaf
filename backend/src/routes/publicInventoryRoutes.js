@@ -52,6 +52,40 @@ router.get('/', asyncHandler(async (req, res) => {
 }))
 ;
 
+// GET /api/public/inventory/adjustments/recent
+// Query: branchId?, restaurantId?, reason? (e.g., 'sale'), limit?
+router.get('/adjustments/recent', asyncHandler(async (req, res) => {
+  const { branchId, restaurantId, reason, limit } = req.query;
+  const filter = {};
+  if (branchId) filter.branchId = branchId;
+  if (restaurantId) filter.restaurantId = restaurantId;
+  if (reason) filter.reason = reason;
+
+  const lim = Math.min(Math.max(parseInt(limit || '20', 10) || 20, 1), 200);
+
+  // Pull recent adjustments
+  const adjustments = await InventoryAdjustment.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(lim)
+    .lean();
+
+  // Map item names
+  const ids = Array.from(new Set(adjustments.map(a => a.itemId).filter(Boolean)));
+  const items = await InventoryItem.find({ _id: { $in: ids } }, { name: 1, unit: 1 }).lean();
+  const nameMap = new Map(items.map(it => [it._id.toString(), { name: it.name, unit: it.unit || null }]));
+
+  const withNames = adjustments.map(a => ({
+    ...a,
+    item: {
+      _id: a.itemId,
+      name: nameMap.get((a.itemId || '').toString())?.name || null,
+      unit: nameMap.get((a.itemId || '').toString())?.unit || null,
+    }
+  }));
+
+  res.json({ adjustments: withNames });
+}));
+
 // POST /api/public/inventory  (create item)
 router.post(
   '/',

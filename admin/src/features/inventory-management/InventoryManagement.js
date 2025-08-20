@@ -84,6 +84,10 @@ const InventoryManagement = () => {
   const [historyItem, setHistoryItem] = useState(null);
   const [restockItem, setRestockItem] = useState(null);
 
+  // Recent adjustments (consumption/purchases)
+  const [recentAdjustments, setRecentAdjustments] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+
   const fetchItems = async () => {
     setLoading(true);
     setError('');
@@ -98,8 +102,25 @@ const InventoryManagement = () => {
     }
   };
 
+  const loadRecentAdjustments = async () => {
+    if (!scope?.branchId && !scope?.restaurantId) {
+      setRecentAdjustments([]);
+      return;
+    }
+    setLoadingRecent(true);
+    try {
+      const list = await InventoryAPI.recentAdjustments({ branchId: scope.branchId, restaurantId: scope.restaurantId, limit: 20 });
+      setRecentAdjustments(Array.isArray(list) ? list : []);
+    } catch (_) {
+      setRecentAdjustments([]);
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
+
   useEffect(() => {
     fetchItems();
+    loadRecentAdjustments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope.branchId, scope.restaurantId]);
 
@@ -167,7 +188,7 @@ const InventoryManagement = () => {
             <h3 className="mb-0">Inventory</h3>
           </div>
           <div className="d-flex gap-2">
-            <Button color="secondary" size="sm" onClick={fetchItems}>
+            <Button color="secondary" size="sm" onClick={() => { fetchItems(); loadRecentAdjustments(); }}>
               <FaSync className="mr-1" /> Refresh
             </Button>
             {canWrite(roles) && (
@@ -259,6 +280,53 @@ const InventoryManagement = () => {
               </Col>
             </Row>
           </Form>
+
+          {/* Recent consumption panel */}
+          <div className="mb-4">
+            <div className="d-flex align-items-center mb-2">
+              <FaHistory className="mr-2" />
+              <h5 className="mb-0">Recent Consumption</h5>
+              <Button color="link" size="sm" className="ml-2 p-0" onClick={loadRecentAdjustments}>Reload</Button>
+            </div>
+            {loadingRecent ? (
+              <div className="py-2"><Spinner size="sm" color="primary" /> Loading…</div>
+            ) : recentAdjustments.length ? (
+              <div className="table-responsive">
+                <Table className="table-sm mb-0">
+                  <thead className="thead-light">
+                    <tr>
+                      <th>When</th>
+                      <th>Item</th>
+                      <th className="text-right">Qty</th>
+                      <th>Unit</th>
+                      <th>Reason</th>
+                      <th>Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentAdjustments.map((adj) => {
+                      const qty = Number(adj.deltaQty || 0);
+                      const isConsumption = qty < 0 || (adj.reason || '').toLowerCase() === 'sale';
+                      const badgeColor = isConsumption ? 'danger' : 'success';
+                      const reasonLabel = (adj.reason || '').charAt(0).toUpperCase() + (adj.reason || '').slice(1);
+                      return (
+                        <tr key={adj._id}>
+                          <td className="small text-muted">{adj.createdAt ? new Date(adj.createdAt).toLocaleString() : '-'}</td>
+                          <td>{adj.item?.name || adj.itemId}</td>
+                          <td className="text-right">{qty}</td>
+                          <td>{adj.item?.unit || '-'}</td>
+                          <td><Badge color={badgeColor}>{reasonLabel || '—'}</Badge></td>
+                          <td className="small text-muted">{adj.refOrderId || '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-muted small">No recent adjustments</div>
+            )}
+          </div>
 
           {error && (
             <div className="text-danger my-2">{error}</div>

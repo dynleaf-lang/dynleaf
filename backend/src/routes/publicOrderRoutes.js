@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
 const DiningTable = require('../models/DiningTables');
+const Recipe = require('../models/Recipe');
+const InventoryItem = require('../models/InventoryItem');
+const InventoryAdjustment = require('../models/InventoryAdjustment');
 const mongoose = require('mongoose');
 const { publicAccess } = require('../middleware/authMiddleware');
 const { emitNewOrder } = require('../utils/socketUtils');
@@ -127,6 +130,9 @@ router.post('/', async (req, res) => {
             taxDetails,
             subtotal,
             total,
+            // stock control flags (optional)
+            enforceStock,
+            allowInsufficientOverride,
             // Legacy fields for backward compatibility
             customerName,
             customerPhone,
@@ -206,6 +212,50 @@ router.post('/', async (req, res) => {
             console.log('[PUBLIC ORDER CREATE] Invalid orderType:', orderType, 'Valid types:', validOrderTypes);
             return res.status(400).json({ 
                 message: `Invalid orderType: ${orderType}. Valid values are: ${validOrderTypes.join(', ')}` 
+            });
+        }
+
+        // Compute recipe consumption and check stock sufficiency (optional enforcement)
+        const shouldEnforce = Boolean(enforceStock) || String(req.query.enforceStock).toLowerCase() === 'true';
+        const allowOverride = Boolean(allowInsufficientOverride) || String(req.query.allowInsufficientOverride).toLowerCase() === 'true';
+
+        // Build consumption map: inventoryItemId -> requiredQty
+        const menuItemIds = [...new Set((items || []).map(i => i.menuItemId))];
+        const recipes = await Recipe.find({ menuItemId: { $in: menuItemIds }, restaurantId, branchId }).lean();
+        const recipeByMenu = new Map(recipes.map(r => [String(r.menuItemId), r]));
+
+        const consumption = new Map();
+        for (const it of items) {
+            const rec = recipeByMenu.get(String(it.menuItemId));
+            if (!rec || !Array.isArray(rec.ingredients)) continue; // skip items without recipe
+            const qtyMultiplier = Number(it.quantity) || 1;
+            for (const ing of rec.ingredients) {
+                if (!ing.inventoryItemId || !isFinite(Number(ing.qty))) continue;
+                const key = String(ing.inventoryItemId);
+                const needed = (Number(ing.qty) * qtyMultiplier) * (1 + ((Number(ing.wastePct) || 0) / 100));
+                consumption.set(key, (consumption.get(key) || 0) + needed);
+            }
+        }
+
+        let stockWarnings = [];
+        if (consumption.size > 0) {
+            const invIds = [...consumption.keys()];
+            const inventoryItems = await InventoryItem.find({ _id: { $in: invIds }, restaurantId, branchId }).lean();
+            const invById = new Map(inventoryItems.map(i => [String(i._id), i]));
+            for (const [invId, needed] of consumption.entries()) {
+                const inv = invById.get(invId);
+                const available = inv ? Number(inv.currentQty) : 0;
+                if (available < needed) {
+                    stockWarnings.push({ inventoryItemId: invId, name: inv?.name || 'Unknown', needed, available, unit: inv?.unit });
+                }
+            }
+        }
+
+        if (stockWarnings.length > 0 && shouldEnforce && !allowOverride) {
+            return res.status(409).json({
+                message: 'Insufficient stock for one or more ingredients',
+                insufficient: true,
+                details: stockWarnings
             });
         }
 
@@ -404,6 +454,40 @@ router.post('/', async (req, res) => {
             throw new Error(`Failed to save order: ${saveError.message}`);
         }
 
+        // Perform auto-deduction if any recipe consumption exists
+        if (consumption.size > 0) {
+            try {
+                const ops = [];
+                for (const [invId, needed] of consumption.entries()) {
+                    if (!isFinite(needed) || needed <= 0) continue;
+                    // Inventory decrement
+                    ops.push(
+                        InventoryItem.updateOne(
+                            { _id: invId, restaurantId, branchId },
+                            { $inc: { currentQty: -Number(needed) } }
+                        )
+                    );
+                    // Adjustment record
+                    ops.push(
+                        InventoryAdjustment.create({
+                            itemId: invId,
+                            deltaQty: -Number(needed),
+                            reason: 'sale',
+                            refOrderId: savedOrder._id,
+                            branchId,
+                            restaurantId,
+                            notes: `Auto-deduct for order ${savedOrder._id}`
+                        })
+                    );
+                }
+                await Promise.all(ops);
+            } catch (adjErr) {
+                console.error('[PUBLIC ORDER CREATE] Auto-deduction failed:', adjErr);
+                // Do not fail the order if deduction fails; include warning meta in response
+                stockWarnings.push({ autoDeductFailed: true, message: adjErr.message });
+            }
+        }
+
         // If it's a dine-in order, update the table status and add order reference
         if (tableId) {
             try {
@@ -431,7 +515,12 @@ router.post('/', async (req, res) => {
             // Don't fail the order creation if socket emission fails
         }
 
-        res.status(201).json(savedOrder);
+        // include warnings meta if any
+        const responseObj = savedOrder.toObject ? savedOrder.toObject() : savedOrder;
+        if (stockWarnings.length > 0) {
+            responseObj._stockWarnings = stockWarnings;
+        }
+        res.status(201).json(responseObj);
     } catch (error) {
         console.error('[PUBLIC ORDER CREATE] Error creating order:', error);
         res.status(500).json({ 

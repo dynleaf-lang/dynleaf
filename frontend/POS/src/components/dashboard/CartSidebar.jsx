@@ -724,7 +724,16 @@ const CartSidebar = () => {
         totalAmount: getTotal()
       };
 
-      const result = await createOrder(orderData);
+      // Attempt create with stock enforcement; on insufficiency ask for override
+      let result = await createOrder(orderData, { enforceStock: true, allowInsufficientOverride: false });
+      if (!result?.success && result?.insufficient) {
+        const msg = result.message || 'Insufficient stock for some ingredients';
+        const proceed = window.confirm(`${msg}\n\nProceed and override stock check?`);
+        if (!proceed) {
+          throw new Error(msg);
+        }
+        result = await createOrder(orderData, { enforceStock: true, allowInsufficientOverride: true });
+      }
       if (!result?.success) {
         throw new Error(result?.error || 'Failed to create order');
       }
@@ -826,7 +835,16 @@ const CartSidebar = () => {
         paymentStatus: 'unpaid'
       };
 
-      const result = await createOrder(orderPayload);
+      // Attempt create with stock enforcement; on insufficiency prompt and retry with override
+      let result = await createOrder(orderPayload, { enforceStock: true, allowInsufficientOverride: false });
+      if (!result?.success && result?.insufficient) {
+        const msg = result.message || 'Insufficient stock for some ingredients';
+        const proceed = window.confirm(`${msg}\n\nProceed and override stock check?`);
+        if (!proceed) {
+          throw new Error(msg);
+        }
+        result = await createOrder(orderPayload, { enforceStock: true, allowInsufficientOverride: true });
+      }
       if (!result?.success) {
         throw new Error(result?.error || 'Failed to create order');
       }

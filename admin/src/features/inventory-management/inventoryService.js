@@ -40,4 +40,10 @@ export const InventoryAPI = {
     const { data } = await api.get(`/public/inventory/${id}/adjustments`);
     return data.adjustments || [];
   },
+
+  recentAdjustments: async ({ branchId, restaurantId, reason, limit } = {}) => {
+    const query = buildQuery({ branchId, restaurantId, reason, limit });
+    const { data } = await api.get(`/public/inventory/adjustments/recent${query}`);
+    return data.adjustments || [];
+  },
 };

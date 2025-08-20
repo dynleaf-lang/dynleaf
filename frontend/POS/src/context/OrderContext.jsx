@@ -72,11 +72,13 @@ export const OrderProvider = ({ children }) => {
     }
   };
 
-  const createOrder = async (orderData) => {
+  const createOrder = async (orderData, options = {}) => {
     try {
       setLoading(true);
       setError(null);
       
+      const { enforceStock = true, allowInsufficientOverride = false } = options;
+
       const newOrderData = {
         ...orderData,
         branchId: user.branchId,
@@ -85,7 +87,9 @@ export const OrderProvider = ({ children }) => {
         createdByName: user.name,
         source: 'pos',
         status: 'pending',
-        paymentStatus: orderData.paymentStatus || 'unpaid'
+        paymentStatus: orderData.paymentStatus || 'unpaid',
+        enforceStock,
+        allowInsufficientOverride
       };
  
       const response = await axios.post(`${API_BASE_URL}/public/orders`, newOrderData);
@@ -119,6 +123,17 @@ export const OrderProvider = ({ children }) => {
       return { success: true, order: createdOrder };
 
     } catch (error) {
+      // Handle insufficient stock conflict
+      const status = error?.response?.status;
+      if (status === 409 && error?.response?.data?.insufficient) {
+        return {
+          success: false,
+          insufficient: true,
+          details: error.response.data.details || [],
+          message: error.response.data.message || 'Insufficient stock'
+        };
+      }
+
       const errorMessage = error?.response?.data?.message || error?.message || 'Failed to create order';
       toast.error(errorMessage);
       setError(errorMessage);
