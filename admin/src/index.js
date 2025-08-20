@@ -13,6 +13,7 @@ import AuthLayout from "layouts/Auth.js";
 import { AuthProvider } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import { MenuProvider } from "./context/MenuContext";
+import { NotificationsProvider } from "./context/NotificationsContext";
 import { CategoryProvider } from "./context/CategoryContext";
 import { RestaurantProvider } from "./context/RestaurantContext";
 import { BranchProvider } from "./context/BranchContext";
@@ -60,6 +61,7 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <AuthProvider>
     <SocketProvider>
+      <NotificationsProvider>
       <UserProvider>
       <RestaurantProvider>
         <BranchProvider>
@@ -95,6 +97,7 @@ root.render(
         </BranchProvider>
       </RestaurantProvider>
     </UserProvider>
+      </NotificationsProvider>
     </SocketProvider>
   </AuthProvider>
 );

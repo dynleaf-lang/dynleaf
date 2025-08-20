@@ -88,6 +88,30 @@ export const SocketProvider = ({ children }) => {
         window.dispatchEvent(new CustomEvent('paymentStatusUpdate', { detail: data }));
       });
 
+      // Listen for inventory updates (quantity/status)
+      newSocket.on('inventoryUpdate', (data) => {
+        console.log('[SOCKET] Inventory update:', data);
+        // Subtle toast to inform operator
+        toast(`Inventory updated: ${data.itemId} → ${data.status}`, { icon: 'ℹ️' });
+        // Dispatch a custom event so POSContext or components can refresh if they want
+        window.dispatchEvent(new CustomEvent('inventoryUpdate', { detail: data }));
+      });
+
+      // Listen for inventory notifications (low/critical/out, wastage)
+      newSocket.on('inventory:notification', (payload) => {
+        console.log('[SOCKET] Inventory notification:', payload);
+        const msg = payload?.message || `${payload?.itemName || 'Item'}: ${payload?.type}`;
+        const sev = payload?.severity || 'info';
+        if (sev === 'critical') {
+          toast.error(msg);
+        } else if (sev === 'low') {
+          toast(`${msg}`, { icon: '⚠️' });
+        } else {
+          toast.success(msg);
+        }
+        window.dispatchEvent(new CustomEvent('inventoryNotification', { detail: payload }));
+      });
+
       setSocket(newSocket);
 
       return () => {

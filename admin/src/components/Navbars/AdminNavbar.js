@@ -22,6 +22,7 @@ import { AuthContext } from "../../context/AuthContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
 import { BranchContext } from "../../context/BranchContext";
 import { useNavigate } from "react-router-dom"; 
+import NotificationBell from "../Notifications/NotificationBell";
 
 
 
@@ -114,6 +115,9 @@ const AdminNavbar = (props) => {
               </InputGroup>
             </FormGroup>
           </Form>
+          <div className="d-none d-md-flex align-items-center ml-2">
+            <NotificationBell />
+          </div>
           <Nav className="align-items-center d-none d-md-flex" navbar>
             <UncontrolledDropdown nav>
               <DropdownToggle className="pr-0" nav>

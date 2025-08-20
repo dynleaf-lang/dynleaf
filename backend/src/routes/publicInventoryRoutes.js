@@ -3,6 +3,7 @@ const router = express.Router();
 const InventoryItem = require('../models/InventoryItem');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const { protect, authorize } = require('../middleware/authMiddleware');
+const { notifyInventory } = require('../utils/notifier');
 
 // Helper: wrap async
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -220,6 +221,7 @@ router.post(
       }
     }
 
+    const prevQty = item.currentQty || 0;
     item.currentQty = (item.currentQty || 0) + deltaQty;
     await item.save();
 
@@ -242,6 +244,28 @@ router.post(
             currentQty: item.currentQty,
             status: (item.currentQty <= 0) ? 'out' : (item.currentQty <= (item.criticalThreshold ?? 0)) ? 'critical' : (item.currentQty <= (item.lowThreshold ?? 0)) ? 'low' : 'in_stock'
           });
+
+          // Emit inventory notification for wastage and status thresholds
+          const statusNow = (item.currentQty <= 0) ? 'out' : (item.currentQty <= (item.criticalThreshold ?? 0)) ? 'critical' : (item.currentQty <= (item.lowThreshold ?? 0)) ? 'low' : 'in_stock';
+          const statusPrev = (prevQty <= 0) ? 'out' : (prevQty <= (item.criticalThreshold ?? 0)) ? 'critical' : (prevQty <= (item.lowThreshold ?? 0)) ? 'low' : 'in_stock';
+
+          if (sanitizedReason === 'wastage' || sanitizedReason === 'waste' || sanitizedReason === 'breakage') {
+            notifyInventory(global.io, {
+              type: 'wastage',
+              item,
+              qty: deltaQty,
+              reason: sanitizedReason,
+              notes,
+            });
+          }
+
+          if (statusNow !== statusPrev && (statusNow === 'low' || statusNow === 'critical' || statusNow === 'out')) {
+            notifyInventory(global.io, {
+              type: 'status',
+              item,
+              status: statusNow,
+            });
+          }
         }
       } catch (e) {
         console.warn('[INVENTORY] Socket broadcast error', e.message);
