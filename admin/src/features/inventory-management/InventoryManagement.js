@@ -16,12 +16,13 @@ import {
   Table,
   Spinner,  
 } from 'reactstrap';
-import { FaPlus, FaSync, FaFilter, FaHistory, FaEdit, FaBoxes, FaSearch, FaBalanceScale } from 'react-icons/fa';
+import { FaPlus, FaSync, FaFilter, FaHistory, FaEdit, FaBoxes, FaSearch, FaBalanceScale, FaTruck } from 'react-icons/fa';
 import { InventoryAPI } from './inventoryService';
 import { AuthContext } from '../../context/AuthContext';
 import AdjustStockModal from './components/AdjustStockModal';
 import InventoryFormModal from './components/InventoryFormModal';
 import HistoryModal from './components/HistoryModal';
+import RestockModal from './components/RestockModal';
 import Header from '../../components/Headers/Header';
 
 // Fallback hard-coded category values for filters
@@ -69,6 +70,7 @@ const InventoryManagement = () => {
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
   const [onlyActive, setOnlyActive] = useState(true);
+  const [supplierFilter, setSupplierFilter] = useState('');
 
   const [categories, setCategories] = useState([]);
   const [loadingCats, setLoadingCats] = useState(false);
@@ -80,6 +82,7 @@ const InventoryManagement = () => {
 
   const [adjustingItem, setAdjustingItem] = useState(null);
   const [historyItem, setHistoryItem] = useState(null);
+  const [restockItem, setRestockItem] = useState(null);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -145,9 +148,11 @@ const InventoryManagement = () => {
   };
 
   const filtered = useMemo(() => {
-    // If backend already filters via q/status/isActive, we just return items
-    return items;
-  }, [items]);
+    // If backend already filters via q/status/isActive, we apply only client-side supplier filter
+    if (!supplierFilter) return items;
+    const s = supplierFilter.toLowerCase();
+    return items.filter(it => (it.supplierName || '').toLowerCase().includes(s));
+  }, [items, supplierFilter]);
 
   return (
    <>
@@ -226,18 +231,28 @@ const InventoryManagement = () => {
                       value={customCategoryFilter}
                       onChange={(e) => setCustomCategoryFilter(e.target.value)}
                     />
-                  )}
+                  )} 
                 </FormGroup>
               </Col>
               <Col md="2">
+               <FormGroup>
+               <Label for="supplier"><FaFilter className="mr-1" /> Supplier</Label>
+              <Input 
+                    placeholder="Filter by supplier"
+                    value={supplierFilter}
+                    onChange={(e) => setSupplierFilter(e.target.value)}
+                  />
+               </FormGroup>
+              </Col>
+              <Col md="1">
                 <FormGroup check className="mt-4">
                   <Label check>
                     <Input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />{' '}
-                    Active Only
+                 <span className='small'>Active Only</span>
                   </Label>
                 </FormGroup>
               </Col>
-              <Col md="3" className="text-right">
+              <Col md="2" className="text-right">
                 <Button color="info" type="submit">
                   <FaFilter className="mr-1" /> Apply Filters
                 </Button>
@@ -318,6 +333,9 @@ const InventoryManagement = () => {
                           </Button>
                           {canWrite(roles) && (
                             <>
+                              <Button size="sm" color="success" onClick={() => setRestockItem(it)} title="Restock (create purchase & adjust)">
+                                <FaTruck />
+                              </Button>
                               <Button size="sm" color="warning" onClick={() => setAdjustingItem(it)} title="Adjust Stock">
                                 <FaBalanceScale />
                               </Button>
@@ -367,6 +385,16 @@ const InventoryManagement = () => {
           toggle={() => setHistoryItem(null)}
           itemId={historyItem._id}
           itemName={historyItem.name}
+        />
+      )}
+
+      {!!restockItem && (
+        <RestockModal
+          isOpen={!!restockItem}
+          toggle={() => setRestockItem(null)}
+          item={restockItem}
+          scope={scope}
+          onCreated={async () => { setRestockItem(null); await fetchItems(); }}
         />
       )}
    
