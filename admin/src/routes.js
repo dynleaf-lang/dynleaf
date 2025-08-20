@@ -17,6 +17,7 @@ import CustomerManagement from "features/customer-management/CustomerManagement.
 import OrderManagement from "features/order-management/OrderManagement.js";
 import OrderReports from "features/order-management/OrderReports.js";
 import StaffManagement from "features/staff-management/StaffManagement.js";
+import InventoryManagement from "features/inventory-management/InventoryManagement.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 
@@ -27,6 +28,14 @@ var routes = [
     icon: "ni ni-tv-2 text-primary",
     component: <Index />,
     layout: "/admin",
+  },
+  {
+    path: "/inventory",
+    name: "Inventory",
+    icon: "ni ni-bag-17 text-teal",
+    component: <InventoryManagement />,
+    layout: "/admin",
+    roles: ["admin", "Branch_Manager", "Super_Admin"],
   },
   {
     path: "/users",

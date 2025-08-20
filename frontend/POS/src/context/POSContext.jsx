@@ -18,6 +18,7 @@ export const POSProvider = ({ children }) => {
   const [tables, setTables] = useState([]);
   const [categories, setCategories] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
   const [floors, setFloors] = useState([]);
   const [selectedTable, setSelectedTable] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -33,6 +34,7 @@ export const POSProvider = ({ children }) => {
       fetchCategories();
       fetchMenuItems();
       fetchFloors();
+      fetchInventory();
     }
   }, [user]);
 
@@ -76,6 +78,19 @@ export const POSProvider = ({ children }) => {
       setFloors(response.data || []);
     } catch (error) {
       console.error('Error fetching floors:', error);
+    }
+  };
+
+  const fetchInventory = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (user?.branchId) params.append('branchId', user.branchId);
+      if (user?.restaurantId) params.append('restaurantId', user.restaurantId);
+      const response = await axios.get(`${API_BASE_URL}/public/inventory?${params.toString()}`);
+      setInventoryItems(response.data.items || []);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+      // Silent fail for POS; inventory is optional
     }
   };
 
@@ -190,8 +205,21 @@ export const POSProvider = ({ children }) => {
       fetchTables(),
       fetchCategories(),
       fetchMenuItems(),
-      fetchFloors()
+      fetchFloors(),
+      fetchInventory()
     ]);
+  };
+
+  // Map inventory by linked menu item id for quick lookup
+  const getInventoryStatusForMenuItem = (menuItemId) => {
+    if (!menuItemId || !Array.isArray(inventoryItems) || inventoryItems.length === 0) return null;
+    const match = inventoryItems.find(it => (it.menuItemId === menuItemId) || (it.menuItemId && (it.menuItemId._id === menuItemId)));
+    if (!match) return null;
+    const currentQty = match.currentQty ?? 0;
+    const low = match.lowThreshold ?? 0;
+    const critical = match.criticalThreshold ?? 0;
+    const status = currentQty <= 0 ? 'out' : (currentQty <= critical ? 'critical' : (currentQty <= low ? 'low' : 'in_stock'));
+    return { status, currentQty, unit: match.unit, item: match };
   };
 
   const value = {
@@ -199,6 +227,7 @@ export const POSProvider = ({ children }) => {
     tables,
     categories,
     menuItems,
+    inventoryItems,
     floors,
     selectedTable,
     loading,
@@ -209,6 +238,7 @@ export const POSProvider = ({ children }) => {
     fetchCategories,
     fetchMenuItems,
     fetchFloors,
+    fetchInventory,
     updateTableStatus,
     selectTable,
     clearSelectedTable,
@@ -221,6 +251,8 @@ export const POSProvider = ({ children }) => {
     getOccupiedTables,
     searchMenuItems,
     getTableById
+    ,
+    getInventoryStatusForMenuItem
   };
 
   return (

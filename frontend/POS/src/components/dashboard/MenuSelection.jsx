@@ -368,6 +368,23 @@ const MenuSelection = () => {
 
   function ItemCard({ item, onSmartClick }) {
     const hasVariants = hasVariantsOrSizes(item);
+    const { getInventoryStatusForMenuItem } = usePOS();
+    const inv = getInventoryStatusForMenuItem(item?._id);
+    const invBadge = (() => {
+      if (!inv) return null;
+      const map = {
+        in_stock: { color: 'success', text: 'In Stock' },
+        low: { color: 'warning', text: 'Low' },
+        critical: { color: 'danger', text: 'Critical' },
+        out: { color: 'secondary', text: 'Out' }
+      };
+      const cfg = map[inv.status] || map.in_stock;
+      return (
+        <Badge color={cfg.color} className="badge-sm" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', borderRadius: '8px' }}>
+          {cfg.text}
+        </Badge>
+      );
+    })();
     
     const cardHeight = menuSettings.compactView ? '60px' : '80px';
     const imageHeight = menuSettings.showCardImages ? `${menuSettings.cardImageHeight}px` : '0px';
@@ -479,6 +496,8 @@ const MenuSelection = () => {
             {/* Conditional Item Tags */}
             {menuSettings.showItemBadges && (
               <div className="d-flex justify-content-end align-items-center flex-wrap gap-1">
+                {/* Inventory status badge (non-blocking) */}
+                {invBadge}
                 {item.isVegetarian && (
                   <Badge color="success" className="badge-sm" style={{
                     fontSize: '0.6rem',
