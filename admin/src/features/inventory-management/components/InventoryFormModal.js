@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../../utils/api';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Form, FormGroup, Label, Input, Row, Col } from 'reactstrap';
+import { SuppliersAPI } from '../../supplier-management/supplierService';
 
 const defaultVals = {
   name: '',
@@ -35,6 +36,9 @@ const InventoryFormModal = ({ isOpen, toggle, initialValues, onSubmit, scope }) 
   const [loadingCats, setLoadingCats] = useState(false);
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
+  const [suppliers, setSuppliers] = useState([]);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
 
   useEffect(() => {
     if (initialValues) {
@@ -54,6 +58,40 @@ const InventoryFormModal = ({ isOpen, toggle, initialValues, onSubmit, scope }) 
       setValues(defaultVals);
     }
   }, [initialValues]);
+
+  // Load suppliers for dropdown (prefer restaurant-wide scope)
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        setLoadingSuppliers(true);
+        const params = scope?.restaurantId
+          ? { restaurantId: scope.restaurantId, isActive: true }
+          : (scope?.branchId ? { branchId: scope.branchId, isActive: true } : { isActive: true });
+        const list = await SuppliersAPI.list(params);
+        setSuppliers(Array.isArray(list) ? list : []);
+      } catch (err) {
+        console.warn('Failed to load suppliers', err?.response?.data?.message || err.message);
+        setSuppliers([]);
+      } finally {
+        setLoadingSuppliers(false);
+      }
+    };
+    if (scope?.restaurantId || scope?.branchId) {
+      loadSuppliers();
+    } else {
+      setSuppliers([]);
+    }
+  }, [scope?.restaurantId, scope?.branchId]);
+
+  // When suppliers load or initial values change, try to pre-select matching supplier by name
+  useEffect(() => {
+    if (!initialValues || !initialValues.supplierName || !suppliers.length) {
+      setSelectedSupplierId('');
+      return;
+    }
+    const match = suppliers.find(s => (s.name || '').toLowerCase().trim() === (initialValues.supplierName || '').toLowerCase().trim());
+    setSelectedSupplierId(match?._id || '');
+  }, [suppliers, initialValues]);
 
   // Load categories for dropdown (restaurant scoped preferred)
   useEffect(() => {
@@ -130,6 +168,20 @@ const InventoryFormModal = ({ isOpen, toggle, initialValues, onSubmit, scope }) 
       return;
     }
     setValues((v) => ({ ...v, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleSupplierSelect = (e) => {
+    const id = e.target.value;
+    setSelectedSupplierId(id);
+    if (!id) {
+      // Clear auto-filled fields, keep current manual values
+      return;
+    }
+    const s = suppliers.find(x => x._id === id);
+    if (s) {
+      const contact = [s.contactPerson, s.phone || s.email].filter(Boolean).join(' | ');
+      setValues(v => ({ ...v, supplierName: s.name || '', supplierContact: contact || '' }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -262,6 +314,23 @@ const InventoryFormModal = ({ isOpen, toggle, initialValues, onSubmit, scope }) 
               <FormGroup>
                 <Label>Expiry Date</Label>
                 <Input type="date" name="expiryDate" value={values.expiryDate} onChange={handleChange} />
+              </FormGroup>
+            </Col>
+            <Col md="8">
+              <FormGroup>
+                <Label>Supplier</Label>
+                <div className="d-flex align-items-center gap-2">
+                  <Input type="select" value={selectedSupplierId} onChange={handleSupplierSelect} disabled={loadingSuppliers}>
+                    <option value="">{loadingSuppliers ? 'Loading suppliers...' : 'Select supplier (optional)'}</option>
+                    {suppliers.map(s => (
+                      <option key={s._id} value={s._id}>{s.name}{s.contactPerson ? ` — ${s.contactPerson}` : ''}</option>
+                    ))}
+                  </Input>
+                  <Button color="link" type="button" onClick={() => window.open('/admin/suppliers', '_blank')}>Manage</Button>
+                </div>
+                {!loadingSuppliers && suppliers.length === 0 && (
+                  <div className="text-muted small mt-1">No suppliers found for this {scope?.restaurantId ? 'restaurant' : 'branch'}. Use Manage to add.</div>
+                )}
               </FormGroup>
             </Col>
           </Row>

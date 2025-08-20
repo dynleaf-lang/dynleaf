@@ -57,8 +57,8 @@ const InventoryManagement = () => {
   const roles = user?.roles || (user?.role ? [user.role] : []);
 
   const scope = useMemo(() => ({
-    branchId: user?.branch?._id,
-    restaurantId: user?.restaurant?._id,
+    branchId: user?.branch?._id || user?.branchId,
+    restaurantId: user?.restaurant?._id || user?.restaurantId,
   }), [user]);
 
   const [items, setItems] = useState([]);

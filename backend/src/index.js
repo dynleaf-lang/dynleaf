@@ -179,6 +179,7 @@ app.use('/api/public/taxes', publicTaxRoutes);
 app.use('/api/public/floors', publicFloorRoutes);
 app.use('/api/public/favorites', favoritesRoutes);
 app.use('/api/public/inventory', require('./routes/publicInventoryRoutes'));
+app.use('/api/public/suppliers', require('./routes/publicSupplierRoutes'));
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/diagnostics', diagnosticRoutes);
