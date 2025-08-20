@@ -19,7 +19,8 @@ const modelsToClear = [
   'InventoryItem',
   'InventoryAdjustment',
   'Supplier',
-  'Purchase'
+  'Purchase',
+  'Recipe'
 ];
 
 // Clean up any existing models to prevent registration conflicts
@@ -45,6 +46,7 @@ const InventoryItem = require('./InventoryItem');
 const InventoryAdjustment = require('./InventoryAdjustment');
 const Supplier = require('./Supplier');
 const Purchase = require('./Purchase');
+const Recipe = require('./Recipe');
 
 // Export all models
 module.exports = {
@@ -59,5 +61,6 @@ module.exports = {
   InventoryItem,
   InventoryAdjustment,
   Supplier,
-  Purchase
+  Purchase,
+  Recipe
 };

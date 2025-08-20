@@ -35,6 +35,7 @@ import { AuthContext } from "../../context/AuthContext";
 import { RestaurantContext } from "../../context/RestaurantContext";
 import { BranchContext } from "../../context/BranchContext";  
 import CurrencyDisplay from "../../components/Utils/CurrencyDisplay";
+import RecipeEditorModal from "../recipe-management/RecipeEditorModal";
 
 const Tables = () => {
   // Modal states
@@ -42,6 +43,7 @@ const Tables = () => {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [currentEditItem, setCurrentEditItem] = useState(null);
+  const [recipeItem, setRecipeItem] = useState(null);
   
   // Selection state
   const [selectedItems, setSelectedItems] = useState([]);
@@ -997,6 +999,15 @@ const Tables = () => {
                               >
                                 <i className="fas fa-edit text-primary mr-2"></i> Edit
                               </DropdownItem>
+                              <DropdownItem
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setRecipeItem(menuItem);
+                                }}
+                              >
+                                <i className="fas fa-list-alt text-success mr-2"></i> Recipe
+                              </DropdownItem>
                               <DropdownItem  
                                 onClick={() => {
                                   if (window.confirm("Are you sure you want to delete this menu item?")) {
@@ -1114,6 +1125,16 @@ const Tables = () => {
         isOpen={exportModalOpen}
         toggle={() => setExportModalOpen(false)}
       />
+
+      {!!recipeItem && (
+        <RecipeEditorModal
+          isOpen={!!recipeItem}
+          toggle={() => setRecipeItem(null)}
+          menuItem={recipeItem}
+          scope={{ restaurantId: user?.restaurantId, branchId: user?.branchId }}
+          onSaved={() => setRecipeItem(null)}
+        />
+      )}
     </>
   );
 };
