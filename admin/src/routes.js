@@ -18,6 +18,7 @@ import OrderManagement from "features/order-management/OrderManagement.js";
 import OrderReports from "features/order-management/OrderReports.js";
 import StaffManagement from "features/staff-management/StaffManagement.js";
 import InventoryManagement from "features/inventory-management/InventoryManagement.js";
+import InventoryReports from "features/inventory-management/InventoryReports.jsx";
 import SuppliersManagement from "features/supplier-management/SuppliersManagement.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
@@ -37,6 +38,14 @@ var routes = [
     component: <InventoryManagement />,
     layout: "/admin",
     roles: ["admin", "Branch_Manager", "Super_Admin"],
+  },
+  {
+    path: "/inventory-reports",
+    name: "Inventory Reports",
+    icon: "ni ni-chart-bar-32 text-teal",
+    component: <InventoryReports />,
+    layout: "/admin",
+    roles: ["Branch_Manager", "Super_Admin"],
   },
   {
     path: "/suppliers",

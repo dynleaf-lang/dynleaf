@@ -46,4 +46,29 @@ export const InventoryAPI = {
     const { data } = await api.get(`/public/inventory/adjustments/recent${query}`);
     return data.adjustments || [];
   },
+
+  // Reports
+  getSummary: async ({ branchId, restaurantId, daysUntilExpiry = 7 } = {}) => {
+    const query = buildQuery({ branchId, restaurantId, daysUntilExpiry });
+    const { data } = await api.get(`/public/inventory/reports/summary${query}`);
+    return data;
+  },
+
+  getWastageTrends: async ({ branchId, restaurantId, from, to, groupBy = 'day' } = {}) => {
+    const query = buildQuery({ branchId, restaurantId, from, to, groupBy });
+    const { data } = await api.get(`/public/inventory/reports/wastage-trends${query}`);
+    return data;
+  },
+
+  getAdjustmentSummary: async ({ branchId, restaurantId, from, to } = {}) => {
+    const query = buildQuery({ branchId, restaurantId, from, to });
+    const { data } = await api.get(`/public/inventory/reports/adjustments/summary${query}`);
+    return data;
+  },
+
+  getExpiringSoon: async ({ branchId, restaurantId, daysUntilExpiry = 7 } = {}) => {
+    const query = buildQuery({ branchId, restaurantId, daysUntilExpiry });
+    const { data } = await api.get(`/public/inventory/reports/expiring-soon${query}`);
+    return data.items || [];
+  },
 };

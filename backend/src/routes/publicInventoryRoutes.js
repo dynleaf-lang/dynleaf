@@ -87,6 +87,221 @@ router.get('/adjustments/recent', asyncHandler(async (req, res) => {
   res.json({ adjustments: withNames });
 }));
 
+// GET /api/public/inventory/reports/summary
+// Query: branchId?, restaurantId?, daysUntilExpiry? (default 7)
+router.get('/reports/summary', asyncHandler(async (req, res) => {
+  const { branchId, restaurantId } = req.query;
+  const daysUntilExpiry = parseInt(req.query.daysUntilExpiry || '7', 10) || 7;
+  const filter = {};
+  if (branchId) filter.branchId = branchId;
+  if (restaurantId) filter.restaurantId = restaurantId;
+
+  const items = await InventoryItem.find(filter).lean();
+
+  let counts = { in_stock: 0, low: 0, critical: 0, out: 0, expired: 0 };
+  let totalStockQty = 0;
+  let totalStockValue = 0;
+  const now = new Date();
+  const soon = new Date(now.getTime() + daysUntilExpiry * 24 * 60 * 60 * 1000);
+  let expiringSoonCount = 0;
+
+  for (const it of items) {
+    const currentQty = it.currentQty ?? 0;
+    const low = it.lowThreshold ?? 0;
+    const critical = it.criticalThreshold ?? 0;
+    let status = 'in_stock';
+    if (it.expiryDate && currentQty > 0) {
+      const exp = new Date(it.expiryDate);
+      if (!isNaN(exp) && exp < now) status = 'expired';
+      if (!isNaN(exp) && exp >= now && exp <= soon) expiringSoonCount += 1;
+    }
+    if (status !== 'expired') {
+      status = currentQty <= 0 ? 'out' : (currentQty <= critical ? 'critical' : (currentQty <= low ? 'low' : 'in_stock'));
+    }
+    counts[status] = (counts[status] || 0) + 1;
+
+    totalStockQty += currentQty;
+    if (typeof it.costPrice === 'number') totalStockValue += (currentQty * it.costPrice);
+  }
+
+  // Today wastage (qty and value)
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  const wastageReasons = ['waste', 'wastage', 'breakage'];
+  const adjFilter = {
+    reason: { $in: wastageReasons },
+    createdAt: { $gte: startOfDay, $lte: endOfDay }
+  };
+  if (branchId) adjFilter.branchId = branchId;
+  if (restaurantId) adjFilter.restaurantId = restaurantId;
+
+  const todaysAdjustments = await InventoryAdjustment.find(adjFilter).lean();
+  let todayWastageQty = 0;
+  let todayWastageValue = 0;
+  // Build a cost map to avoid multiple lookups
+  if (todaysAdjustments.length) {
+    const ids = Array.from(new Set(todaysAdjustments.map(a => (a.itemId || '').toString()).filter(Boolean)));
+    const costMap = new Map((await InventoryItem.find({ _id: { $in: ids } }, { costPrice: 1 }).lean()).map(it => [it._id.toString(), it.costPrice || 0]));
+    for (const a of todaysAdjustments) {
+      const qty = Math.abs(a.deltaQty || 0);
+      todayWastageQty += qty;
+      todayWastageValue += qty * (costMap.get((a.itemId || '').toString()) || 0);
+    }
+  }
+
+  res.json({
+    counts,
+    totalStockQty,
+    totalStockValue,
+    expiringSoonCount,
+    todayWastageQty,
+    todayWastageValue
+  });
+}));
+
+// GET /api/public/inventory/reports/wastage-trends
+// Query: branchId?, restaurantId?, from?, to?, groupBy?(day|week)
+router.get('/reports/wastage-trends', asyncHandler(async (req, res) => {
+  const { branchId, restaurantId, from, to } = req.query;
+  const groupBy = (req.query.groupBy === 'week') ? 'week' : 'day';
+  const match = { reason: { $in: ['waste', 'wastage', 'breakage'] } };
+  const { Types } = require('mongoose');
+  if (branchId) {
+    match.branchId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : branchId;
+  }
+  if (restaurantId) {
+    match.restaurantId = Types.ObjectId.isValid(restaurantId) ? new Types.ObjectId(restaurantId) : restaurantId;
+  }
+  if (from || to) {
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    match.createdAt = {};
+    if (fromDate && !isNaN(fromDate)) match.createdAt.$gte = fromDate;
+    if (toDate && !isNaN(toDate)) match.createdAt.$lte = toDate;
+    if (Object.keys(match.createdAt).length === 0) delete match.createdAt;
+  }
+
+  const pipeline = [{ $match: match }];
+  // Ensure createdAt is present and of date type to avoid $dateToString errors
+  pipeline.push({ $match: { createdAt: { $exists: true } } });
+  pipeline.push({ $match: { createdAt: { $type: 'date' } } });
+  // Compute absolute qty first (coerce to number safely)
+  pipeline.push({
+    $addFields: {
+      absQty: {
+        $abs: {
+          $convert: { input: '$deltaQty', to: 'double', onError: 0, onNull: 0 }
+        }
+      }
+    }
+  });
+
+  let data;
+  try {
+    if (groupBy === 'week') {
+    // Group by ISO week-year to avoid unsupported %G-%V tokens
+      pipeline.push({ $addFields: { isoWeek: { $isoWeek: '$createdAt' }, isoYear: { $isoWeekYear: '$createdAt' } } });
+      pipeline.push({ $group: { _id: { year: '$isoYear', week: '$isoWeek' }, totalQty: { $sum: '$absQty' } } });
+      pipeline.push({ $sort: { '_id.year': 1, '_id.week': 1 } });
+      data = await InventoryAdjustment.aggregate(pipeline);
+      const points = data.map(d => {
+        const w = d._id.week;
+        const period = `${d._id.year}-W${String(w).padStart(2, '0')}`;
+        return { period, qty: d.totalQty };
+      });
+      return res.json({ groupBy, points });
+    } else {
+    // Group by day
+      pipeline.push({ $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalQty: { $sum: '$absQty' } } });
+      pipeline.push({ $sort: { _id: 1 } });
+      data = await InventoryAdjustment.aggregate(pipeline);
+      return res.json({ groupBy, points: data.map(d => ({ period: d._id, qty: d.totalQty })) });
+    }
+  } catch (err) {
+    console.error('[PUBLIC INVENTORY] Wastage trends aggregation error:', err);
+    return res.status(500).json({ message: 'Inventory error: wastage trends failed', error: err.message });
+  }
+}));
+
+// GET /api/public/inventory/reports/adjustments/summary
+// Query: branchId?, restaurantId?, from?, to?
+router.get('/reports/adjustments/summary', asyncHandler(async (req, res) => {
+  const { branchId, restaurantId, from, to } = req.query;
+  const match = {};
+  const { Types } = require('mongoose');
+  if (branchId) match.branchId = Types.ObjectId.isValid(branchId) ? new Types.ObjectId(branchId) : branchId;
+  if (restaurantId) match.restaurantId = Types.ObjectId.isValid(restaurantId) ? new Types.ObjectId(restaurantId) : restaurantId;
+  if (from || to) {
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    match.createdAt = {};
+    if (fromDate && !isNaN(fromDate)) match.createdAt.$gte = fromDate;
+    if (toDate && !isNaN(toDate)) match.createdAt.$lte = toDate;
+    if (Object.keys(match.createdAt).length === 0) delete match.createdAt;
+  }
+  let reasonsAgg = [];
+  let topItemsAgg = [];
+  try {
+    reasonsAgg = await InventoryAdjustment.aggregate([
+      { $match: match },
+      { $addFields: { absQty: { $abs: { $convert: { input: '$deltaQty', to: 'double', onError: 0, onNull: 0 } } } } },
+      { $group: { _id: '$reason', qty: { $sum: '$absQty' }, count: { $sum: 1 } } },
+      { $sort: { qty: -1 } }
+    ]);
+
+    topItemsAgg = await InventoryAdjustment.aggregate([
+      { $match: match },
+      { $addFields: { absQty: { $abs: { $convert: { input: '$deltaQty', to: 'double', onError: 0, onNull: 0 } } } } },
+      { $group: { _id: '$itemId', qty: { $sum: '$absQty' }, count: { $sum: 1 } } },
+      { $sort: { qty: -1 } },
+      { $limit: 10 }
+    ]);
+  } catch (err) {
+    console.error('[PUBLIC INVENTORY] Adjustments summary aggregation error:', err);
+    return res.status(500).json({ message: 'Inventory error: adjustments summary failed', error: err.message });
+  }
+
+  // Enrich top items with names/units
+  const itemIds = topItemsAgg.map(t => t._id).filter(Boolean);
+  const { Types: _Types } = require('mongoose');
+  const itemIdsSafe = itemIds
+    .filter(id => _Types.ObjectId.isValid(id))
+    .map(id => new _Types.ObjectId(id));
+  const items = itemIdsSafe.length
+    ? await InventoryItem.find({ _id: { $in: itemIdsSafe } }, { name: 1, unit: 1 }).lean()
+    : [];
+  const nameMap = new Map(items.map(it => [it._id.toString(), { name: it.name, unit: it.unit || null }]));
+  const topItems = topItemsAgg.map(t => ({
+    itemId: t._id,
+    qty: t.qty,
+    count: t.count,
+    name: nameMap.get((t._id || '').toString())?.name || null,
+    unit: nameMap.get((t._id || '').toString())?.unit || null,
+  }));
+
+  res.json({ reasons: reasonsAgg.map(r => ({ reason: r._id, qty: r.qty, count: r.count })), topItems });
+}));
+
+// GET /api/public/inventory/reports/expiring-soon
+// Query: branchId?, restaurantId?, daysUntilExpiry? (default 7)
+router.get('/reports/expiring-soon', asyncHandler(async (req, res) => {
+  const { branchId, restaurantId } = req.query;
+  const daysUntilExpiry = parseInt(req.query.daysUntilExpiry || '7', 10) || 7;
+  const now = new Date();
+  const soon = new Date(now.getTime() + daysUntilExpiry * 24 * 60 * 60 * 1000);
+  const filter = { currentQty: { $gt: 0 }, expiryDate: { $gte: now, $lte: soon } };
+  if (branchId) filter.branchId = branchId;
+  if (restaurantId) filter.restaurantId = restaurantId;
+
+  const items = await InventoryItem.find(filter, { name: 1, unit: 1, currentQty: 1, expiryDate: 1, lowThreshold: 1, criticalThreshold: 1 }).sort({ expiryDate: 1 }).lean();
+  const enriched = items.map(it => ({
+    ...it,
+    status: (it.currentQty <= 0) ? 'out' : (it.currentQty <= (it.criticalThreshold ?? 0)) ? 'critical' : (it.currentQty <= (it.lowThreshold ?? 0)) ? 'low' : 'in_stock'
+  }));
+
+  res.json({ items: enriched });
+}));
+
 // POST /api/public/inventory  (create item)
 router.post(
   '/',
