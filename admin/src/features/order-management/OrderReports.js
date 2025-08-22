@@ -7,8 +7,7 @@ import {
   Modal, ModalHeader, ModalBody, ModalFooter, Collapse
 } from 'reactstrap';
 import classnames from 'classnames';
-import { format, parseISO, subDays, subMonths } from 'date-fns';
-import { Bar, Line, Pie, Doughnut } from 'react-chartjs-2';
+import { format, parseISO, subDays, subMonths, addMonths } from 'date-fns';
 import { 
   FaFileDownload, FaFilePdf, FaFileExcel, FaFileCsv,
   FaCalendarAlt, FaChartBar, FaChartPie, FaChartLine,
@@ -22,6 +21,9 @@ import Header from '../../components/Headers/Header';
 import { AuthContext } from '../../context/AuthContext';
 import { useOrder } from '../../context/OrderContext';
 import { useCurrency } from '../../context/CurrencyContext';
+
+// Chart components
+import { Line, Bar, Doughnut, Pie } from 'react-chartjs-2';
 
 // Define chart colors with better contrast and accessibility
 const chartColors = {
@@ -737,25 +739,50 @@ const OrderReports = () => {
     const monthlyData = {};
     dailyData.forEach(item => {
       try {
-        const month = format(new Date(item.date), 'yyyy-MM');
-        const monthLabel = format(new Date(item.date), 'MMM yyyy');
+        // Use parseISO to avoid timezone-related month shifts
+        const d = parseISO(item.date);
+        const monthKey = format(d, 'yyyy-MM');
+        const monthLabel = format(d, 'MMM yyyy');
         
-        if (!monthlyData[month]) {
-          monthlyData[month] = {
-            month: monthLabel,
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = {
+            key: monthKey,
+            label: monthLabel,
             revenue: 0,
             orderCount: 0
           };
         }
         
-        monthlyData[month].revenue += item.revenue;
-        monthlyData[month].orderCount += item.orderCount;
+        monthlyData[monthKey].revenue += Number(item.revenue) || 0;
+        monthlyData[monthKey].orderCount += Number(item.orderCount) || 0;
       } catch (error) {
         console.error('Error processing date for monthly chart:', item.date, error);
       }
     });
     
-    const data = Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
+    // Ensure missing months in the selected date range are included with zero values
+    try {
+      // Build month range from dateRange (component state)
+      const startMonth = parseISO(`${dateRange.startDate.slice(0, 7)}-01`);
+      const endMonth = parseISO(`${dateRange.endDate.slice(0, 7)}-01`);
+      let cursor = startMonth;
+      while (cursor <= endMonth) {
+        const key = format(cursor, 'yyyy-MM');
+        if (!monthlyData[key]) {
+          monthlyData[key] = {
+            key,
+            label: format(cursor, 'MMM yyyy'),
+            revenue: 0,
+            orderCount: 0
+          };
+        }
+        cursor = addMonths(cursor, 1);
+      }
+    } catch (e) {
+      console.warn('getMonthlySalesChart: Failed to fill missing months:', e);
+    }
+    
+    const data = Object.values(monthlyData).sort((a, b) => a.key.localeCompare(b.key));
     
     if (data.length === 0) {
       console.log('getMonthlySalesChart: No valid data points after grouping');
@@ -765,8 +792,11 @@ const OrderReports = () => {
       };
     }
 
+    // Debug final dataset shape
+    console.log('getMonthlySalesChart: Final data points:', data.map(d => ({ key: d.key, label: d.label, revenue: d.revenue })));
+
     return {
-      labels: data.map(item => item.month),
+      labels: data.map(item => item.label),
       datasets: [
         {
           label: 'Revenue',

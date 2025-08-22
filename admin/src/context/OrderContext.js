@@ -91,6 +91,9 @@ export const OrderProvider = ({ children }) => {
       } else if (Array.isArray(response.data)) {
         // Direct array response
         ordersData = response.data;
+      } else if (response.data && Array.isArray(response.data.orders)) {
+        // Public orders endpoint returns { success, orders, total }
+        ordersData = response.data.orders;
       } else {
         // Fallback to empty array
         ordersData = [];
