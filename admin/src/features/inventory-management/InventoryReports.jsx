@@ -5,7 +5,7 @@ import {
   InputGroup, InputGroupAddon, InputGroupText, Button
 } from 'reactstrap';
 import { Line } from 'react-chartjs-2';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import Header from '../../components/Headers/Header';
 import { AuthContext } from '../../context/AuthContext';
 import { InventoryAPI } from './inventoryService';
@@ -72,8 +72,26 @@ const InventoryReports = () => {
   }, [daysUntilExpiry, from, to, groupBy, user?.branchId, user?.restaurantId]);
 
   const trendChartData = useMemo(() => {
-    const labels = (trends?.points || []).map(p => p.period);
-    const data = (trends?.points || []).map(p => p.qty);
+    const pts = Array.isArray(trends?.points) ? trends.points : [];
+    const map = new Map(pts.map(p => [p.period, Number(p.qty) || 0]));
+
+    let labels = [];
+    if (groupBy === 'day') {
+      // Build inclusive list of dates between from and to
+      const start = from ? new Date(`${from}T00:00:00`) : null;
+      const end = to ? new Date(`${to}T00:00:00`) : null;
+      if (start && end && !isNaN(start) && !isNaN(end) && start <= end) {
+        for (let d = start; d <= end; d = addDays(d, 1)) {
+          labels.push(format(d, 'yyyy-MM-dd'));
+        }
+      } else {
+        labels = pts.map(p => p.period);
+      }
+    } else {
+      labels = pts.map(p => p.period);
+    }
+
+    const data = labels.map(l => map.get(l) || 0);
     return {
       labels,
       datasets: [
@@ -83,11 +101,13 @@ const InventoryReports = () => {
           fill: false,
           borderColor: 'rgba(234, 67, 53, 1)',
           backgroundColor: 'rgba(234, 67, 53, 0.2)',
+          pointRadius: 3,
+          pointHoverRadius: 5,
           tension: 0.25,
         }
       ]
     };
-  }, [trends]);
+  }, [trends, from, to, groupBy]);
 
   return (
     <>

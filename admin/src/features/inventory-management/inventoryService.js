@@ -55,7 +55,9 @@ export const InventoryAPI = {
   },
 
   getWastageTrends: async ({ branchId, restaurantId, from, to, groupBy = 'day' } = {}) => {
-    const query = buildQuery({ branchId, restaurantId, from, to, groupBy });
+    // Send timezone offset so backend can group by local day
+    const tzOffset = new Date().getTimezoneOffset();
+    const query = buildQuery({ branchId, restaurantId, from, to, groupBy, tzOffset });
     const { data } = await api.get(`/public/inventory/reports/wastage-trends${query}`);
     return data;
   },

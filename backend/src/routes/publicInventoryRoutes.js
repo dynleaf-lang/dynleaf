@@ -125,8 +125,11 @@ router.get('/reports/summary', asyncHandler(async (req, res) => {
   }
 
   // Today wastage (qty and value)
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
-  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  // Use LOCAL start/end of day so the "Today" summary matches the user's timezone
+  // Mongo stores dates in UTC; constructing local Date boundaries yields the correct
+  // absolute instants for the local-day window when compared against createdAt (UTC).
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const wastageReasons = ['waste', 'wastage', 'breakage'];
   const adjFilter = {
     reason: { $in: wastageReasons },
@@ -164,6 +167,19 @@ router.get('/reports/summary', asyncHandler(async (req, res) => {
 router.get('/reports/wastage-trends', asyncHandler(async (req, res) => {
   const { branchId, restaurantId, from, to } = req.query;
   const groupBy = (req.query.groupBy === 'week') ? 'week' : 'day';
+  // Optional timezone offset in minutes (browser: new Date().getTimezoneOffset())
+  // Positive values mean minutes behind UTC; convert to Mongo timezone string e.g., '+05:30' or '-04:00'
+  const tzOffsetMin = Number.isFinite(Number(req.query.tzOffset)) ? Number(req.query.tzOffset) : null;
+  const tzString = (() => {
+    if (tzOffsetMin === null) return null;
+    // JS offset: minutes behind UTC (IST = -330). Mongo expects "+HH:MM" where positive means ahead of UTC.
+    const totalMinutesAhead = -tzOffsetMin; // invert sign
+    const sign = totalMinutesAhead >= 0 ? '+' : '-';
+    const abs = Math.abs(totalMinutesAhead);
+    const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+    const mm = String(abs % 60).padStart(2, '0');
+    return `${sign}${hh}:${mm}`;
+  })();
   const match = { reason: { $in: ['waste', 'wastage', 'breakage'] } };
   const { Types } = require('mongoose');
   if (branchId) {
@@ -173,11 +189,30 @@ router.get('/reports/wastage-trends', asyncHandler(async (req, res) => {
     match.restaurantId = Types.ObjectId.isValid(restaurantId) ? new Types.ObjectId(restaurantId) : restaurantId;
   }
   if (from || to) {
-    const fromDate = from ? new Date(from) : null;
-    const toDate = to ? new Date(to) : null;
+    const isDateOnly = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+    let fromDate = null;
+    let toDate = null;
+    if (from) {
+      if (isDateOnly(from)) {
+        const d = new Date(`${from}T00:00:00`); // local start of day
+        if (!isNaN(d)) fromDate = d;
+      } else {
+        const d = new Date(from);
+        if (!isNaN(d)) fromDate = d;
+      }
+    }
+    if (to) {
+      if (isDateOnly(to)) {
+        const d = new Date(`${to}T23:59:59.999`); // local end of day
+        if (!isNaN(d)) toDate = d;
+      } else {
+        const d = new Date(to);
+        if (!isNaN(d)) toDate = d;
+      }
+    }
     match.createdAt = {};
-    if (fromDate && !isNaN(fromDate)) match.createdAt.$gte = fromDate;
-    if (toDate && !isNaN(toDate)) match.createdAt.$lte = toDate;
+    if (fromDate) match.createdAt.$gte = fromDate;
+    if (toDate) match.createdAt.$lte = toDate;
     if (Object.keys(match.createdAt).length === 0) delete match.createdAt;
   }
 
@@ -211,8 +246,11 @@ router.get('/reports/wastage-trends', asyncHandler(async (req, res) => {
       });
       return res.json({ groupBy, points });
     } else {
-    // Group by day
-      pipeline.push({ $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, totalQty: { $sum: '$absQty' } } });
+    // Group by day (use timezone when provided so days align to client local time)
+      const dateToString = tzString
+        ? { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: tzString } }
+        : { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+      pipeline.push({ $group: { _id: dateToString, totalQty: { $sum: '$absQty' } } });
       pipeline.push({ $sort: { _id: 1 } });
       data = await InventoryAdjustment.aggregate(pipeline);
       return res.json({ groupBy, points: data.map(d => ({ period: d._id, qty: d.totalQty })) });
