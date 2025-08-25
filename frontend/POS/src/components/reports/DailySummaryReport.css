@@ -34,8 +34,7 @@
 }
 
 /* Report Header */
-.daily-summary-report .card-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.daily-summary-report .card-header { 
   color: white;
   border: none;
   font-weight: 600;

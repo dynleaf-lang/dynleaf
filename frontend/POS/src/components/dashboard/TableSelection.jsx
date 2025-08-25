@@ -67,8 +67,7 @@ const TableSelection = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedTableForDetails, setSelectedTableForDetails] = useState(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [viewMode, setViewMode] = useState('floor'); // 'floor' or 'list'
+  const [showDetailsModal, setShowDetailsModal] = useState(false); 
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [showReservationModal, setShowReservationModal] = useState(false);
   const [showContactlessModal, setShowContactlessModal] = useState(false);
@@ -516,7 +515,7 @@ const TableSelection = () => {
   }
 
   return (
-    <div className="table-selection">
+    <div className="table-selection" >
       {/* Professional Header with Action Buttons */}
       <div className="table-selection-header">
         <div className="header-top">
@@ -525,8 +524,33 @@ const TableSelection = () => {
               <FaTable className="me-2" />
               Table View
             </h2>
+            
           </div>
-          <div className="header-right">
+          <div className="d-flex header-right">
+            {/* Status Legend */}
+      <div className="mb-0 me-4 status-legend bg-transparent shadow-none p-0">
+        <div className="legend-item">
+          <div className="legend-color" style={{ backgroundColor: '#E8F5E8', border: '2px solid #4CAF50' }}></div>
+          <span>Available ({statusCounts.available})</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-color" style={{ backgroundColor: '#FFE8E8', border: '2px solid #F44336' }}></div>
+          <span>Occupied ({statusCounts.occupied})</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-color" style={{ backgroundColor: '#FFF4E6', border: '2px solid #FF9800' }}></div>
+          <span>Reserved ({statusCounts.reserved})</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-color" style={{ backgroundColor: '#E6F3FF', border: '2px solid #2196F3' }}></div>
+          <span>Cleaning ({statusCounts.cleaning})</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-color" style={{ backgroundColor: '#F0F0F0', border: '2px solid #9E9E9E' }}></div>
+          <span>Blocked ({statusCounts.blocked || 0})</span>
+        </div>
+      </div>
+
             <ButtonGroup size="sm">
               <Button 
                 color="outline-primary"
@@ -596,22 +620,7 @@ const TableSelection = () => {
               </Input>
             </div>
             
-            <span className="me-2">Floor Plan</span>
-            <ButtonGroup size="sm">
-              <Button 
-                color={viewMode === 'floor' ? 'primary' : 'outline-primary'}
-                onClick={() => setViewMode('floor')}
-              >
-                <FaTh />
-              </Button>
-              <Button 
-                color={viewMode === 'list' ? 'primary' : 'outline-primary'}
-                onClick={() => setViewMode('list')}
-              >
-                <FaList />
-              </Button>
-            </ButtonGroup>
-            <span className="ms-3 me-2">Default Layout</span>
+             
             <Button size="sm" color="outline-secondary">
               <FaCog />
             </Button>
@@ -619,32 +628,9 @@ const TableSelection = () => {
         </div>
       </div>
 
-      {/* Status Legend */}
-      <div className="status-legend">
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#E8F5E8', border: '2px solid #4CAF50' }}></div>
-          <span>Available ({statusCounts.available})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#FFE8E8', border: '2px solid #F44336' }}></div>
-          <span>Occupied ({statusCounts.occupied})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#FFF4E6', border: '2px solid #FF9800' }}></div>
-          <span>Reserved ({statusCounts.reserved})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#E6F3FF', border: '2px solid #2196F3' }}></div>
-          <span>Cleaning ({statusCounts.cleaning})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#F0F0F0', border: '2px solid #9E9E9E' }}></div>
-          <span>Blocked ({statusCounts.blocked || 0})</span>
-        </div>
-      </div>
-
+      
       {/* Floor Plan View */}
-      {viewMode === 'floor' ? (
+      
         <div className="floor-plan-container">
           {Object.entries(groupedTables).map(([floorName, floorTables]) => (
             floorTables.length > 0 && (
@@ -665,58 +651,7 @@ const TableSelection = () => {
             )
           ))}
         </div>
-      ) : (
-        /* List View */
-        <Row>
-          {filteredTables.length === 0 ? (
-            <Col>
-              <Alert color="warning" className="text-center" fade={false}>
-                <h5>No Tables Found</h5>
-                <p>No tables match your current search criteria.</p>
-              </Alert>
-            </Col>
-          ) : (
-            filteredTables.map(table => (
-              <Col key={table._id} xs={6} sm={4} md={3} lg={2} className="mb-4">
-                <Card 
-                  className={`table-card h-100 ${selectedTable?._id === table._id ? 'selected' : ''}`}
-                  style={{ cursor: 'pointer', transition: 'all 0.3s ease' }}
-                  onClick={() => handleTableSelect(table)}
-                >
-                  <CardBody className="text-center p-3">
-                    <div className="table-icon mb-2">
-                      <FaTable size={32} className="text-primary" />
-                    </div>
-                    <h5 className="table-name mb-2">{table.TableName}</h5>
-                    <Badge 
-                      style={{ 
-                        backgroundColor: getStatusBorderColor(table.status),
-                        color: 'white'
-                      }}
-                      className="mb-2"
-                    >
-                      {getStatusIcon(table.status)}
-                      <span className="ms-1">{table.status.toUpperCase()}</span>
-                    </Badge>
-                    <div className="table-info">
-                      <small className="text-muted d-block">
-                        <FaUsers className="me-1" />
-                        Capacity: {table.capacity}
-                      </small>
-                      {table.category && (
-                        <small className="text-muted d-block">
-                          <FaMapMarkerAlt className="me-1" />
-                          {table.category}
-                        </small>
-                      )}
-                    </div>
-                  </CardBody>
-                </Card>
-              </Col>
-            ))
-          )}
-        </Row>
-      )}
+     
 
       {/* Table Details Modal */}
       <Modal 

@@ -1,7 +1,7 @@
 /* TableSelection.css - Professional Floor Plan Styling */
 
 .table-selection {  
-  min-height: 100vh;
+  height: calc(100vh - 120px);
 }
 
 /* Header Styling */
@@ -111,7 +111,7 @@
 }
 
 .section-header {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
   padding-bottom: var(--spacing-md);
   border-bottom: 2px solid var(--divider);
 }

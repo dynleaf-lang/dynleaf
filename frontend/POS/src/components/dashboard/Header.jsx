@@ -21,12 +21,14 @@ import {
   FaCog,
   FaSignOutAlt,
   FaBars,
-  FaPlus
+  FaPlus,
+  FaExpand,
 } from 'react-icons/fa';
 import { format } from 'date-fns';
 
 const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleSidebar, onNavigateToTables }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
+ 
 
   
   useEffect(() => {
@@ -38,7 +40,7 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
   }, []);
 
   const formatTime = (date) => {
-    return format(date, 'HH:mm:ss');
+    return format(date, 'hh:mm:ss');
   };
 
   const formatDate = (date) => {
@@ -101,6 +103,24 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
       )}
 
       <Nav className="ms-auto d-flex align-items-center" navbar>
+        {/* Fullscreen Toggle Button */}
+        <Button
+          color="light"
+          title='Toggle Fullscreen'
+          size="sm"
+          className="me-3 d-flex align-items-center justify-content-center px-2 rounded-0"
+          onClick={() => {
+            // Handle fullscreen toggle
+            if (document.fullscreenElement) {
+              document.exitFullscreen();
+            } else {
+              document.documentElement.requestFullscreen();
+            }
+          }}
+        >
+          <FaExpand size={16} />
+        </Button>
+
         {/* Selected Table Indicator */}
         {selectedTable && (
           <NavItem className="me-3">
@@ -108,7 +128,7 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
               <FaTable className="text-primary me-2" />
               <div>
                 <small className="text-muted d-block">Selected Table</small>
-                <strong>{selectedTable.name}</strong>
+                <strong>{selectedTable.TableName}</strong>
               </div>
             </div>
           </NavItem>
@@ -136,7 +156,10 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
           <div className="d-flex align-items-center text-center">
             <FaClock className="text-info me-2" />
             <div>
-              <div className="fw-bold text-dark">{formatTime(currentTime)}</div>
+              <div className="fw-bold text-dark">{
+                  //12 hrs formatTime(currentTime)
+                  formatTime(currentTime)
+                }</div>
               <small className="text-muted">{formatDate(currentTime)}</small>
             </div>
           </div>

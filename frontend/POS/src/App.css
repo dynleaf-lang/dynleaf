@@ -794,9 +794,10 @@ body {
   /* background: var(--card); */
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  min-height: calc(100vh - 200px);
+  backdrop-filter: blur(12px); 
   padding: var(--spacing-xl);
+  height: calc(100vh - 80px);
+    overflow: auto;
 }
 
 /* Header Styles */
