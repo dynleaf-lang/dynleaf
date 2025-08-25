@@ -791,7 +791,7 @@ body {
 }
 
 .main-content .tab-content {
-  background: var(--card);
+  /* background: var(--card); */
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);

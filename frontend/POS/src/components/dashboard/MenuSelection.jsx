@@ -141,6 +141,8 @@ const MenuSelection = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+  
+  // No-op: horizontal nav removed in favor of vertical sidebar
  
 
   // Filter menu items based on category and search
@@ -504,7 +506,7 @@ const MenuSelection = () => {
             borderBottom: '1px solid #e2e8f0',
             marginBottom: '1rem'
           }}>
-            <div className="d-flex justify-content-between align-items-center mb-3">
+            <div className="d-flex justify-content-between align-items-center">
               <div className="d-flex align-items-center">
                 <h4 className="mb-0 me-3">
                   <FaUtensils className="me-2 text-primary" />
@@ -512,7 +514,7 @@ const MenuSelection = () => {
                 </h4>
                 {selectedTable && (
                   <Badge color="info" className="fs-6">
-                    Table {selectedTable.TableName}
+                   {selectedTable.TableName}
                   </Badge>
                 )}
               </div>
@@ -532,55 +534,50 @@ const MenuSelection = () => {
                 </Button>
               </InputGroup>
             </div>
-
-            {/* Categories Navigation */}
-            <Nav pills className="flex-nowrap category-nav" style={{ 
-              overflowX: 'auto',
-              scrollbarWidth: 'thin'
-            }}>
-              <NavItem>
-                <NavLink
-                  className={selectedCategory === 'all' ? 'active' : ''}
-                  onClick={() => setSelectedCategory('all')}
-                  style={{ 
-                    cursor: 'pointer', 
-                    whiteSpace: 'nowrap',
-                    fontSize: '0.85rem',
-                    padding: '0.4rem 0.8rem'
-                  }}
-                >
-                  <FaUtensils className="me-1" style={{ fontSize: '0.8rem' }} />
-                  All Items
-                </NavLink>
-              </NavItem>
-              {categories.map(category => (
-                <NavItem key={category._id}>
-                  <NavLink
-                    className={selectedCategory === category._id ? 'active' : ''}
-                    onClick={() => setSelectedCategory(category._id)}
-                    style={{ 
-                      cursor: 'pointer', 
-                      whiteSpace: 'nowrap',
-                      fontSize: '0.85rem',
-                      padding: '0.4rem 0.8rem'
-                    }}
-                  >
-                    {category.name}
-                  </NavLink>
-                </NavItem>
-              ))}
-            </Nav>
           </div>
 
-          {/* Menu Items Grid - Scrollable */}
-          <div className="menu-items-container" style={{ 
-            flex: 1, 
-            overflowY: 'auto',
-            paddingRight: '0.5rem',
-            overflowX: 'hidden',
-            maxHeight: 'calc(100vh - 200px)',
-          }}>
-            {itemsGrid}
+          {/* Categories + Items layout */}
+          <div className="menu-content flex-grow-1">
+            <Row className="g-3">
+        <Col md={3} lg={3} className="category-sidebar-col">
+                <div className="category-sidebar"> 
+                  <Nav pills vertical className="category-vertical">
+                    <NavItem>
+                      <NavLink
+                        className={selectedCategory === 'all' ? 'active' : ''}
+                        onClick={() => setSelectedCategory('all')}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        All Items
+                      </NavLink>
+                    </NavItem>
+                    {categories.map(category => (
+                      <NavItem key={category._id}>
+                        <NavLink
+                          className={selectedCategory === category._id ? 'active' : ''}
+                          onClick={() => setSelectedCategory(category._id)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {category.name}
+                        </NavLink>
+                      </NavItem>
+                    ))}
+                  </Nav>
+                </div>
+              </Col>
+              <Col md={9} lg={9} className="items-col">
+                {/* Menu Items Grid - Scrollable */}
+                <div className="menu-items-container" style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  paddingRight: '0.5rem',
+                  overflowX: 'hidden',
+                  maxHeight: 'calc(100vh - 200px)'
+                }}>
+                  {itemsGrid}
+                </div>
+              </Col>
+            </Row>
           </div>
         </Col>
 
