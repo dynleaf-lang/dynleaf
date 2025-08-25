@@ -105,19 +105,18 @@ const Tables = () => {
       const userBranchId = user.branchId;
       
       if (userRestaurantId && userBranchId) {
-        const userFiltered = useLocalFilter 
-          ? filteredMenuItems.filter(item => 
-              item.restaurantId === userRestaurantId && item.branchId === userBranchId)
-          : menuItems.filter(item => 
-              item.restaurantId === userRestaurantId && item.branchId === userBranchId);
-        
+        const matchList = (list) => list.filter(item => {
+          const rOk = String(item.restaurantId || '') === String(userRestaurantId);
+          const bOk = item.branchId ? (String(item.branchId) === String(userBranchId)) : true; // include items with no branch
+          return rOk && bOk;
+        });
+        const userFiltered = useLocalFilter ? matchList(filteredMenuItems) : matchList(menuItems);
         return userFiltered;
       }
       // For users with only restaurant assigned but no branch (may happen for some roles)
       else if (userRestaurantId) {
-        const userFiltered = useLocalFilter 
-          ? filteredMenuItems.filter(item => item.restaurantId === userRestaurantId)
-          : menuItems.filter(item => item.restaurantId === userRestaurantId);
+  const matchList = (list) => list.filter(item => String(item.restaurantId || '') === String(userRestaurantId));
+  const userFiltered = useLocalFilter ? matchList(filteredMenuItems) : matchList(menuItems);
         
         return userFiltered;
       }
@@ -1078,16 +1077,17 @@ const Tables = () => {
               </Table>
               
               {/* Table Footer */}
-              {selectedItems.length === 0 && menuItems && menuItems.length > 0 && (
+             
                 <div className="d-flex justify-content-end p-3">
                   <Button color="success" size="sm" className="mr-2" onClick={() => setImportModalOpen(true)}>
                     <i className="fas fa-file-import mr-1"></i> Import
                   </Button>
+                     {selectedItems.length === 0 && menuItems && menuItems.length > 0 && (
                   <Button color="info" size="sm" onClick={() => setExportModalOpen(true)}>
                     <i className="fas fa-file-export mr-1"></i> Export
                   </Button>
+                     )}
                 </div>
-              )}
               
               {/* Pagination Component - REPLACED WITH NEW PAGINATION COMPONENT */}
               {menuItems && menuItems.length > 0 && (

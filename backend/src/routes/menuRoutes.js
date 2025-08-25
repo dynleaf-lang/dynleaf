@@ -519,16 +519,27 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
         }
 
         // Get import options
-        const restaurantId = req.body.restaurantId || (req.user.role !== 'Super_Admin' ? req.user.restaurantId : null);
+        const rawRestaurantId = req.body.restaurantId;
+        const restaurantId = rawRestaurantId || (req.user.role !== 'Super_Admin' ? req.user.restaurantId : null);
         const branchId = req.body.branchId || null;
         const overwrite = req.body.overwrite === 'true';
         
-        // Validate restaurant ID for non-Super_Admin users
-        if (req.user.role !== 'Super_Admin' && (!req.user.restaurantId || req.user.restaurantId !== restaurantId)) {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'You can only import items for your own restaurant'
-            });
+        // Validate restaurant ID for non-Super_Admin users (normalize to strings to avoid ObjectId vs string mismatch)
+        if (req.user.role !== 'Super_Admin') {
+            const userRestaurantIdStr = req.user.restaurantId ? String(req.user.restaurantId) : '';
+            const requestedRestaurantIdStr = rawRestaurantId ? String(rawRestaurantId) : '';
+            if (!userRestaurantIdStr) {
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'You can only import items for your own restaurant'
+                });
+            }
+            if (requestedRestaurantIdStr && requestedRestaurantIdStr !== userRestaurantIdStr) {
+                return res.status(403).json({ 
+                    success: false, 
+                    message: 'You can only import items for your own restaurant'
+                });
+            }
         }
         
         // Determine file type and read data
@@ -539,56 +550,131 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
             if (fileType === '.csv') {
                 // Parse CSV file
                 const csvData = fs.readFileSync(file.path, 'utf8');
-                const rows = csvData.split('\n');
+                const rows = csvData.split(/\r?\n/);
                 
-                // Validate CSV has headers
-                if (rows.length < 2) {
+                // Find header row index (first non-empty line)
+                let headerRowIndex = rows.findIndex(r => r && r.trim().length > 0);
+                if (headerRowIndex === -1 || headerRowIndex >= rows.length - 1) {
                     throw new Error('CSV file is empty or missing headers');
                 }
                 
                 // Extract headers and validate format
-                const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
-                const requiredHeaders = ['name', 'category', 'price'];
-                const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+                const stripBom = (s) => s && s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
+                const clean = (s) => stripBom(String(s || ''))
+                    .replace(/^\uFEFF/, '')
+                    .replace(/^"|"$/g, '')
+                    .replace(/\u00A0/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+                // CSV line parser that respects quotes and configurable delimiter
+                const parseCsvLine = (line, delim = ',') => {
+                    const result = [];
+                    let current = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < line.length; i++) {
+                        const ch = line[i];
+                        if (ch === '"') {
+                            if (inQuotes && line[i + 1] === '"') {
+                                current += '"';
+                                i++;
+                            } else {
+                                inQuotes = !inQuotes;
+                            }
+                        } else if (ch === delim && !inQuotes) {
+                            result.push(current);
+                            current = '';
+                        } else {
+                            current += ch;
+                        }
+                    }
+                    result.push(current);
+                    return result;
+                };
+
+                // Detect delimiter: prefer comma, fallback to semicolon if comma yields single column
+                const rawHeaderLine = rows[headerRowIndex];
+                let delimiter = ',';
+                let headers = parseCsvLine(rawHeaderLine, delimiter).map(h => clean(h));
+                if (headers.length < 2 && rawHeaderLine.includes(';')) {
+                    delimiter = ';';
+                    headers = parseCsvLine(rawHeaderLine, delimiter).map(h => clean(h));
+                }
+                // Accept either 'price' or 'base price' for price
+                const hasName = headers.includes('name');
+                const hasCategory = headers.includes('category');
+                const hasPrice = headers.includes('price') || headers.includes('base price');
+                const hasSizeVariantsCol = headers.includes('size variants');
+                const missingHeaders = [];
+                if (!hasName) missingHeaders.push('name');
+                if (!hasCategory) missingHeaders.push('category');
+                if (!hasPrice) missingHeaders.push('price');
                 
                 if (missingHeaders.length > 0) {
-                    throw new Error(`CSV is missing required headers: ${missingHeaders.join(', ')}`);
+                    throw new Error(`CSV is missing required headers: ${missingHeaders.join(', ')}. Found headers: ${headers.join(', ')}`);
                 }
                 
+                // Helper to parse price robustly from CSV text
+                const parsePrice = (val) => {
+                    const s = String(val || '')
+                        .replace(/[^0-9.,-]/g, '') // remove currency symbols and letters
+                        .replace(/,(?=\d{3}(\D|$))/g, '') // remove thousand separators
+                        .replace(/,/g, '.'); // use dot as decimal
+                    const n = parseFloat(s);
+                    return isNaN(n) ? 0 : n;
+                };
+                const parseVariants = (val) => {
+                    if (val === undefined || val === null) return [];
+                    const txt = String(val).replace(/\u00A0/g, ' ').trim();
+                    if (!txt) return [];
+                    const parts = txt.split(/;|,(?=\s*[A-Za-z])/).map(p => p.trim()).filter(Boolean);
+                    const variants = [];
+                    for (const part of parts) {
+                        const [n, p] = part.split(/:/);
+                        const name = (n || '').trim();
+                        const priceNum = parsePrice(p);
+                        if (name && !isNaN(priceNum)) variants.push({ name, price: priceNum });
+                    }
+                    return variants;
+                };
+
                 // Process rows
-                for (let i = 1; i < rows.length; i++) {
+                for (let i = headerRowIndex + 1; i < rows.length; i++) {
                     const row = rows[i].trim();
                     if (!row) continue; // Skip empty rows
-                    
-                    const columns = row.split(',').map(col => col.trim());
+                    // Parse columns with detected delimiter
+                    const columns = parseCsvLine(row, delimiter).map(col => clean(col));
                     if (columns.length < 3) continue; // Skip incomplete rows
                     
                     const nameIndex = headers.indexOf('name');
                     const categoryIndex = headers.indexOf('category');
-                    const priceIndex = headers.indexOf('price');
+                    // Map indices with fallbacks
+                    let priceIndex = headers.indexOf('price');
+                    if (priceIndex === -1) priceIndex = headers.indexOf('base price');
                     const descIndex = headers.indexOf('description');
                     const vegIndex = headers.indexOf('vegetarian');
                     const featuredIndex = headers.indexOf('featured');
                     const activeIndex = headers.indexOf('status') !== -1 ?
                                        headers.indexOf('status') : headers.indexOf('active');
+                    const sizeVarIndex = hasSizeVariantsCol ? headers.indexOf('size variants') : -1;
                     
                     if (nameIndex === -1 || categoryIndex === -1 || priceIndex === -1) {
                         continue; // Skip rows without required fields
                     }
                     
                     rawItems.push({
+                        _row: i + 1,
                         name: columns[nameIndex],
                         categoryName: columns[categoryIndex],
-                        price: parseFloat(columns[priceIndex]) || 0,
+                        price: parsePrice(columns[priceIndex]),
+                        sizeVariants: sizeVarIndex !== -1 && columns.length > sizeVarIndex ? parseVariants(columns[sizeVarIndex]) : [],
                         description: descIndex !== -1 && columns.length > descIndex ? columns[descIndex] : '',
-                        isVegetarian: vegIndex !== -1 && columns.length > vegIndex ? 
-                                     columns[vegIndex].toLowerCase() === 'yes' : false,
-                        featured: featuredIndex !== -1 && columns.length > featuredIndex ? 
-                                columns[featuredIndex].toLowerCase() === 'yes' : false,
-                        isActive: activeIndex !== -1 && columns.length > activeIndex ? 
-                                columns[activeIndex].toLowerCase() === 'available' ||
-                                columns[activeIndex].toLowerCase() === 'yes' ||
-                                columns[activeIndex].toLowerCase() === 'true' : true
+            isVegetarian: vegIndex !== -1 && columns.length > vegIndex ? 
+                     clean(columns[vegIndex]) === 'yes' : false,
+            featured: featuredIndex !== -1 && columns.length > featuredIndex ? 
+                clean(columns[featuredIndex]) === 'yes' : false,
+            isActive: activeIndex !== -1 && columns.length > activeIndex ? 
+                ['available','yes','true'].includes(clean(columns[activeIndex])) : true
                     });
                 }
             } else {
@@ -604,27 +690,65 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                 // Get headers from first row
                 const headers = [];
                 worksheet.getRow(1).eachCell({ includeEmpty: false }, (cell, colNumber) => {
-                    headers[colNumber - 1] = cell.value.toLowerCase().trim();
+                    const val = String(cell.value || '');
+                    headers[colNumber - 1] = val
+                        .replace(/\u00A0/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
                 });
                 
                 // Validate required headers
-                const requiredHeaders = ['name', 'category', 'price'];
-                const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+                // Accept either 'price' or 'base price' for price
+                const hasNameX = headers.includes('name');
+                const hasCategoryX = headers.includes('category');
+                const hasPriceX = headers.includes('price') || headers.includes('base price');
+                const missingHeaders = [];
+                if (!hasNameX) missingHeaders.push('name');
+                if (!hasCategoryX) missingHeaders.push('category');
+                if (!hasPriceX) missingHeaders.push('price');
                 
                 if (missingHeaders.length > 0) {
-                    throw new Error(`Excel is missing required headers: ${missingHeaders.join(', ')}`);
+                    throw new Error(`Excel is missing required headers: ${missingHeaders.join(', ')}. Found headers: ${headers.join(', ')}`);
                 }
                 
                 // Map header indices
                 const nameIndex = headers.indexOf('name');
                 const categoryIndex = headers.indexOf('category');
-                const priceIndex = headers.indexOf('price');
+                let priceIndex = headers.indexOf('price');
+                if (priceIndex === -1) priceIndex = headers.indexOf('base price');
                 const descIndex = headers.indexOf('description');
                 const vegIndex = headers.indexOf('vegetarian');
                 const featuredIndex = headers.indexOf('featured');
                 const activeIndex = headers.indexOf('status') !== -1 ? 
                                    headers.indexOf('status') : headers.indexOf('active');
+                const sizeVarIndexX = headers.indexOf('size variants');
                 
+                // Helper to parse price robustly from Excel values
+                const parsePriceX = (val) => {
+                    if (typeof val === 'number') return val;
+                    const s = String(val || '')
+                        .replace(/[^0-9.,-]/g, '')
+                        .replace(/,(?=\d{3}(\D|$))/g, '')
+                        .replace(/,/g, '.');
+                    const n = parseFloat(s);
+                    return isNaN(n) ? 0 : n;
+                };
+                const parseVariantsX = (val) => {
+                    if (val === undefined || val === null) return [];
+                    const txt = String(val).replace(/\u00A0/g, ' ').trim();
+                    if (!txt) return [];
+                    const parts = txt.split(/;|,(?=\s*[A-Za-z])/).map(p => p.trim()).filter(Boolean);
+                    const variants = [];
+                    for (const part of parts) {
+                        const [n, p] = part.split(/:/);
+                        const name = (n || '').trim();
+                        const priceNum = parsePriceX(p);
+                        if (name && !isNaN(priceNum)) variants.push({ name, price: priceNum });
+                    }
+                    return variants;
+                };
+
                 // Process data rows
                 worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
                     if (rowNumber === 1) return; // Skip header row
@@ -635,9 +759,11 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     }
                     
                     rawItems.push({
+                        _row: rowNumber,
                         name: values[nameIndex + 1],
                         categoryName: values[categoryIndex + 1],
-                        price: parseFloat(values[priceIndex + 1]) || 0,
+                        price: parsePriceX(values[priceIndex + 1]),
+                        sizeVariants: sizeVarIndexX !== -1 ? parseVariantsX(values[sizeVarIndexX + 1]) : [],
                         description: descIndex !== -1 && values.length > descIndex + 1 ? values[descIndex + 1] : '',
                         isVegetarian: vegIndex !== -1 && values.length > vegIndex + 1 ? 
                                      String(values[vegIndex + 1]).toLowerCase() === 'yes' : false,
@@ -705,11 +831,29 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
         
         for (const rawItem of rawItems) {
             try {
+                // Basic validations
+                const nameStr = String(rawItem.name || '').trim();
+                const catStr = String(rawItem.categoryName || '').trim();
+                if (!nameStr) {
+                    errors.push({ item: rawItem, error: 'Missing Name' });
+                    continue;
+                }
+                if (!catStr) {
+                    errors.push({ item: rawItem, error: 'Missing Category' });
+                    continue;
+                }
+                const svArr = Array.isArray(rawItem.sizeVariants) ? rawItem.sizeVariants : [];
+                if (!(rawItem.price > 0) && svArr.length === 0) {
+                    errors.push({ item: rawItem, error: 'Missing price and size variants' });
+                    continue;
+                }
                 // Find matching category
                 let categoryId = null;
-                const matchingCategory = categories.find(c => 
-                    c.name.toLowerCase() === rawItem.categoryName.toLowerCase()
-                );
+                const targetCat = catStr.toLowerCase();
+                const matchingCategory = categories.find(c => {
+                    const cname = String(c.name || '').trim().toLowerCase();
+                    return cname === targetCat;
+                });
                 
                 if (matchingCategory) {
                     categoryId = matchingCategory._id;
@@ -724,8 +868,13 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                             continue;
                         }
                         
+                        if (!catStr) {
+                            errors.push({ item: rawItem, error: 'Missing Category' });
+                            continue;
+                        }
                         const newCategory = new Category({
-                            name: rawItem.categoryName,
+                            categoryId: `CAT_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                            name: catStr,
                             restaurantId,
                             ...(branchId && { branchId }),
                             isActive: true
@@ -755,7 +904,8 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     isVegetarian: rawItem.isVegetarian,
                     featured: rawItem.featured,
                     isActive: rawItem.isActive,
-                    tags: []
+                    tags: [],
+                    sizeVariants: svArr
                 };
                 
                 if (branchId) {
@@ -834,10 +984,12 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                 created: createdItems.map(item => ({ name: item.name, id: item._id })),
                 updated: updatedItems.map(item => ({ name: item.name, id: item._id })),
                 skipped: skippedItems.map(item => ({ 
+                    row: item.item._row || null,
                     name: item.item.name,
                     reason: item.reason 
                 })),
                 errors: errors.map(item => ({ 
+                    row: item.item._row || null,
                     name: item.item.name,
                     error: item.error 
                 }))

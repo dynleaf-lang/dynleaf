@@ -132,6 +132,7 @@ const MenuProvider = ({ children }) => {
             
             // Set menu items from response data
             setMenuItems(responseData);
+            try { console.log('MenuContext: fetched menu items:', Array.isArray(responseData) ? responseData.length : 0); } catch (_) {}
             
             return responseData;
         } catch (error) {
@@ -374,26 +375,61 @@ const MenuProvider = ({ children }) => {
             if (options.branchId) formData.append('branchId', options.branchId);
             if (options.overwrite !== undefined) formData.append('overwrite', options.overwrite);
             
+            // Important: Do NOT set Content-Type manually; let the browser add the multipart boundary
             const config = token ? {
                 headers: {
-                    'Content-Type': 'multipart/form-data',
                     'Authorization': `Bearer ${token}`
                 }
             } : {};
             
-            const response = await axios.post(`${MENU_ENDPOINT}/import`, formData, config);
+            // Lightweight debug: list appended form keys (values not logged for privacy)
+            try {
+                const keys = [];
+                // FormData iteration is supported in browsers
+                for (const [k] of formData.entries()) keys.push(k);
+                console.log('POST', `${MENU_ENDPOINT}/import`, 'FormData keys:', keys);
+            } catch (_) {}
             
-            if (response.data.success) {
-                // Refresh menu items after import
-                await fetchMenuItems();
-            }
+            // Use XMLHttpRequest for reliable multipart upload (mirrors uploadImage approach)
+            const result = await new Promise((resolve) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${MENU_ENDPOINT}/import`, true);
+                if (token) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                }
+                xhr.onload = async function () {
+                    try {
+                        const data = JSON.parse(this.response || '{}');
+                        if (this.status >= 200 && this.status < 300) {
+                            // Refresh menu after successful import
+                            if (data.success) {
+                                try { await fetchMenuItems(); } catch (_) {}
+                            }
+                            resolve(data);
+                        } else {
+                            resolve({ success: false, error: data?.message || `Import failed with status ${this.status}` });
+                        }
+                    } catch (e) {
+                        resolve({ success: false, error: `Import response parse error: ${e.message}` });
+                    }
+                };
+                xhr.onerror = function () {
+                    resolve({ success: false, error: 'Network error during import upload' });
+                };
+                xhr.send(formData);
+            });
             
-            return response.data;
+            return result;
         } catch (error) {
             console.error('Error importing menu items:', error);
-            return { 
-                success: false, 
-                error: error.response?.data || error.message
+            // Normalize error into a user-friendly string
+            const errData = error?.response?.data;
+            const message = typeof errData === 'string'
+                ? errData
+                : (errData?.message || error.message || 'An error occurred while importing');
+            return {
+                success: false,
+                error: message
             };
         }
     };

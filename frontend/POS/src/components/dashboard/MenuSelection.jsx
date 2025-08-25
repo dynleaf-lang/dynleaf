@@ -197,7 +197,7 @@ const MenuSelection = () => {
     return (
       <Row className="g-3">
         {filteredItems.map(item => (
-          <Col key={item._id} sm={6} md={4} lg={4} xl={3} >
+          <Col key={item._id} sm={4} md={3} lg={3} xl={2} >
             {/* Pass through item; ItemCard uses internal click guard */}
             <MemoItemCard item={item} onSmartClick={onSmartCardClick} />
           </Col>
@@ -530,17 +530,7 @@ const MenuSelection = () => {
           </div>
         </CardBody>
         
-        {/* Hover Effect Overlay */}
-        <div className="hover-overlay">
-          <div className="text-white text-center d-flex align-items-center justify-content-center">
-            <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', marginRight: '0.5rem' }}>
-              {hasVariants ? '⚙️' : '+'}
-            </div>
-            <div style={{ fontSize: '0.8rem', fontWeight: '600' }}>
-              {hasVariants ? 'Choose Options' : 'Add to Cart'}
-            </div>
-          </div>
-        </div>
+        
       </Card>
     );
   }

@@ -15604,9 +15604,11 @@ a.text-lighter:focus {
   height: 48px;
   width: 48px;
 }
-.avatar img {
-  width: 100%;
+.avatar img { 
   border-radius: 50%;
+  object-fit: cover;
+    height: 48px;
+    width: 48px;
 }
 .avatar + .avatar-content {
   display: inline-block;
