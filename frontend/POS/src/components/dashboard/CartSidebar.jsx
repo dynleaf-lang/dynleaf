@@ -336,6 +336,56 @@ const CartSidebar = () => {
   const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
   const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
 
+  // Inline quantity edit drafts
+  const [qtyDrafts, setQtyDrafts] = useState({}); // { [cartItemId]: string|number }
+  const [batchQtyDrafts, setBatchQtyDrafts] = useState({}); // { [`${orderId}:${itemIdx}`]: string|number }
+
+  // Keep draft values in sync when cart items change
+  useEffect(() => {
+    setQtyDrafts((prev) => {
+      const next = {};
+      for (const ci of cartItems || []) {
+        const key = ci.cartItemId;
+        next[key] = prev[key] ?? ci.quantity ?? 1;
+      }
+      return next;
+    });
+  }, [cartItems]);
+
+  const handleQtyInputChange = (cartItemId, value) => {
+    const cleaned = String(value).replace(/[^0-9]/g, '');
+    setQtyDrafts((prev) => ({ ...prev, [cartItemId]: cleaned }));
+  };
+
+  const commitQtyChange = (cartItemId, fallbackQuantity = 1) => {
+    const raw = qtyDrafts[cartItemId];
+    let parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed) || parsed < 1) parsed = Math.max(1, fallbackQuantity || 1);
+    try {
+      // updateQuantity is used elsewhere in this component
+      updateQuantity(cartItemId, parsed);
+    } finally {
+      setQtyDrafts((prev) => ({ ...prev, [cartItemId]: parsed }));
+    }
+  };
+
+  const handleBatchQtyInputChange = (key, value) => {
+    const cleaned = String(value).replace(/[^0-9]/g, '');
+    setBatchQtyDrafts((prev) => ({ ...prev, [key]: cleaned }));
+  };
+
+  const commitBatchQtyChange = (orderId, itemIdx, fallbackQuantity = 1) => {
+    const key = `${orderId}:${itemIdx}`;
+    const raw = batchQtyDrafts[key];
+    let parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed) || parsed < 1) parsed = Math.max(1, fallbackQuantity || 1);
+    try {
+      updateBatchItemQuantity(orderId, itemIdx, parsed);
+    } finally {
+      setBatchQtyDrafts((prev) => ({ ...prev, [key]: parsed }));
+    }
+  };
+
   // Reset KOT sent flag when cart gets new items (new batch) or when table changes
   useEffect(() => {
     if (cartItems.length > 0) {
@@ -1224,7 +1274,27 @@ const CartSidebar = () => {
                             >
                               −
                             </button>
-                            <span className="qty-display">{item.quantity}</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*" 
+                              maxLength={3}
+                              className="qty-display form-control form-control-sm text-center rounded-0"
+                              style={{ width: 40, height: 26 }} 
+                              value={qtyDrafts[item.cartItemId] ?? item.quantity}
+                              onChange={(e) => handleQtyInputChange(item.cartItemId, e.target.value)}
+                              onBlur={() => commitQtyChange(item.cartItemId, item.quantity)}
+                              onKeyDown={(e) => {
+                                // Commit on Enter, revert on Escape
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  setQtyDrafts((prev) => ({ ...prev, [item.cartItemId]: item.quantity }));
+                                  e.currentTarget.blur();
+                                }
+                                e.stopPropagation();
+                              }}
+                            />
                             <button 
                               className="qty-btn"
                               onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)}
@@ -1285,7 +1355,25 @@ const CartSidebar = () => {
                             >
                               −
                             </button>
-                            <span className="qty-display">{item.quantity}</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              className="qty-display form-control form-control-sm text-center"
+                              style={{ width: 56 }}
+                              value={batchQtyDrafts[`${batch.orderId}:${itemIdx}`] ?? (item.quantity ?? 1)}
+                              onChange={(e) => handleBatchQtyInputChange(`${batch.orderId}:${itemIdx}`, e.target.value)}
+                              onBlur={() => commitBatchQtyChange(batch.orderId, itemIdx, item.quantity)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  setBatchQtyDrafts((prev) => ({ ...prev, [`${batch.orderId}:${itemIdx}`]: item.quantity }));
+                                  e.currentTarget.blur();
+                                }
+                                e.stopPropagation();
+                              }}
+                            />
                             <button 
                               className="qty-btn"
                               onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, item.quantity + 1)}

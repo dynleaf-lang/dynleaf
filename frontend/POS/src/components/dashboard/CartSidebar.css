@@ -30,6 +30,7 @@
   color: #333;
   font-weight: 500;
   margin: 0;
+  text-transform: capitalize;
 }
 
 .cart-item-row .item-controls {
@@ -62,18 +63,19 @@
 }
 
 .qty-display {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 500;
   color: #333;
   min-width: 20px;
   text-align: center;
+  padding: 0;
 }
 
 .item-price {
   font-size: 14px;
   font-weight: 600;
   color: #333;
-  min-width: 45px;
+  min-width: 60px;
 }
 
 .delete-btn {

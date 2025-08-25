@@ -402,7 +402,7 @@ const MenuSelection = () => {
         className={`menu-item-card h-100 shadow-sm border-0`}
         style={{
           cursor: 'pointer',
-          borderRadius: '12px',
+          borderRadius: '0px',
           overflow: 'hidden'
         }}
         onClick={handleCardClick}
@@ -450,7 +450,8 @@ const MenuSelection = () => {
         )}
         
         <CardBody className="p-2 d-flex flex-column justify-content-center" style={{ 
-          minHeight: menuSettings.showCardImages ? cardHeight : cardHeight
+          minHeight: menuSettings.showCardImages ? cardHeight : cardHeight,
+          borderLeft: item.isVegetarian ? '3px solid #28a745' : '3px solid #e03151',
         }}>
           <div className="text-left">
             {/* Item Name */}
@@ -458,26 +459,14 @@ const MenuSelection = () => {
               fontSize: menuSettings.compactView ? '0.85rem' : '0.95rem', 
               fontWeight: '600',
               color: '#2d3748',
-              lineHeight: '1.2'
+              lineHeight: '1.2',
+              textTransform: 'capitalize'
             }}>
               {item.name}
             </h6>
            
             
-            {/* Variants Indicator when no image */}
-            {!menuSettings.showCardImages && hasVariants && (
-              <Badge 
-                color="info" 
-                size="sm"
-                className="mb-1 ms-1"
-                style={{ 
-                  fontSize: '0.65rem',
-                  borderRadius: '12px'
-                }}
-              >
-                Options Available
-              </Badge>
-            )}
+          
             
             {/* Conditional Item Description */}
             {menuSettings.showItemDescription && (
@@ -492,41 +481,7 @@ const MenuSelection = () => {
                 {item.description || 'Delicious menu item'}
               </p>
             )}
-            
-            {/* Conditional Item Tags */}
-            {menuSettings.showItemBadges && (
-              <div className="d-flex justify-content-end align-items-center flex-wrap gap-1">
-                {/* Inventory status badge (non-blocking) */}
-                {invBadge}
-                {item.isVegetarian && (
-                  <Badge color="success" className="badge-sm" style={{
-                    fontSize: '0.6rem',
-                    padding: '0.1rem 0.3rem',
-                    borderRadius: '8px'
-                  }}>
-                    <FaLeaf style={{ fontSize: '0.55rem' }} />
-                  </Badge>
-                )}
-                {item.isSpicy && (
-                  <Badge color="danger" className="badge-sm" style={{
-                    fontSize: '0.6rem',
-                    padding: '0.1rem 0.3rem',
-                    borderRadius: '8px'
-                  }}>
-                    <FaFire style={{ fontSize: '0.55rem' }} />
-                  </Badge>
-                )}
-                {menuSettings.showPreparationTime && item.preparationTime && (
-                  <Badge color="info" className="badge-sm" style={{
-                    fontSize: '0.6rem',
-                    padding: '0.1rem 0.3rem',
-                    borderRadius: '8px'
-                  }}>
-                    {item.preparationTime}m
-                  </Badge>
-                )}
-              </div>
-            )}
+             
           </div>
         </CardBody>
         
