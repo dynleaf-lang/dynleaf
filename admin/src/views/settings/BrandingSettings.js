@@ -1,24 +1,11 @@
-import React, { useEffect, useState, useContext } from 'react';
-import {
-  Card,
-  CardHeader,
-  CardBody,
-  Container,
-  Row,
-  Col,
-  Form,
-  FormGroup,
-  Label,
-  Input,
-  Button,
-  Alert,
-  Spinner
-} from 'reactstrap';
+import React, { useEffect, useState, useContext, useRef } from 'react';
+import { Card, CardHeader, CardBody, Container, Row, Col, Form, FormGroup, Label, Input, Button, Alert, Spinner } from 'reactstrap';
 import Header from 'components/Headers/Header.js';
 import api from '../../utils/api';
 import { AuthContext } from '../../context/AuthContext';
 import ImageCropModal from '../../components/Modals/ImageCropModal';
 import imageCompression from 'browser-image-compression';
+import BrandingLogoUploader from './components/BrandingLogoUploader';
 
 const BrandingSettings = () => {
   const { user } = useContext(AuthContext);
@@ -31,6 +18,7 @@ const BrandingSettings = () => {
   const [success, setSuccess] = useState(null);
   const [showCrop, setShowCrop] = useState(false);
   const [pendingImageSrc, setPendingImageSrc] = useState('');
+  const cropResolveRef = useRef(null);
 
   const canEdit = user?.role === 'Super_Admin' || user?.role === 'Branch_Manager';
 
@@ -68,7 +56,7 @@ const BrandingSettings = () => {
     setUploading(true);
     setError(null);
     try {
-      // 1) Open crop modal first
+      // Convert to data URL for crop modal
       const reader = new FileReader();
       const fileSrc = await new Promise((resolve, reject) => {
         reader.onload = () => resolve(reader.result);
@@ -76,43 +64,47 @@ const BrandingSettings = () => {
         reader.readAsDataURL(file);
       });
 
-      // Show crop modal and wait for cropped blob
-      const croppedBlob = await new Promise((resolve) => {
+      // Open crop modal and wait for the result
+      const cropResult = await new Promise((resolve) => {
+        cropResolveRef.current = resolve;
         setPendingImageSrc(fileSrc);
         setShowCrop(true);
-        // We will temporarily attach a listener via a ref-like closure
-        const onCropped = (blob) => resolve(blob);
-        // Store handler on window for a moment to bridge modal callback
-        window.__brandingOnCropped = onCropped;
       });
 
       // If user canceled crop
-      if (!croppedBlob) {
+      if (!cropResult) {
         setShowCrop(false);
         setUploading(false);
         return;
       }
 
-      // 2) Compress cropped image
-      const compressed = await imageCompression(croppedBlob, {
+      // Choose source: cropped blob or original file
+      const sourceBlob = cropResult === 'ORIGINAL' ? file : cropResult;
+
+      // Compress image
+      const compressed = await imageCompression(sourceBlob, {
         maxSizeMB: 0.2,
         maxWidthOrHeight: 512,
         useWebWorker: true
       });
 
-      // 3) Upload
+      // Upload
       const formData = new FormData();
-      const uploadFile = new File([compressed], `logo_${Date.now()}.jpg`, { type: compressed.type || 'image/jpeg' });
+      const origName = (file && file.name) ? file.name.replace(/\.[^/.]+$/, '') : 'logo';
+      const ext = (compressed.type && compressed.type.split('/')[1]) || 'jpg';
+      const uploadFile = new File([compressed], `${origName}_${Date.now()}.${ext}`, { type: compressed.type || 'image/jpeg' });
       formData.append('image', uploadFile);
+
       const res = await api.post('/upload', formData);
       const url = res.data?.file?.url || res.data?.url || res.data?.imageUrl || res.data?.file?.path;
       if (!url) throw new Error('Upload did not return a URL');
+
       setLogoUrl(url);
       setSuccess('Logo uploaded successfully.');
       setTimeout(() => setSuccess(null), 2500);
     } catch (e) {
       console.error(e);
-      setError(e.response?.data?.message || 'Failed to upload logo.');
+      setError(e.response?.data?.message || e.message || 'Failed to upload logo.');
     } finally {
       setUploading(false);
     }
@@ -214,37 +206,14 @@ const BrandingSettings = () => {
                         </FormGroup>
                       </Col>
                       <Col md="6">
-                        <FormGroup>
-                          <Label>Logo</Label>
-                          <div className="d-flex align-items-center">
-                            <div style={{width:80,height:80,border:'1px solid #eee',borderRadius:8,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',background:'#fafafa'}}>
-                              {logoUrl ? (
-                                <img src={logoUrl} alt="logo" style={{maxWidth:'100%', maxHeight:'100%'}} />
-                              ) : (
-                                <span className="text-muted" style={{fontSize:12}}>No logo</span>
-                              )}
-                            </div>
-                            <div className="ml-3">
-                              <Button color="secondary" type="button" disabled={!canEdit || uploading}>
-                                <label className="mb-0" style={{cursor: canEdit ? 'pointer':'not-allowed'}}>
-                                  {uploading ? 'Uploading...' : 'Upload Logo'}
-                                  <input
-                                    type="file"
-                                    name="image"
-                                    accept="image/*"
-                                    onChange={(e)=>{ const f = e.target.files && e.target.files[0]; if (f) handleUpload(f); e.target.value = ''; }}
-                                    style={{display:'none'}}
-                                  />
-                                </label>
-                              </Button>
-                              {logoUrl && (
-                                <Button color="danger" type="button" className="ml-2" outline disabled={!canEdit || saving} onClick={handleDeleteLogo}>
-                                  {saving ? <Spinner size="sm" /> : 'Delete Logo'}
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </FormGroup>
+                        <BrandingLogoUploader
+                          logoUrl={logoUrl}
+                          canEdit={canEdit}
+                          uploading={uploading}
+                          saving={saving}
+                          onSelectFile={handleUpload}
+                          onDelete={handleDeleteLogo}
+                        />
                       </Col>
                     </Row>
 
@@ -263,10 +232,11 @@ const BrandingSettings = () => {
       {/* Crop Modal */}
       <ImageCropModal
         isOpen={showCrop}
-  toggle={() => { setShowCrop(false); if (window.__brandingOnCropped) { try { window.__brandingOnCropped(null); } catch(_){} } delete window.__brandingOnCropped; }}
+        toggle={() => { setShowCrop(false); if (cropResolveRef.current) { cropResolveRef.current(null); cropResolveRef.current = null; } }}
         imageSrc={pendingImageSrc}
         aspect={1}
-        onCropped={(blob)=>{ if (window.__brandingOnCropped) { window.__brandingOnCropped(blob); delete window.__brandingOnCropped; }}}
+        onCropped={(blob)=>{ if (cropResolveRef.current) { cropResolveRef.current(blob); cropResolveRef.current = null; } }}
+        onUseOriginal={() => { if (cropResolveRef.current) { cropResolveRef.current('ORIGINAL'); cropResolveRef.current = null; setShowCrop(false);} }}
       />
     </>
   );

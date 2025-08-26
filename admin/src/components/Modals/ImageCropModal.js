@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Cropper from 'react-easy-crop';
 import {
   Modal,
@@ -36,7 +36,7 @@ function getCroppedImg(imageSrc, cropAreaPixels, rotation = 0, mimeType = 'image
   });
 }
 
-const ImageCropModal = ({ isOpen, toggle, imageSrc, onCropped, aspect = 1, mimeType = 'image/jpeg' }) => {
+const ImageCropModal = ({ isOpen, toggle, imageSrc, onCropped, onUseOriginal, aspect = 1, mimeType = 'image/jpeg' }) => {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
@@ -75,7 +75,9 @@ const ImageCropModal = ({ isOpen, toggle, imageSrc, onCropped, aspect = 1, mimeT
       <ModalHeader toggle={toggle}>Crop Image</ModalHeader>
       <ModalBody>
         {imageSrc ? (
-          <div style={{ position: 'relative', width: '100%', height: 300, background: '#333', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ position: 'relative', width: '100%', height: 320, borderRadius: 8, overflow: 'hidden',
+                         backgroundImage: 'linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%)',
+                         backgroundSize: '16px 16px', backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0' }}>
             <Cropper
               image={imageSrc}
               crop={crop}
@@ -90,16 +92,19 @@ const ImageCropModal = ({ isOpen, toggle, imageSrc, onCropped, aspect = 1, mimeT
         ) : (
           <div style={{ height: 300 }} />
         )}
-        <div className="d-flex justify-content-between align-items-center mt-3">
-          <small className="text-muted">Drag to position. Use wheel/pinch to zoom.</small>
-          <div>
-            <Button size="sm" onClick={() => setZoom((z) => Math.max(1, z - 0.2))} className="mr-2">-</Button>
-            <Button size="sm" onClick={() => setZoom((z) => Math.min(5, z + 0.2))}>+</Button>
+        <div className="mt-3">
+          <div className="d-flex align-items-center">
+            <small className="text-muted mr-3" style={{minWidth: 80}}>Zoom</small>
+            <input type="range" min="1" max="5" step="0.1" value={zoom} onChange={(e)=>setZoom(parseFloat(e.target.value))} style={{width:'100%'}} />
           </div>
+          <small className="text-muted">Drag to position. Use the slider or mouse wheel to zoom.</small>
         </div>
       </ModalBody>
       <ModalFooter>
         <Button color="secondary" onClick={toggle} disabled={processing}>Cancel</Button>
+        {onUseOriginal && (
+          <Button color="link" onClick={onUseOriginal} disabled={processing}>Use Original</Button>
+        )}
         <Button color="primary" onClick={handleApply} disabled={processing || !croppedAreaPixels}>
           {processing ? <Spinner size="sm" /> : 'Apply'}
         </Button>
