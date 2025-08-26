@@ -1503,22 +1503,46 @@ const TableSelection = () => {
                 .flatMap(([tableId, list]) => list.map(r => ({ ...r, tableId })))
                 .filter(r => (r.startTime || '').slice(0,10) === todayStr)
                 .sort((a,b) => new Date(a.startTime) - new Date(b.startTime))
-                .map(r => (
-                  <div key={r._id} className="d-flex align-items-center justify-content-between p-2 border rounded">
-                    <div>
-                      <div className="fw-semibold">{getTableName(r.tableId)} • {r.customerName} ({r.partySize})</div>
-                      <small className="text-muted">
-                        {new Date(r.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        {' - '}
-                        {new Date(r.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </small>
+                .map(r => {
+                  const now = new Date();
+                  const start = r.startTime ? new Date(r.startTime) : null;
+                  const end = r.endTime ? new Date(r.endTime) : null;
+                  const status = (r.status || '').toLowerCase();
+                  const isPast = !!end && now > end;
+                  const isCheckedIn = ['checked_in','checkedin','seated'].includes(status);
+                  const isCancelled = ['cancelled','canceled'].includes(status);
+                  const isCompleted = ['completed','done','finished'].includes(status);
+                  // Allow check-in only within a window (15 mins before start until end), and only if pending/reserved
+                  const fifteenMinsBefore = start ? new Date(start.getTime() - 15 * 60 * 1000) : null;
+                  const canCheckIn = !isPast && !isCheckedIn && !isCancelled && !isCompleted &&
+                    (!!start && !!end && now >= fifteenMinsBefore && now <= end);
+                  // Allow cancel only if not past and not processed
+                  const canCancel = !isPast && !isCheckedIn && !isCancelled && !isCompleted;
+
+                  return (
+                    <div key={r._id} className="d-flex align-items-center justify-content-between p-2 border rounded">
+                      <div>
+                        <div className="fw-semibold">{getTableName(r.tableId)} • {r.customerName} ({r.partySize})</div>
+                        <small className="text-muted">
+                          {new Date(r.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {' - '}
+                          {new Date(r.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </small>
+                        {(status && ['cancelled','canceled','checked_in','checkedin','seated','completed','done','finished'].includes(status)) && (
+                          <span className="ms-2 badge bg-light text-muted" style={{ fontWeight: 500 }}>{status.replace('_',' ')}</span>
+                        )}
+                      </div>
+                      <div className="d-flex gap-2">
+                        {canCheckIn && (
+                          <Button size="sm" color="success" onClick={() => checkInReservation(r)}>Check-in</Button>
+                        )}
+                        {canCancel && (
+                          <Button size="sm" color="outline-danger" onClick={() => cancelReservation(r)}>Cancel</Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="d-flex gap-2">
-                      <Button size="sm" color="success" onClick={() => checkInReservation(r)}>Check-in</Button>
-                      <Button size="sm" color="outline-danger" onClick={() => cancelReservation(r)}>Cancel</Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           )}
         </ModalBody>
