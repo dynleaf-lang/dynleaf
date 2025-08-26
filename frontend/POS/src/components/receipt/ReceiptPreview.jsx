@@ -34,11 +34,13 @@ const ReceiptPreview = ({
   const [previewMode, setPreviewMode] = useState('html'); // 'html' or 'thermal'
 
   const defaultRestaurantInfo = {
-    name: 'OrderEase Restaurant',
-    address: '123 Main Street, City, State 12345',
-    phone: '+91 98765 43210',
-    email: 'info@orderease.com',
-    gst: 'GST123456789'
+    name: 'Restaurant',
+    brandName: undefined,
+    logo: undefined,
+    address: 'Address',
+    phone: 'Phone',
+    email: '',
+    gst: ''
   };
 
   const restaurantData = { ...defaultRestaurantInfo, ...restaurantInfo };

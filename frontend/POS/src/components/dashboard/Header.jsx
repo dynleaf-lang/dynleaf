@@ -25,10 +25,11 @@ import {
   FaExpand,
 } from 'react-icons/fa';
 import { format } from 'date-fns';
+import { usePOS } from '../../context/POSContext';
 
 const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleSidebar, onNavigateToTables }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
- 
+  const { restaurant } = usePOS();
 
   
   useEffect(() => {
@@ -66,10 +67,20 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
       </Button>
     
       <NavbarBrand href="#" className="d-flex align-items-center">
-        <FaCashRegister size={32} className="text-primary me-3" />
+        {restaurant?.logo ? (
+          <img
+            src={restaurant.logo}
+            alt={restaurant.brandName || restaurant.name || 'Brand'}
+            style={{ width: 36, height: 36, objectFit: 'contain' }}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="me-3"
+          />
+        ) : (
+          <FaCashRegister size={32} className="text-primary me-3" />
+        )}
         <div>
-          <h4 className="mb-0 text-primary">POS System</h4>
-          <small className="text-muted">Restaurant Management</small>
+          <h4 className="mb-0 text-primary">{restaurant?.brandName || restaurant?.name || 'POS System'}</h4>
+          <small className="text-muted">{restaurant?.name ? 'Restaurant Management' : 'Restaurant Management'}</small>
         </div>
       </NavbarBrand>
   

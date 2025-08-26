@@ -3,6 +3,34 @@ const router = express.Router();
 const Category = require('../models/Category');
 const { authenticateJWT } = require('../middleware/authMiddleware');
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
+
+// Helper to safely delete local files under /public/uploads from a stored URL
+const deleteLocalUploadByUrl = (fileUrl) => {
+    try {
+        if (!fileUrl || typeof fileUrl !== 'string') return false;
+        // Only handle app-hosted uploads
+        const uploadsIndex = fileUrl.indexOf('/uploads/');
+        if (uploadsIndex === -1) return false;
+
+        const relativePart = fileUrl.substring(uploadsIndex + '/uploads/'.length);
+        const uploadsDir = path.resolve(__dirname, '../../public/uploads');
+        const absolutePath = path.resolve(uploadsDir, relativePart);
+
+        // Ensure we only delete within the uploads directory
+        if (!absolutePath.startsWith(uploadsDir)) return false;
+
+        if (fs.existsSync(absolutePath)) {
+            fs.unlinkSync(absolutePath);
+            return true;
+        }
+        return false;
+    } catch (err) {
+        console.error('Error deleting local upload file:', err);
+        return false;
+    }
+};
 
 // Utility function to ensure IDs are properly formatted for comparison
 const formatIdForQuery = (id) => {
@@ -402,6 +430,9 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             level
         });
         
+        // Preserve old imageUrl to allow cleanup if changed/cleared
+        const oldImageUrl = category.imageUrl;
+
         // Update the category
         const updatedCategory = await Category.findByIdAndUpdate(req.params.id, {
             name,
@@ -413,6 +444,15 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             parentCategory,
             level
         }, { new: true });
+
+        // If imageUrl changed or was cleared, delete the old local file
+        const newImageUrl = updatedCategory ? updatedCategory.imageUrl : undefined;
+        if (String(newImageUrl || '') !== String(oldImageUrl || '')) {
+            if (oldImageUrl) {
+                const deleted = deleteLocalUploadByUrl(oldImageUrl);
+                if (deleted) console.log('Deleted old category image file');
+            }
+        }
         
         console.log('Category updated successfully:', updatedCategory._id);
         res.json(updatedCategory);
@@ -459,6 +499,12 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
             });
         }
         
+        // If category has a local image, delete the file
+        if (category.imageUrl) {
+            const deleted = deleteLocalUploadByUrl(category.imageUrl);
+            if (deleted) console.log('Deleted category image file');
+        }
+
         console.log('Deleting category:', category._id);
         await Category.findByIdAndDelete(req.params.id);
         console.log('Category deleted successfully');

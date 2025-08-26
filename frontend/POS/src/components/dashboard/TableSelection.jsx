@@ -595,7 +595,9 @@ const TableSelection = () => {
       };
 
       const restaurantInfo = {
-        name: (order.restaurantName || 'Restaurant'),
+        name: (order.brandName || order.restaurantName || 'Restaurant'),
+        brandName: order.brandName || undefined,
+        logo: order.logo || undefined,
         address: order.branchAddress || 'Address',
         phone: order.branchPhone || 'Phone',
         email: '',

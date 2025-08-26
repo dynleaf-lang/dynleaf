@@ -52,12 +52,15 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   } = orderData;
 
   const {
-    name: restaurantName = 'Restaurant Name',
+    name: baseName = 'Restaurant Name',
+    brandName,
+    logo,
     address = 'Restaurant Address',
     phone = 'Phone Number',
     email = 'Email Address',
     gst = 'GST Number'
   } = restaurantInfo;
+  const restaurantName = brandName || baseName;
 
   const {
     showLogo = false,
@@ -242,12 +245,15 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
   } = orderData;
 
   const {
-    name: restaurantName = 'Restaurant Name',
+    name: baseName = 'Restaurant Name',
+    brandName,
+    logo,
     address = 'Restaurant Address',
     phone = 'Phone Number',
     email = 'Email Address',
     gst = 'GST Number'
   } = restaurantInfo;
+  const restaurantName = brandName || baseName;
 
   const {
     duplicateReceipt = false
@@ -343,6 +349,7 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
     </head>
     <body>
       <div class="header">
+        ${logo ? `<div><img src="${logo}" alt="${restaurantName}" style="max-height:50px;object-fit:contain" onerror="this.style.display='none'" /></div>` : ''}
         <div class="restaurant-name">${restaurantName}</div>
         ${duplicateReceipt ? '<div class="duplicate">*** DUPLICATE RECEIPT ***</div>' : ''}
         <div>${address}</div>

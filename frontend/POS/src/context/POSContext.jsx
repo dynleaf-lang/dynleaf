@@ -23,6 +23,7 @@ export const POSProvider = ({ children }) => {
   const [selectedTable, setSelectedTable] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [restaurant, setRestaurant] = useState(null);
 
   // API base URL
   const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
@@ -35,6 +36,9 @@ export const POSProvider = ({ children }) => {
       fetchMenuItems();
       fetchFloors();
       fetchInventory();
+    }
+    if (user?.restaurantId) {
+      fetchRestaurantInfo();
     }
   }, [user]);
 
@@ -120,6 +124,17 @@ export const POSProvider = ({ children }) => {
     } catch (error) {
       console.error('Error fetching inventory:', error);
       // Silent fail for POS; inventory is optional
+    }
+  };
+
+  const fetchRestaurantInfo = async () => {
+    try {
+      if (!user?.restaurantId) return;
+      const resp = await axios.get(`${API_BASE_URL}/public/restaurants/${user.restaurantId}`);
+      const data = resp.data?.restaurant || null;
+      setRestaurant(data);
+    } catch (error) {
+      console.error('Error fetching restaurant info:', error);
     }
   };
 
@@ -341,9 +356,11 @@ export const POSProvider = ({ children }) => {
     getAvailableTables,
     getOccupiedTables,
     searchMenuItems,
-    getTableById
+  getTableById
     ,
-    getInventoryStatusForMenuItem
+  getInventoryStatusForMenuItem,
+  restaurant,
+  fetchRestaurantInfo
   };
 
   return (

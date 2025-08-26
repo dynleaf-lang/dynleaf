@@ -81,9 +81,10 @@ router.put('/:id', async (req, res) => {
         const existing = await Restaurant.findById(req.params.id);
         if (!existing) return res.status(404).json({ message: 'Restaurant not found' });
 
-        const incomingLogo = typeof logo === 'string' ? logo : existing.logo;
-        const isClearingLogo = incomingLogo === '' || incomingLogo === null;
-        const isChangingLogo = incomingLogo && existing.logo && String(incomingLogo) !== String(existing.logo);
+    const oldLogoUrl = existing.logo; // capture before update
+    const incomingLogo = (logo === undefined) ? oldLogoUrl : logo;
+    const isClearingLogo = incomingLogo === '' || incomingLogo === null;
+    const isChangingLogo = Boolean(incomingLogo && oldLogoUrl && String(incomingLogo) !== String(oldLogoUrl));
 
         // Perform update
         existing.name = name ?? existing.name;
@@ -100,9 +101,8 @@ router.put('/:id', async (req, res) => {
         const updated = await existing.save();
 
         // After save, delete old file if logo was cleared or changed
-        if ((isClearingLogo || isChangingLogo) && existing.logo !== undefined) {
-            const oldLogo = isClearingLogo ? existing.logo : (String(existing.logo) !== String(incomingLogo) ? existing.logo : null);
-            if (oldLogo) deleteLogoFileIfLocal(oldLogo);
+        if (isClearingLogo || isChangingLogo) {
+            if (oldLogoUrl) deleteLogoFileIfLocal(oldLogoUrl);
         }
 
         res.json(updated);

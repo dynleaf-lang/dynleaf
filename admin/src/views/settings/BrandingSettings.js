@@ -193,7 +193,7 @@ const BrandingSettings = () => {
                 ) : (
                   <Form onSubmit={(e)=>{e.preventDefault(); if(canEdit) handleSave();}}>
                     <Row>
-                      <Col md="6">
+                      <Col md="4">
                         <FormGroup>
                           <Label>Brand Name</Label>
                           <Input

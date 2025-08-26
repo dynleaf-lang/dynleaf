@@ -7,7 +7,7 @@ router.get('/:id', async (req, res) => {
   try {
     console.log(`[PUBLIC RESTAURANTS] Fetching restaurant: ${req.params.id}`);
     
-    const restaurant = await Restaurant.findById(req.params.id).select('name country address phone email');
+  const restaurant = await Restaurant.findById(req.params.id).select('name brandName logo country address phone email');
     
     if (!restaurant) {
       console.log(`[PUBLIC RESTAURANTS] Restaurant not found: ${req.params.id}`);
@@ -23,7 +23,9 @@ router.get('/:id', async (req, res) => {
       success: true,
       restaurant: {
         _id: restaurant._id,
-        name: restaurant.name,
+  name: restaurant.name,
+  brandName: restaurant.brandName || undefined,
+  logo: restaurant.logo || undefined,
         country: restaurant.country,
         address: restaurant.address,
         phone: restaurant.phone,

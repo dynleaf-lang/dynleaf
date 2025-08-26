@@ -8,6 +8,27 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Helper to safely delete local files under /public/uploads from a stored URL
+const deleteLocalUploadByUrl = (fileUrl) => {
+    try {
+        if (!fileUrl || typeof fileUrl !== 'string') return false;
+        const uploadsIndex = fileUrl.indexOf('/uploads/');
+        if (uploadsIndex === -1) return false;
+        const relativePart = fileUrl.substring(uploadsIndex + '/uploads/'.length);
+        const uploadsDir = path.resolve(__dirname, '../../public/uploads');
+        const absolutePath = path.resolve(uploadsDir, relativePart);
+        if (!absolutePath.startsWith(uploadsDir)) return false;
+        if (fs.existsSync(absolutePath)) {
+            fs.unlinkSync(absolutePath);
+            return true;
+        }
+        return false;
+    } catch (err) {
+        console.error('Error deleting local upload file:', err);
+        return false;
+    }
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -421,7 +442,8 @@ router.put('/:id', authenticateJWT, async (req, res) => {
                 }
                 variant.price = parseFloat(variant.price);
             }
-        }        // Update the menu item - get the current data first
+    }        // Update the menu item - get the current data first
+    const oldImageUrl = menuItem.imageUrl;
         let updateData = {
             name,
             description,
@@ -472,6 +494,14 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             updateData, 
             { new: true, runValidators: false }
         );
+        // If image changed or cleared, delete old local file
+        const newImageUrl = updatedItem ? updatedItem.imageUrl : undefined;
+        if (String(newImageUrl || '') !== String(oldImageUrl || '')) {
+            if (oldImageUrl) {
+                const deleted = deleteLocalUploadByUrl(oldImageUrl);
+                if (deleted) console.log('Deleted old menu item image file');
+            }
+        }
         
         res.json(updatedItem);
     } catch (error) {
@@ -503,6 +533,12 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
             return res.status(403).json({ message: 'Access denied: Branch managers can only delete menu items from their own restaurant' });
         }
         
+        // Delete associated local image file if present
+        if (menuItem.imageUrl) {
+            const deleted = deleteLocalUploadByUrl(menuItem.imageUrl);
+            if (deleted) console.log('Deleted menu item image file');
+        }
+
         await MenuItem.findByIdAndDelete(req.params.id);
         res.json({ message: 'Menu item deleted' });
     } catch (error) {

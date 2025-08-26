@@ -4,6 +4,7 @@ import { useResponsive } from "../../context/ResponsiveContext";
 import { useAuth } from "../../context/AuthContext";
 import { useNotifications } from "../../context/NotificationContext";
 import { theme } from "../../data/theme";
+import { useRestaurant } from "../../context/RestaurantContext";
 import ProfileButton from "../auth/ProfileButton";
 
 // Add these keyframe animations for enhanced visual effects
@@ -50,6 +51,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { isMobile, isTablet } = useResponsive();
   const { isAuthenticated, user } = useAuth();
+  const { restaurant: restaurantCtx, branch: branchCtx } = useRestaurant();
   const { 
     notifications, 
     unreadCount, 
@@ -72,14 +74,19 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-  
-  // Restaurant data - use props or fallback values
+
+  console.log(restaurantCtx, 'Restaurant Context');
+
+  // Restaurant data - prefer context, fallback to props
   const restaurant = {
-    name: restaurantName || "OrderEase",
-    logo: null, // Add logo prop if available
-    address: branchName || null
+    name: (restaurantCtx?.name || restaurantName || "OrderEase"),
+    brandName: restaurantCtx?.brandName ?? null,
+    logo: restaurantCtx?.coverImageUrl ?? null,
+    address: branchCtx?.name || branchName || null
   };
-  
+ 
+
+
   // Only show restaurant info in header on mobile views
   // (on desktop/tablet it's shown in the sidebar)
   const showRestaurantInfo = isMobile && restaurantName;
@@ -137,7 +144,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           alignItems: "center",
           gap: theme.spacing.md,
         }}>
-          {restaurant?.logo && (
+          {restaurant?.coverImageUrl && (
             <div
               style={{
                 width: isMobile ? "45px" : "60px",
@@ -153,7 +160,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
               }}
             >
               <img
-                src={restaurant.logo}
+                src={restaurant.coverImageUrl}
                 alt={restaurant.name}
                 style={{
                   width: "100%",
@@ -185,7 +192,19 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                 gap: theme.spacing.xs,
               }}
             >
-              {!restaurant?.logo && (
+              {restaurant?.logo ? (
+                <img
+                  src={restaurant.logo}
+                  alt={restaurant?.brandName || restaurant?.name || 'Brand'}
+                  style={{
+                    height: isMobile ? '28px' : '32px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    marginRight: theme.spacing.xs
+                  }}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
                 <span className="material-icons" style={{ 
                   fontSize: isMobile ? "28px" : "32px", 
                   color: theme.colors.primary,
@@ -194,7 +213,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                   restaurant
                 </span>
               )}
-              {restaurant?.name || "OrderEase"}
+              <span>{restaurant?.brandName || restaurant?.name || "OrderEase"}</span>
             </h1>
             
             {!isMobile && restaurant?.address && (

@@ -423,11 +423,13 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
       };
 
       const restaurantInfo = {
-        name: 'OrderEase Restaurant',
-        address: '123 Main Street, City, State 12345',
-        phone: '+91 98765 43210',
-        email: 'info@orderease.com',
-        gst: 'GST123456789'
+        name: orderCreated?.brandName || orderCreated?.restaurantName || 'Restaurant',
+        brandName: orderCreated?.brandName || undefined,
+        logo: orderCreated?.logo || undefined,
+        address: orderCreated?.branchAddress || 'Address',
+        phone: orderCreated?.branchPhone || 'Phone',
+        email: '',
+        gst: orderCreated?.gstNumber || ''
       };
 
       let result;
