@@ -6,6 +6,18 @@ const restaurantSchema = new mongoose.Schema({
         required: true,
         trim: true,
     },
+    // Optional brand display name (if different from legal name)
+    brandName: {
+        type: String,
+        required: false,
+        trim: true,
+    },
+    // Optional logo image URL (served from /uploads or external URL)
+    logo: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     address: {
         type: String,
         required: true,

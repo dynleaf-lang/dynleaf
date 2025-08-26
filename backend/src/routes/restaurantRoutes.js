@@ -36,9 +36,11 @@ router.get('/:restaurantId/branches', async (req, res) => {
 
 // Create a new restaurant
 router.post('/', async (req, res) => {
-    const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
+    const { name, brandName, logo, address, city, postalCode, country, phone, email, openingHours } = req.body;
     const restaurant = new Restaurant({
         name,
+        brandName,
+        logo,
         address,
         city,
         postalCode,
@@ -57,10 +59,12 @@ router.post('/', async (req, res) => {
 
 // Update a restaurant
 router.put('/:id', async (req, res) => {
-    const { name, address, city, postalCode, country, phone, email, openingHours } = req.body;
+    const { name, brandName, logo, address, city, postalCode, country, phone, email, openingHours } = req.body;
     try {
         const restaurant = await Restaurant.findByIdAndUpdate(req.params.id, {
             name,
+            brandName,
+            logo,
             address,
             city,
             postalCode,

@@ -8,9 +8,7 @@ const normalizedApiUrl = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`.r
 
 const api = axios.create({
   baseURL: normalizedApiUrl,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Do NOT set a global Content-Type; let axios/browser decide per request
   timeout: 15000, // 15 seconds timeout
 });
 
@@ -21,6 +19,17 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    
+    // Ensure correct Content-Type handling
+    // If the payload is FormData, let the browser set multipart boundaries automatically
+    if (config.data instanceof FormData) {
+      if (config.headers && 'Content-Type' in config.headers) {
+        delete config.headers['Content-Type'];
+      }
+    } else if (config.data && typeof config.data === 'object') {
+      // For JSON payloads, set Content-Type explicitly (axios also does this, but keep it explicit)
+      config.headers['Content-Type'] = 'application/json';
     }
     
     // Log the complete URL for debugging

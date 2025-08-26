@@ -46,11 +46,16 @@ import {
 import { usePOS } from '../../context/POSContext';
 import { useOrder } from '../../context/OrderContext';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import './TableSelection.css';
 import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
 import axios from 'axios';
+import QRCode from 'react-qr-code';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
@@ -77,6 +82,7 @@ const TableSelection = () => {
   
   const { getOrdersByTable } = useOrder();
   const { cartItems, customerInfo, replaceCart } = useCart();
+  const { user } = useAuth();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -99,6 +105,12 @@ const TableSelection = () => {
   // Server-side reservations cache: { [tableId]: Array<reservation> }
   const [reservationsByTable, setReservationsByTable] = useState({});
   const [showContactlessModal, setShowContactlessModal] = useState(false);
+  // Contactless state
+  const [contactlessBaseUrl, setContactlessBaseUrl] = useState('');
+  const [contactlessTableId, setContactlessTableId] = useState('');
+  const [generatedQRUrl, setGeneratedQRUrl] = useState('');
+  const [isGeneratingQR, setIsGeneratingQR] = useState(false);
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
   const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
@@ -169,6 +181,292 @@ const TableSelection = () => {
       toast.error('Failed to refresh');
     }
   }, [refreshData]);
+
+  // Contactless helpers
+  const resolveCustomerBaseUrl = useCallback(() => {
+    // Priority: env -> localStorage -> heuristic
+    const envUrl = import.meta?.env?.VITE_CUSTOMER_BASE_URL;
+    const stored = localStorage.getItem('pos_customer_base_url');
+    if (envUrl && typeof envUrl === 'string') return envUrl;
+    if (stored && typeof stored === 'string') return stored;
+    // Heuristic: localhost dev default for customer app
+    try {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isLocal) return 'http://localhost:5173';
+      // Same origin as POS if deployed behind one domain
+      return window.location.origin;
+    } catch (_) {
+      return 'http://localhost:5173';
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initialize contactless modal defaults
+    setContactlessBaseUrl(resolveCustomerBaseUrl());
+    setContactlessTableId(prev => prev || selectedTable?._id || '');
+  }, [resolveCustomerBaseUrl, selectedTable?._id]);
+
+  const buildCustomerUrl = (baseUrl, restaurantId, branchId, tableId) => {
+    if (!baseUrl) return '';
+    const url = new URL(baseUrl);
+    // Keep path as-is (customer app reads params from search)
+    const params = new URLSearchParams();
+    if (restaurantId) params.set('restaurantId', restaurantId);
+    if (branchId) params.set('branchId', branchId);
+    if (tableId) params.set('tableId', tableId);
+    url.search = params.toString();
+    return url.toString();
+  };
+
+  const handleGenerateQR = () => {
+    try {
+      if (!user?.restaurantId || !user?.branchId) {
+        toast.error('Missing restaurant or branch context. Please log in again or check your user profile.');
+        return;
+      }
+      const tableId = contactlessTableId || selectedTable?._id;
+      if (!tableId) {
+        toast.error('Select a table to generate the QR link.');
+        return;
+      }
+      setIsGeneratingQR(true);
+      const finalBase = (contactlessBaseUrl || '').trim();
+      if (!finalBase) {
+        toast.error('Enter the Customer App Base URL first.');
+        setIsGeneratingQR(false);
+        return;
+      }
+      const url = buildCustomerUrl(finalBase, user.restaurantId, user.branchId, tableId);
+      setGeneratedQRUrl(url);
+      // Persist base URL for next time
+      localStorage.setItem('pos_customer_base_url', finalBase);
+      toast.success('QR link generated');
+    } catch (e) {
+      console.error('QR generation error', e);
+      toast.error('Failed to generate QR');
+    } finally {
+      setIsGeneratingQR(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      if (!generatedQRUrl) return toast.error('Generate a link first.');
+      await navigator.clipboard.writeText(generatedQRUrl);
+      toast.success('Link copied');
+    } catch (_) {
+      toast.error('Copy failed');
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      if (!generatedQRUrl) return toast.error('Generate a link first.');
+      if (navigator.share) {
+        await navigator.share({ title: 'OrderEase Menu', url: generatedQRUrl });
+      } else {
+        await handleCopyLink();
+      }
+    } catch (_) {
+      // User may cancel share; ignore
+    }
+  };
+
+  const handlePrintTent = () => {
+    try {
+      if (!generatedQRUrl) return toast.error('Generate a link first.');
+      const tableLabel = tables.find(t => t._id === (contactlessTableId || selectedTable?._id))?.TableName || 'Table';
+      const win = window.open('', '_blank');
+      if (!win) return toast.error('Popup blocked. Allow popups to print.');
+      const html = `<!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Table QR</title>
+            <style>
+              body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial; margin: 0; padding: 24px; }
+              .wrap { width: 320px; margin: 0 auto; text-align: center; }
+              .brand { font-weight: 700; font-size: 20px; margin-bottom: 8px; }
+              .table { font-weight: 600; margin-bottom: 12px; }
+              .qr { background:#fff; padding: 8px; display:inline-block; }
+              .hint { color:#555; margin-top: 8px; font-size: 12px; }
+              @media print { body { padding: 0; } }
+            </style>
+          </head>
+          <body>
+            <div class="wrap">
+              <div class="brand">OrderEase</div>
+              <div class="table">${tableLabel}</div>
+              <div class="qr">
+                <img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(generatedQRUrl)}" />
+              </div>
+              <div class="hint">Scan to view menu & order</div>
+            </div>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>`;
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (e) {
+      console.error('Print tent error', e);
+      toast.error('Failed to open print preview');
+    }
+  };
+
+  const buildTableQRImageSrc = (url) => `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}`;
+
+  const openPrintAllQRCards = () => {
+    try {
+      if (!user?.restaurantId || !user?.branchId) {
+        return toast.error('Missing restaurant/branch context.');
+      }
+      const base = (contactlessBaseUrl || resolveCustomerBaseUrl()).trim();
+      if (!base) return toast.error('Set Customer App Base URL first.');
+      const win = window.open('', '_blank');
+      if (!win) return toast.error('Popup blocked. Allow popups to print.');
+      const cardsHtml = tables.map(t => {
+        const link = buildCustomerUrl(base, user.restaurantId, user.branchId, t._id);
+        const label = t.TableName || t.name || 'Table';
+        const img = buildTableQRImageSrc(link);
+        return `<div class="card">
+            <div class="label">${label}</div>
+            <img src="${img}" alt="QR" />
+            <div class="small">Scan to order</div>
+          </div>`;
+      }).join('');
+      const html = `<!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>All Table QRs</title>
+            <style>
+              * { box-sizing: border-box; }
+              body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial; margin: 0; padding: 24px; }
+              .title { font-weight: 700; font-size: 20px; margin-bottom: 16px; }
+              .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+              .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; page-break-inside: avoid; }
+              .label { font-weight: 600; margin-bottom: 8px; }
+              img { width: 200px; height: 200px; object-fit: contain; background: #fff; }
+              .small { color: #555; font-size: 12px; margin-top: 6px; }
+              @media print { body { padding: 8px; } }
+            </style>
+          </head>
+          <body>
+            <div class="title">Table QR Codes</div>
+            <div class="grid">${cardsHtml}</div>
+            <script>window.onload = () => { window.print(); };</script>
+          </body>
+        </html>`;
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (e) {
+      console.error('Print all QRs error', e);
+      toast.error('Failed to open print sheet');
+    }
+  };
+
+  const downloadAllQRCardsPDF = async () => {
+    try {
+      if (!user?.restaurantId || !user?.branchId) return toast.error('Missing restaurant/branch context.');
+      const base = (contactlessBaseUrl || resolveCustomerBaseUrl()).trim();
+      if (!base) return toast.error('Set Customer App Base URL first.');
+      setIsGeneratingBulk(true);
+
+      // Build a hidden container with inline SVG QRs and render to PDF using jsPDF.html (via html2canvas)
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-99999px';
+      container.style.top = '0';
+      container.style.width = '794px'; /* A4 width ~96dpi */
+      container.style.padding = '16px';
+
+      const title = document.createElement('div');
+      title.textContent = 'Table QR Codes';
+      title.style.fontWeight = '700';
+      title.style.fontSize = '18px';
+      title.style.marginBottom = '12px';
+
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+      grid.style.gap = '12px';
+
+      tables.forEach(t => {
+        const link = buildCustomerUrl(base, user.restaurantId, user.branchId, t._id);
+        const labelText = t.TableName || t.name || 'Table';
+        const card = document.createElement('div');
+        card.style.border = '1px solid #ddd';
+        card.style.borderRadius = '8px';
+        card.style.padding = '10px';
+        card.style.textAlign = 'center';
+        card.style.breakInside = 'avoid';
+        card.style.pageBreakInside = 'avoid';
+
+        const label = document.createElement('div');
+        label.textContent = labelText;
+        label.style.fontWeight = '600';
+        label.style.marginBottom = '6px';
+
+        const qrWrap = document.createElement('div');
+        // Inline SVG QR (no external images, no CORS issues)
+        const svgMarkup = renderToStaticMarkup(
+          <QRCode value={link} size={180} />
+        );
+        qrWrap.innerHTML = svgMarkup;
+        qrWrap.style.background = '#fff';
+        qrWrap.style.display = 'inline-block';
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Scan to order';
+        hint.style.color = '#555';
+        hint.style.fontSize = '11px';
+        hint.style.marginTop = '6px';
+
+        card.appendChild(label);
+        card.appendChild(qrWrap);
+        card.appendChild(hint);
+        grid.appendChild(card);
+      });
+
+      container.appendChild(title);
+      container.appendChild(grid);
+      document.body.appendChild(container);
+
+      // Render to canvas and add as images to PDF (supports long content)
+      const canvas = await html2canvas(container, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 24;
+      const usableWidth = pageWidth - margin * 2;
+      const imgHeight = (canvas.height * usableWidth) / canvas.width;
+
+      let position = margin;
+      let heightLeft = imgHeight;
+
+      // First page
+      pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+      heightLeft -= (pageHeight - margin * 2);
+      // Additional pages
+      while (heightLeft > 0) {
+        pdf.addPage();
+        position = margin - (imgHeight - heightLeft);
+        pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+        heightLeft -= (pageHeight - margin * 2);
+      }
+
+      pdf.save('table-qr-codes.pdf');
+      document.body.removeChild(container);
+      setIsGeneratingBulk(false);
+    } catch (e) {
+      console.error('PDF export error', e);
+      setIsGeneratingBulk(false);
+      toast.error('Failed to create PDF');
+    }
+  };
 
   // Helper function to get floor name by ObjectId
   const getFloorName = (floorId) => {
@@ -1240,14 +1538,73 @@ const TableSelection = () => {
           Contactless Options
         </ModalHeader>
         <ModalBody>
-          <p>Contactless ordering and payment options will be implemented here.</p>
+          <Alert color="info" className="py-2">
+            Generate a QR for customers to scan and open your menu with the table preselected.
+          </Alert>
+          <Form onSubmit={(e) => { e.preventDefault(); handleGenerateQR(); }}>
+            <FormGroup>
+              <Label>Customer App Base URL</Label>
+              <Input
+                placeholder="e.g. http://localhost:5173 or https://yourdomain.com"
+                value={contactlessBaseUrl}
+                onChange={(e) => setContactlessBaseUrl(e.target.value)}
+              />
+              <small className="text-muted">Set once and it will be remembered on this device.</small>
+            </FormGroup>
+
+            <FormGroup>
+              <Label>Table</Label>
+              <Input type="select" value={contactlessTableId || selectedTable?._id || ''} onChange={(e) => setContactlessTableId(e.target.value)}>
+                <option value="">Select table</option>
+                {tables.map(t => (
+                  <option key={t._id} value={t._id}>
+                    {(t.TableName || t.name)} [{t.status}]
+                  </option>
+                ))}
+              </Input>
+            </FormGroup>
+
+            <div className="d-flex gap-2 mt-2 flex-wrap">
+              <Button color="primary" onClick={handleGenerateQR} disabled={isGeneratingQR}>
+                {isGeneratingQR ? <Spinner size="sm" className="me-2" /> : null}
+                Generate QR Link
+              </Button>
+              <Button color="secondary" outline onClick={handleCopyLink} disabled={!generatedQRUrl}>Copy Link</Button>
+              <Button color="secondary" outline onClick={handleShare} disabled={!generatedQRUrl}>Share</Button>
+              <Button color="dark" outline onClick={handlePrintTent} disabled={!generatedQRUrl}>Print Table Tent</Button>
+            </div>
+
+            {generatedQRUrl && (
+              <div className="mt-3 p-2 border rounded">
+                <div className="mb-2 small text-muted">Preview</div>
+                <div className="d-flex align-items-center gap-3">
+                  <div style={{ background: '#fff', padding: 8 }}>
+                    <QRCode value={generatedQRUrl} size={140} />
+                  </div>
+                  <div style={{ wordBreak: 'break-all' }}>
+                    <div className="small text-muted">Link</div>
+                    <div>{generatedQRUrl}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <hr className="my-3" />
+            <h6 className="mb-2">Bulk export for all tables</h6>
+            <div className="d-flex gap-2 flex-wrap">
+              <Button color="secondary" onClick={openPrintAllQRCards}>
+                Print All Table QRs
+              </Button>
+              <Button color="success" onClick={downloadAllQRCardsPDF} disabled={isGeneratingBulk}>
+                {isGeneratingBulk ? <Spinner size="sm" className="me-2" /> : null}
+                Download PDF
+              </Button>
+            </div>
+          </Form>
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowContactlessModal(false)}>
             Close
-          </Button>
-          <Button color="primary">
-            Generate QR Code
           </Button>
         </ModalFooter>
       </Modal>

@@ -45,21 +45,7 @@ const StaffManagement = () => {
   const [editingStaff, setEditingStaff] = useState(null);
   const [alertMessage, setAlertMessage] = useState({ visible: false, color: '', message: '' });
 
-  // Check if user is branch manager
-  if (!isBranchManager) {
-    return (
-      <Container className="mt-7" fluid>
-        <Row className="justify-content-center">
-          <Col lg="6">
-            <Alert color="warning" className="text-center">
-              <h4 className="alert-heading">Access Denied</h4>
-              <p>Only Branch Managers can access the Staff Management module.</p>
-            </Alert>
-          </Col>
-        </Row>
-      </Container>
-    );
-  }
+  // Note: Do not return early before hooks; render conditionally in JSX below
 
   useEffect(() => {
     if (user && user.branchId) {
@@ -191,126 +177,139 @@ const StaffManagement = () => {
     <>
       <Header />
       <Container className="mt--7" fluid>
-        {/* Alert Messages */}
-        {alertMessage.visible && (
-          <Row>
-            <Col>
-              <Alert 
-                color={alertMessage.color} 
-                toggle={() => setAlertMessage({ ...alertMessage, visible: false })}
-              >
-                {alertMessage.message}
+        {!isBranchManager ? (
+          <Row className="justify-content-center">
+            <Col lg="6">
+              <Alert color="warning" className="text-center">
+                <h4 className="alert-heading">Access Denied</h4>
+                <p>Only Branch Managers can access the Staff Management module.</p>
               </Alert>
             </Col>
           </Row>
-        )}
+        ) : (
+          <>
+            {/* Alert Messages */}
+            {alertMessage.visible && (
+              <Row>
+                <Col>
+                  <Alert 
+                    color={alertMessage.color} 
+                    toggle={() => setAlertMessage({ ...alertMessage, visible: false })}
+                  >
+                    {alertMessage.message}
+                  </Alert>
+                </Col>
+              </Row>
+            )}
 
-        {/* Error Alert */}
-        {error && (
-          <Row>
-            <Col>
-              <Alert color="danger" toggle={() => setError(null)}>
-                {error}
-              </Alert>
-            </Col>
-          </Row>
-        )}
+            {/* Error Alert */}
+            {error && (
+              <Row>
+                <Col>
+                  <Alert color="danger" toggle={() => setError(null)}>
+                    {error}
+                  </Alert>
+                </Col>
+              </Row>
+            )}
 
-        {/* Staff Statistics */}
-        <StaffStats stats={stats} />
+            {/* Staff Statistics */}
+            <StaffStats stats={stats} />
 
-        {/* Main Staff Management Card */}
-        <Row>
-          <Col>
-            <Card className="shadow">
-              <CardHeader className="bg-transparent">
-                <Row className="align-items-center">
-                  <Col>
-                    <h3 className="mb-0">
-                      <i className="fas fa-user-friends mr-2"></i>
-                      Staff Management
-                    </h3>
-                    <p className="text-muted mb-0">
-                      Manage your branch staff members
-                    </p>
-                  </Col>
-                  <Col className="text-right">
-                    <Button
-                      color="primary"
-                      size="sm"
-                      onClick={handleCreateStaff}
-                      disabled={loading}
-                    >
-                      <i className="fas fa-plus mr-1"></i>
-                      {getCreateButtonText()}
-                    </Button>
-                  </Col>
-                </Row>
-              </CardHeader>
-
-              <CardBody>
-                {/* Navigation Tabs */}
-                <Nav tabs className="nav-fill flex-column flex-md-row">
-                  {['employees', 'waiters', 'chefs'].map((tab) => (
-                    <NavItem key={tab}>
-                      <NavLink
-                        className={classnames('mb-sm-3 mb-md-0', {
-                          active: activeTab === tab,
-                        })}
-                        onClick={() => toggleTab(tab)}
-                        href="#"
-                      >
-                        <i className={`${getTabIcon(tab)} mr-2`}></i>
-                        {getTabTitle(tab)}
-                        <Badge 
-                          color="primary" 
-                          pill 
-                          className="ml-2"
+            {/* Main Staff Management Card */}
+            <Row>
+              <Col>
+                <Card className="shadow">
+                  <CardHeader className="bg-transparent">
+                    <Row className="align-items-center">
+                      <Col>
+                        <h3 className="mb-0">
+                          <i className="fas fa-user-friends mr-2"></i>
+                          Staff Management
+                        </h3>
+                        <p className="text-muted mb-0">
+                          Manage your branch staff members
+                        </p>
+                      </Col>
+                      <Col className="text-right">
+                        <Button
+                          color="primary"
+                          size="sm"
+                          onClick={handleCreateStaff}
+                          disabled={loading}
                         >
-                          {tab === 'employees' ? stats.employees : 
-                           tab === 'waiters' ? stats.waiters : stats.chefs}
-                        </Badge>
-                      </NavLink>
-                    </NavItem>
-                  ))}
-                </Nav>
+                          <i className="fas fa-plus mr-1"></i>
+                          {getCreateButtonText()}
+                        </Button>
+                      </Col>
+                    </Row>
+                  </CardHeader>
 
-                {/* Tab Content */}
-                <TabContent activeTab={activeTab} className="mt-4">
-                  {['employees', 'waiters', 'chefs'].map((tab) => (
-                    <TabPane key={tab} tabId={tab}>
-                      {loading ? (
-                        <div className="text-center py-5">
-                          <Spinner color="primary" />
-                          <p className="mt-2">Loading staff...</p>
-                        </div>
-                      ) : (
-                        <StaffTable
-                          staff={filteredStaff}
-                          staffType={tab}
-                          onEdit={handleEditStaff}
-                          onStatusChange={handleStatusChange}
-                          onDelete={handleDeleteStaff}
-                          loading={loading}
-                        />
-                      )}
-                    </TabPane>
-                  ))}
-                </TabContent>
-              </CardBody>
-            </Card>
-          </Col>
-        </Row>
+                  <CardBody>
+                    {/* Navigation Tabs */}
+                    <Nav tabs className="nav-fill flex-column flex-md-row">
+                      {['employees', 'waiters', 'chefs'].map((tab) => (
+                        <NavItem key={tab}>
+                          <NavLink
+                            className={classnames('mb-sm-3 mb-md-0', {
+                              active: activeTab === tab,
+                            })}
+                            onClick={() => toggleTab(tab)}
+                            href="#"
+                          >
+                            <i className={`${getTabIcon(tab)} mr-2`}></i>
+                            {getTabTitle(tab)}
+                            <Badge 
+                              color="primary" 
+                              pill 
+                              className="ml-2"
+                            >
+                              {tab === 'employees' ? stats.employees : 
+                               tab === 'waiters' ? stats.waiters : stats.chefs}
+                            </Badge>
+                          </NavLink>
+                        </NavItem>
+                      ))}
+                    </Nav>
 
-        {/* Staff Modal */}
-        <StaffModal
-          isOpen={modalOpen}
-          toggle={handleModalClose}
-          staff={editingStaff}
-          staffType={activeTab}
-          onSave={handleSaveStaff}
-          loading={loading}
-        />
+                    {/* Tab Content */}
+                    <TabContent activeTab={activeTab} className="mt-4">
+                      {['employees', 'waiters', 'chefs'].map((tab) => (
+                        <TabPane key={tab} tabId={tab}>
+                          {loading ? (
+                            <div className="text-center py-5">
+                              <Spinner color="primary" />
+                              <p className="mt-2">Loading staff...</p>
+                            </div>
+                          ) : (
+                            <StaffTable
+                              staff={filteredStaff}
+                              staffType={tab}
+                              onEdit={handleEditStaff}
+                              onStatusChange={handleStatusChange}
+                              onDelete={handleDeleteStaff}
+                              loading={loading}
+                            />
+                          )}
+                        </TabPane>
+                      ))}
+                    </TabContent>
+                  </CardBody>
+                </Card>
+              </Col>
+            </Row>
+
+            {/* Staff Modal */}
+            <StaffModal
+              isOpen={modalOpen}
+              toggle={handleModalClose}
+              staff={editingStaff}
+              staffType={activeTab}
+              onSave={handleSaveStaff}
+              loading={loading}
+            />
+          </>
+        )}
       </Container>
     </>
   );

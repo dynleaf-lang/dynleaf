@@ -22,6 +22,7 @@ import InventoryReports from "features/inventory-management/InventoryReports.jsx
 import SuppliersManagement from "features/supplier-management/SuppliersManagement.js";
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
+import BrandingSettings from "views/settings/BrandingSettings.js";
 
 var routes = [
   {
@@ -30,6 +31,14 @@ var routes = [
     icon: "ni ni-tv-2 text-primary",
     component: <Index />,
     layout: "/admin",
+  },
+  {
+    path: "/settings/branding",
+    name: "Branding",
+    icon: "ni ni-atom text-indigo",
+    component: <BrandingSettings />,
+    layout: "/admin",
+  roles: ["Super_Admin", "Branch_Manager"],
   },
   {
     path: "/inventory",
