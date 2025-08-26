@@ -15,25 +15,25 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 router.use(protect);
 
 // Search customers route - needs to be before the /:id route to avoid conflicts
-router.get('/', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), getAllCustomers);
+router.get('/', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), getAllCustomers);
 
 // Get all customers with filter options (Super_Admin only)
 router.get('/all', authorize('Super_Admin'), getAllCustomers);
 
 // Get all customers for a restaurant
-router.get('/restaurant/:restaurantId', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), getRestaurantCustomers);
+router.get('/restaurant/:restaurantId', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), getRestaurantCustomers);
 
 // Get all customers for a specific branch
-router.get('/branch/:branchId', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), getBranchCustomers);
+router.get('/branch/:branchId', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), getBranchCustomers);
 
 // Get customer by ID
-router.get('/:id', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), getCustomerById);
+router.get('/:id', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), getCustomerById);
 
 // Create a new customer
-router.post('/', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), createCustomer);
+router.post('/', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), createCustomer);
 
 // Update a customer
-router.put('/:id', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator'), updateCustomer);
+router.put('/:id', authorize('Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'), updateCustomer);
 
 // Delete a customer
 router.delete('/:id', authorize('Super_Admin', 'Branch_Manager'), deleteCustomer);

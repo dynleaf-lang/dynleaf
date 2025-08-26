@@ -59,7 +59,7 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
       <Button
         color="light"
         size="sm"
-        className="me-3 d-flex align-items-center justify-content-center"
+        className="me-3 d-flex align-items-center justify-content-center px-2 rounded-0"
         onClick={onToggleSidebar} 
       >
         <FaBars size={16} />

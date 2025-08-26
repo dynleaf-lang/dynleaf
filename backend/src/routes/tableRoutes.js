@@ -3,10 +3,11 @@ const router = express.Router();
 const { authenticateJWT } = require('../middleware/authMiddleware');
 const tableController = require('../controllers/tableController');
 
-// Middleware to check if user is admin or branch manager
+// Middleware to check if user has permission to manage tables/reservations
 const authorizeAdminOrBranchManager = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.role !== 'Super_Admin' && req.user.role !== 'Branch_Manager') {
-        return res.status(403).json({ message: 'Access denied. Required role: admin, Super_Admin, or branch_manager' });
+    const allowed = ['admin', 'Super_Admin', 'Branch_Manager', 'POS_Operator', 'Staff'];
+    if (!allowed.includes(req.user.role)) {
+        return res.status(403).json({ message: 'Access denied. Required role: admin, Super_Admin, Branch_Manager, POS_Operator, or Staff' });
     }
     next();
 };

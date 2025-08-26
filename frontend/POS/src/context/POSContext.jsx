@@ -52,6 +52,35 @@ export const POSProvider = ({ children }) => {
     }
   };
 
+  // Customers API (search by phone and create)
+  const findCustomerByPhone = async (phone) => {
+    try {
+      const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: phone } });
+      const list = Array.isArray(resp.data) ? resp.data : [];
+      // Prefer exact phone match
+      const exact = list.find(c => (c.phone || '').toString() === phone.toString());
+      return exact || null;
+    } catch (error) {
+      console.error('Error searching customer by phone:', error);
+      return null;
+    }
+  };
+
+  const createCustomerIfNeeded = async ({ name, phone }) => {
+    try {
+      if (!name || !phone) return null;
+      // ensure not existing
+      const existing = await findCustomerByPhone(phone);
+      if (existing) return existing;
+      const payload = { name, phone };
+      const resp = await axios.post(`${API_BASE_URL}/customers`, payload);
+      return resp.data;
+    } catch (error) {
+      console.error('Error creating customer:', error);
+      return null;
+    }
+  };
+
   const fetchCategories = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/public/categories/restaurant/${user.restaurantId}`);
@@ -91,6 +120,60 @@ export const POSProvider = ({ children }) => {
     } catch (error) {
       console.error('Error fetching inventory:', error);
       // Silent fail for POS; inventory is optional
+    }
+  };
+
+  // Reservations API (secured)
+  const getTableReservations = async (tableId, params = {}) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/tables/${tableId}/reservations`, { params });
+      return response.data?.data || [];
+    } catch (error) {
+      console.error('Error fetching reservations:', error);
+      toast.error('Failed to load reservations');
+      throw error;
+    }
+  };
+
+  const createReservation = async (tableId, payload) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/tables/${tableId}/reservations`, payload);
+      // Refresh tables so UI gets updated reservations/status
+      await fetchTables();
+      toast.success('Reservation created');
+      return response.data?.data;
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Failed to create reservation';
+      console.error('Create reservation error:', error);
+      toast.error(msg);
+      throw error;
+    }
+  };
+
+  const updateReservation = async (tableId, reservationId, payload) => {
+    try {
+      const response = await axios.put(`${API_BASE_URL}/tables/${tableId}/reservations/${reservationId}`, payload);
+      await fetchTables();
+      return response.data?.data;
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Failed to update reservation';
+      console.error('Update reservation error:', error);
+      toast.error(msg);
+      throw error;
+    }
+  };
+
+  const cancelReservation = async (tableId, reservationId) => {
+    try {
+      const response = await axios.put(`${API_BASE_URL}/tables/${tableId}/reservations/${reservationId}/cancel`);
+      await fetchTables();
+      toast.success('Reservation cancelled');
+      return response.data;
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Failed to cancel reservation';
+      console.error('Cancel reservation error:', error);
+      toast.error(msg);
+      throw error;
     }
   };
 
@@ -240,6 +323,14 @@ export const POSProvider = ({ children }) => {
     fetchFloors,
     fetchInventory,
     updateTableStatus,
+  // Customers helpers
+  findCustomerByPhone,
+  createCustomerIfNeeded,
+  // Reservation APIs
+  getTableReservations,
+  createReservation,
+  updateReservation,
+  cancelReservation,
     selectTable,
     clearSelectedTable,
     refreshData,

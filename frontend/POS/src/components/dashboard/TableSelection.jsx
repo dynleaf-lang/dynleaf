@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Row, 
   Col, 
@@ -8,6 +8,9 @@ import {
   Badge, 
   Input, 
   InputGroup,
+  Form,
+  FormGroup,
+  Label,
   Modal,
   ModalHeader,
   ModalBody, 
@@ -47,6 +50,9 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import './TableSelection.css';
 import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
+import axios from 'axios';
+
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
 const TableSelection = () => {
   const { 
@@ -58,7 +64,15 @@ const TableSelection = () => {
     selectTable, 
     clearSelectedTable,
     updateTableStatus,
-    refreshData 
+  refreshData,
+  // reservation APIs
+  getTableReservations,
+  createReservation: apiCreateReservation,
+  updateReservation: apiUpdateReservation,
+  cancelReservation: apiCancelReservation,
+  // customer helpers
+  findCustomerByPhone,
+  createCustomerIfNeeded
   } = usePOS();
   
   const { getOrdersByTable } = useOrder();
@@ -70,10 +84,91 @@ const TableSelection = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false); 
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [showReservationModal, setShowReservationModal] = useState(false);
+  const [reservationForm, setReservationForm] = useState({
+    tableId: '',
+    name: '',
+    phone: '',
+    partySize: 2,
+    date: new Date().toISOString().slice(0,10),
+    startTime: new Date().toTimeString().slice(0,5), // HH:mm
+    durationMinutes: 60,
+    notes: ''
+  });
+  const [reservationSubmitting, setReservationSubmitting] = useState(false);
+  const [reservationError, setReservationError] = useState('');
+  // Server-side reservations cache: { [tableId]: Array<reservation> }
+  const [reservationsByTable, setReservationsByTable] = useState({});
   const [showContactlessModal, setShowContactlessModal] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
   const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
+
+  // Customer phone suggestions (similar to CartSidebar Customer Information)
+  const [customerSuggestions, setCustomerSuggestions] = useState([]);
+  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
+  const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
+  const searchDebounceRef = useRef(null);
+
+  const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
+
+  const triggerCustomerSearch = (query) => {
+    const q = (query || '').trim();
+    if (!q || q.length < 2) {
+      setCustomerSuggestions([]);
+      return;
+    }
+    setIsSearchingCustomers(true);
+    axios
+      .get(`${API_BASE_URL}/customers`, { params: { search: q } })
+      .then((resp) => {
+        const list = Array.isArray(resp.data) ? resp.data : [];
+        setCustomerSuggestions(list.slice(0, 8));
+      })
+      .catch(() => setCustomerSuggestions([]))
+      .finally(() => setIsSearchingCustomers(false));
+  };
+
+  const debouncedSearch = (query) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => triggerCustomerSearch(query), 300);
+  };
+
+  const handlePhoneInputChange = (val) => {
+    const cleaned = normalizePhone(val);
+    setReservationForm(f => ({ ...f, phone: cleaned }));
+    setShowPhoneSuggestions(true);
+    if (cleaned.length >= 3) {
+      debouncedSearch(cleaned);
+    } else {
+      setCustomerSuggestions([]);
+    }
+  };
+
+  const handleSelectCustomer = (cust) => {
+    setReservationForm(f => ({
+      ...f,
+      name: cust.name || f.name || 'Walk-in',
+      phone: normalizePhone(cust.phone || f.phone || '')
+    }));
+    setShowPhoneSuggestions(false);
+    setCustomerSuggestions([]);
+    toast.success('Customer selected');
+  };
+
+  // Unified refresh: clear filters and reload data
+  const handleRefresh = useCallback(async () => {
+    try {
+      setSearchTerm('');
+      setStatusFilter('all');
+      setSelectedFloor('all');
+      setQuickFilter('none');
+      await refreshData();
+      await loadTodayReservations();
+      toast.success('Refreshed');
+    } catch (_) {
+      toast.error('Failed to refresh');
+    }
+  }, [refreshData]);
 
   // Helper function to get floor name by ObjectId
   const getFloorName = (floorId) => {
@@ -287,6 +382,155 @@ const TableSelection = () => {
     await handleStatusChange(selectedTable._id, 'reserved');
   };
 
+  // Reservations - Server-side
+  const todayStr = new Date().toISOString().slice(0,10);
+  const loadReservationsForTable = useCallback(async (tableId, dateStr = todayStr) => {
+    try {
+      const data = await getTableReservations(tableId, { date: dateStr });
+      return data;
+    } catch (e) {
+      return [];
+    }
+  }, [getTableReservations, todayStr]);
+
+  const loadTodayReservations = useCallback(async (dateStr = todayStr) => {
+    if (!Array.isArray(tables) || tables.length === 0) {
+      setReservationsByTable({});
+      return;
+    }
+    const entries = await Promise.allSettled(
+      tables.map(async t => {
+        const list = await loadReservationsForTable(t._id, dateStr);
+        return [t._id, list];
+      })
+    );
+    const map = {};
+    entries.forEach(r => {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        const [id, list] = r.value;
+        map[id] = list;
+      } else if (r.status === 'fulfilled') {
+        const [id] = r.value;
+        map[id] = [];
+      }
+    });
+    setReservationsByTable(map);
+  }, [tables, loadReservationsForTable, todayStr]);
+
+  useEffect(() => {
+    loadTodayReservations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables.length]);
+
+  const combineDateTime = (dateStr, timeStr) => {
+    const [h, m] = (timeStr || '00:00').split(':').map(Number);
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setHours(h || 0, m || 0, 0, 0);
+    return d;
+  };
+
+  const getTableName = (id) => {
+    const t = tables.find(x => x._id === id);
+    return t ? (t.TableName || t.name || 'Table') : 'Table';
+  };
+
+  const getReservationsForTable = (tableId) => reservationsByTable[tableId] || [];
+  const getNextReservationForTable = (tableId) => {
+    const now = Date.now();
+    return getReservationsForTable(tableId)
+      .filter(r => new Date(r.endTime).getTime() >= now)
+      .sort((a,b) => new Date(a.startTime) - new Date(b.startTime))[0] || null;
+  };
+
+  const validateReservation = (form) => {
+    if (!form.tableId) return 'Please choose a table';
+    if (!form.name.trim()) return 'Customer name is required';
+    const start = combineDateTime(form.date, form.startTime);
+    const end = new Date(start.getTime() + (Number(form.durationMinutes) || 60) * 60000);
+    if (isNaN(start.getTime())) return 'Invalid start time';
+    if (end <= start) return 'End time must be after start time';
+    // Quick client-side overlap check using loaded reservations
+    const overlap = getReservationsForTable(form.tableId).some(r => {
+      const rs = new Date(r.startTime).getTime();
+      const re = new Date(r.endTime).getTime();
+      const s = start.getTime();
+      const e = end.getTime();
+      return (s < re && e > rs);
+    });
+    if (overlap) return 'Time slot overlaps with an existing reservation';
+    return '';
+  };
+
+  const createReservation = async (e) => {
+    e?.preventDefault?.();
+    setReservationError('');
+    const err = validateReservation(reservationForm);
+    if (err) { setReservationError(err); return; }
+    setReservationSubmitting(true);
+    try {
+      const start = combineDateTime(reservationForm.date, reservationForm.startTime);
+      const end = new Date(start.getTime() + (Number(reservationForm.durationMinutes) || 60) * 60000);
+      // Try to find/create customer if phone exists
+      let customerId = null;
+      const phoneTrim = (reservationForm.phone || '').trim();
+      if (phoneTrim) {
+        const existing = await findCustomerByPhone(phoneTrim);
+        if (existing?._id) {
+          customerId = existing._id;
+        } else {
+          const created = await createCustomerIfNeeded({ name: reservationForm.name.trim(), phone: phoneTrim });
+          if (created?._id) customerId = created._id;
+        }
+      }
+      await apiCreateReservation(reservationForm.tableId, {
+        customerName: reservationForm.name.trim(),
+        customerPhone: reservationForm.phone.trim(),
+        customerId,
+        partySize: Number(reservationForm.partySize) || 1,
+        reservationDate: reservationForm.date,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        notes: reservationForm.notes || ''
+      });
+      await loadTodayReservations();
+      setShowReservationModal(false);
+    } catch (er) {
+      console.error('Create reservation error', er);
+      // toast handled in context; show inline too
+      setReservationError(er?.response?.data?.message || 'Failed to create reservation');
+    } finally {
+      setReservationSubmitting(false);
+    }
+  };
+
+  const cancelReservation = async (res) => {
+    try {
+      await apiCancelReservation(res.tableId, res._id);
+      await loadTodayReservations();
+    } catch (er) {
+      console.error('Cancel reservation error', er);
+      toast.error('Failed to cancel reservation');
+    }
+  };
+
+  const checkInReservation = async (res) => {
+    try {
+      // Mark reservation completed and occupy the table
+      await apiUpdateReservation(res.tableId, res._id, { status: 'completed' });
+      await updateTableStatus(res.tableId, 'occupied');
+      await loadTodayReservations();
+      // Close reservation modal and focus the table for service
+      setShowReservationModal(false);
+      const table = tables.find(t => t._id === res.tableId);
+      if (table) {
+        handleTableSelect(table);
+      }
+    } catch (er) {
+      console.error('Check-in error', er);
+      toast.error('Failed to check in');
+    }
+  };
+
   const openMoveModal = () => {
     if (!selectedTable?._id) {
       return toast.error('Select a source table first to move items from.');
@@ -394,7 +638,8 @@ const TableSelection = () => {
  
     
 
-    return (
+  const nextRes = getNextReservationForTable(table._id);
+  return (
       <div 
         className={`floor-table ${selectedTable?._id === table._id ? 'selected' : ''}`}
         style={{
@@ -421,6 +666,15 @@ const TableSelection = () => {
         <div style={{ fontSize: '10px', fontWeight: 'bold' }}>
           {table.TableName}
         </div>
+    {nextRes && (
+          <div style={{ position: 'absolute', bottom: '4px', left: '4px', right: '4px', textAlign: 'center' }}>
+            <Badge color="warning" pill style={{ fontSize: '9px' }}>
+      {new Date(nextRes.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' - '}
+      {new Date(nextRes.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Badge>
+          </div>
+        )}
         
         
         
@@ -456,7 +710,7 @@ const TableSelection = () => {
           </button>
         )}
         
-        {/* Eye icon for viewing */}
+  {/* Eye icon for viewing */}
         {table.status === 'occupied' && (
           <button
             type="button"
@@ -485,6 +739,34 @@ const TableSelection = () => {
             <FaEye size={15} color="#555" />
           </button>
         )}
+
+        {/* Quick open reservation modal */}
+        <button
+          type="button"
+          aria-label="Reservation actions"
+          title="Reservation actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReservationForm(prev => ({
+              ...prev,
+              tableId: table._id,
+              date: new Date().toISOString().slice(0,10)
+            }));
+            setShowReservationModal(true);
+          }}
+          style={{ 
+            position: 'absolute', 
+            bottom: '2px', 
+            right: '2px',
+            border: 'none',
+            background: 'rgba(0,0,0,0.04)',
+            borderRadius: '6px',
+            padding: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          <FaCalendarPlus size={15} color="#555" />
+        </button>
       </div>
     );
   };
@@ -506,7 +788,7 @@ const TableSelection = () => {
       <Alert color="danger" className="text-center">
         <h5>Error Loading Tables</h5>
         <p>{error}</p>
-        <Button color="primary" onClick={refreshData}>
+  <Button color="primary" onClick={handleRefresh}>
           <FaSync className="me-2" />
           Retry
         </Button>
@@ -554,7 +836,7 @@ const TableSelection = () => {
             <ButtonGroup size="sm">
               <Button 
                 color="outline-primary"
-                onClick={refreshData}
+                onClick={handleRefresh}
                 disabled={loading}
               >
                 {loading ? <Spinner size="sm" /> : <FaSync />}
@@ -659,8 +941,8 @@ const TableSelection = () => {
         toggle={() => setShowDetailsModal(false)}
         size="lg"
       >
-        <ModalHeader toggle={() => setShowDetailsModal(false)}>
-          Table Details - {selectedTableForDetails?.name}
+  <ModalHeader toggle={() => setShowDetailsModal(false)}>
+    Table Details - {selectedTableForDetails?.TableName || selectedTableForDetails?.name}
         </ModalHeader>
         <ModalBody>
           {selectedTableForDetails && (
@@ -668,15 +950,16 @@ const TableSelection = () => {
               <Row>
                 <Col md={6}>
                   <h6>Table Information</h6>
-                  <p><strong>Name:</strong> {selectedTableForDetails.name}</p>
+      <p><strong>Name:</strong> {selectedTableForDetails.TableName || selectedTableForDetails.name}</p>
                   <p><strong>Capacity:</strong> {selectedTableForDetails.capacity} people</p>
                   <p><strong>Category:</strong> {selectedTableForDetails.category || 'Non A/C'}</p>
                   <p>
                     <strong>Status:</strong> 
                     <Badge 
                       style={{ 
-                        backgroundColor: getStatusBorderColor(selectedTableForDetails.status),
-                        color: 'white'
+      backgroundColor: getStatusColor(selectedTableForDetails.status),
+      color: '#333',
+      border: `2px solid ${getStatusBorderColor(selectedTableForDetails.status)}`
                       }}
                       className="ms-2"
                     >
@@ -766,14 +1049,182 @@ const TableSelection = () => {
           Table Reservation
         </ModalHeader>
         <ModalBody>
-          <p>Table reservation functionality will be implemented here.</p>
+          {reservationError && (
+            <Alert color="danger" className="py-2">{reservationError}</Alert>
+          )}
+          <Form onSubmit={createReservation}>
+            <FormGroup>
+              <Label>Table</Label>
+              <Input
+                type="select"
+                value={reservationForm.tableId || selectedTable?._id || ''}
+                onChange={(e) => setReservationForm(f => ({ ...f, tableId: e.target.value }))}
+                required
+              >
+                <option value="">Select table</option>
+                {tables.map(t => (
+                  <option key={t._id} value={t._id}>
+                    {t.TableName || t.name} [{t.status}]
+                  </option>
+                ))}
+              </Input>
+            </FormGroup>
+
+            <Row>
+              <Col md={6}>
+                <FormGroup>
+                  <Label>Customer name</Label>
+                  <Input
+                    value={reservationForm.name}
+                    onChange={(e) => setReservationForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="John Doe"
+                    required
+                  />
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label>Phone</Label>
+                  <div style={{ position: 'relative' }}>
+                    <Input
+                      type="tel"
+                      value={reservationForm.phone}
+                      onChange={(e) => handlePhoneInputChange(e.target.value)}
+                      onFocus={() => setShowPhoneSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowPhoneSuggestions(false), 150)}
+                      placeholder="Search or enter phone"
+                    />
+                    {showPhoneSuggestions && (customerSuggestions.length > 0 || isSearchingCustomers) && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1050 }} className="bg-white border rounded shadow-sm">
+                        {isSearchingCustomers && (
+                          <div className="p-2 text-muted small">Searching...</div>
+                        )}
+                        {customerSuggestions.map((c) => (
+                          <div
+                            key={c._id}
+                            className="p-2 suggestion-item"
+                            style={{ cursor: 'pointer' }}
+                            onMouseDown={(e) => { e.preventDefault(); handleSelectCustomer(c); }}
+                          >
+                            <div className="d-flex justify-content-between">
+                              <span>{c.name || 'Unnamed'}</span>
+                              <small className="text-muted">{c.customerId || ''}</small>
+                            </div>
+                            <small className="text-muted">{c.phone || '—'}</small>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </FormGroup>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={4}>
+                <FormGroup>
+                  <Label>Date</Label>
+                  <Input
+                    type="date"
+                    value={reservationForm.date}
+                    onChange={(e) => setReservationForm(f => ({ ...f, date: e.target.value }))}
+                    required
+                  />
+                </FormGroup>
+              </Col>
+              <Col md={4}>
+                <FormGroup>
+                  <Label>Start time</Label>
+                  <Input
+                    type="time"
+                    value={reservationForm.startTime}
+                    onChange={(e) => setReservationForm(f => ({ ...f, startTime: e.target.value }))}
+                    required
+                  />
+                </FormGroup>
+              </Col>
+              <Col md={4}>
+                <FormGroup>
+                  <Label>Duration (mins)</Label>
+                  <Input
+                    type="number"
+                    min="15"
+                    step="15"
+                    value={reservationForm.durationMinutes}
+                    onChange={(e) => setReservationForm(f => ({ ...f, durationMinutes: e.target.value }))}
+                    required
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={4}>
+                <FormGroup>
+                  <Label>Party size</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={reservationForm.partySize}
+                    onChange={(e) => setReservationForm(f => ({ ...f, partySize: e.target.value }))}
+                    required
+                  />
+                </FormGroup>
+              </Col>
+              <Col md={8}>
+                <FormGroup>
+                  <Label>Notes</Label>
+                  <Input
+                    type="text"
+                    value={reservationForm.notes}
+                    onChange={(e) => setReservationForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Any special notes"
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+
+            <div className="d-flex justify-content-end">
+              <Button color="primary" type="submit" disabled={reservationSubmitting}>
+                {reservationSubmitting ? <Spinner size="sm" className="me-2" /> : null}
+                Create Reservation
+              </Button>
+            </div>
+          </Form>
+
+          {/* Today reservations list for quick actions */}
+          <hr />
+          <h6 className="mb-2">Today’s reservations</h6>
+          {Object.values(reservationsByTable).flat().filter(r => (r.startTime || '').slice(0,10) === todayStr).length === 0 ? (
+            <div className="text-muted">No reservations for today.</div>
+          ) : (
+            <div className="d-flex flex-column gap-2">
+              {Object.entries(reservationsByTable)
+                .flatMap(([tableId, list]) => list.map(r => ({ ...r, tableId })))
+                .filter(r => (r.startTime || '').slice(0,10) === todayStr)
+                .sort((a,b) => new Date(a.startTime) - new Date(b.startTime))
+                .map(r => (
+                  <div key={r._id} className="d-flex align-items-center justify-content-between p-2 border rounded">
+                    <div>
+                      <div className="fw-semibold">{getTableName(r.tableId)} • {r.customerName} ({r.partySize})</div>
+                      <small className="text-muted">
+                        {new Date(r.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {' - '}
+                        {new Date(r.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </small>
+                    </div>
+                    <div className="d-flex gap-2">
+                      <Button size="sm" color="success" onClick={() => checkInReservation(r)}>Check-in</Button>
+                      <Button size="sm" color="outline-danger" onClick={() => cancelReservation(r)}>Cancel</Button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowReservationModal(false)}>
             Close
-          </Button>
-          <Button color="primary">
-            Create Reservation
           </Button>
         </ModalFooter>
       </Modal>
