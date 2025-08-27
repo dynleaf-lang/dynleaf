@@ -35,6 +35,7 @@ import {
   FaPrint,
   FaUtensils,
   FaSnowflake,
+  FaTimes,
   FaFan,
   FaMapMarkerAlt,
   FaCalendarPlus,
@@ -365,6 +366,8 @@ const TableSelection = () => {
       // User may cancel share; ignore
     }
   };
+
+  
 
   const handlePrintTent = () => {
     try {
@@ -1205,7 +1208,7 @@ const TableSelection = () => {
     const brColor = isPrinted ? '#7E57C2' : getStatusBorderColor(table.status);
 
     const nextRes = getNextReservationForTable(table._id);
-  return (
+  return ( 
       <div 
         className={`floor-table ${selectedTable?._id === table._id ? 'selected' : ''}`}
         style={{
@@ -1309,7 +1312,7 @@ const TableSelection = () => {
         )}
 
         {/* Quick open reservation modal */}
-        <button
+        {/* <button
           type="button"
           aria-label="Reservation actions"
           title="Reservation actions"
@@ -1330,7 +1333,7 @@ const TableSelection = () => {
           }}
         >
           <FaCalendarPlus size={15} color="#4caf50" />
-        </button>
+        </button> */}
 
         {/* Simple actions menu icon - visible only for the selected Action table */}
         {(actionTableId === table._id) && (
@@ -1545,11 +1548,12 @@ const TableSelection = () => {
                   className="ms-2"
                   style={{
                     backgroundColor: getStatusColor(actionSelectedTable.status),
-                    color: '#333',
+                    color: '#efefefff',
                     border: `2px solid ${getStatusBorderColor(actionSelectedTable.status)}`
                   }}
                 >
                   {actionSelectedTable.TableName || actionSelectedTable.name}
+                 <FaTimes className="ms-1 pointer" onClick={() => setActionTableId('')} style={{ cursor: 'pointer' }} />
                 </Badge>
               )}
             </div>
