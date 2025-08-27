@@ -194,7 +194,13 @@ export const POSProvider = ({ children }) => {
 
   const updateTableStatus = async (tableId, status, orderData = null) => {
     try {
-      const updateData = { status };
+      // Map UI statuses to backend-compatible values
+      const mapForServer = (s) => {
+        const v = (s || '').toLowerCase();
+        if (v === 'blocked') return 'maintenance';
+        return s;
+      };
+      const updateData = { status: mapForServer(status) };
       if (orderData) {
         updateData.currentOrderId = orderData._id;
       }
@@ -205,7 +211,7 @@ export const POSProvider = ({ children }) => {
       setTables(prevTables => 
         prevTables.map(table => 
           table._id === tableId 
-            ? { ...table, status, currentOrderId: updateData.currentOrderId }
+            ? { ...table, status: updateData.status, currentOrderId: updateData.currentOrderId }
             : table
         )
       );

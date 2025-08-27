@@ -76,16 +76,17 @@ router.patch('/:id/status', async (req, res) => {
             return res.status(400).json({ message: 'Status is required' });
         }
         
-        // Validate status values
-        const validStatuses = ['available', 'occupied', 'reserved', 'cleaning'];
-        if (!validStatuses.includes(status)) {
+    // Normalize and validate status values
+    const validStatuses = ['available', 'occupied', 'reserved', 'cleaning', 'maintenance'];
+    const normalizedStatus = (status || '').toLowerCase() === 'blocked' ? 'maintenance' : status;
+    if (!validStatuses.includes(normalizedStatus)) {
             return res.status(400).json({ 
                 message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
             });
         }
         
         // Build update object
-        const updateData = { status };
+    const updateData = { status: normalizedStatus };
         if (currentOrderId !== undefined) {
             updateData.currentOrderId = currentOrderId;
         }
@@ -101,7 +102,7 @@ router.patch('/:id/status', async (req, res) => {
             return res.status(404).json({ message: 'Table not found' });
         }
         
-        console.log(`[PUBLIC TABLES] Table ${id} status updated to: ${status}`);
+    console.log(`[PUBLIC TABLES] Table ${id} status updated to: ${normalizedStatus}`);
         res.json({ 
             message: 'Table status updated successfully',
             table: updatedTable 

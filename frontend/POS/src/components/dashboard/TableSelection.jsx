@@ -41,7 +41,8 @@ import {
   FaHandPaper,
   FaCog,
   FaTh,
-  FaList
+  FaList,
+  FaEllipsisV
 } from 'react-icons/fa';
 import { usePOS } from '../../context/POSContext';
 import { useOrder } from '../../context/OrderContext';
@@ -114,6 +115,13 @@ const TableSelection = () => {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
   const [moveSourceTableId, setMoveSourceTableId] = useState('');
+  // Admin actions target (does not affect menu/cart selection)
+  const [actionTableId, setActionTableId] = useState('');
+  // Toggle mode to pick action table by clicking a tile (without changing menu selection)
+  const [actionPickMode, setActionPickMode] = useState(false);
+  // Quick Actions (per-table) for simpler UX
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [quickActionsTable, setQuickActionsTable] = useState(null);
 
   // Local cart helpers: support both Mongo _id and legacy tableId like "T0653"
   const getCartCache = () => {
@@ -626,12 +634,16 @@ const TableSelection = () => {
 
   // Table status counts for legend
   const statusCounts = {
-    available: tables.filter(t => t.status === 'available').length,
-    occupied: tables.filter(t => t.status === 'occupied').length,
-    reserved: tables.filter(t => t.status === 'reserved').length,
-    cleaning: tables.filter(t => t.status === 'cleaning').length,
-    blocked: tables.filter(t => t.status === 'blocked').length
+  available: tables.filter(t => t.status === 'available').length,
+  occupied: tables.filter(t => t.status === 'occupied').length,
+  reserved: tables.filter(t => t.status === 'reserved').length,
+  cleaning: tables.filter(t => t.status === 'cleaning').length,
+  blocked: tables.filter(t => (t.status === 'blocked' || t.status === 'maintenance')).length
   };
+
+  // Action buttons enablement and selected action table details
+  const canActOnTable = Boolean(actionTableId || selectedTable?._id);
+  const actionSelectedTable = tables.find(t => t._id === actionTableId);
 
   // Print helper: builds a minimal orderData and prints via browser
   const handlePrintForTable = (table, activeOrderCandidate = null) => {
@@ -758,24 +770,57 @@ const TableSelection = () => {
         clearTablePrinted(tableId);
       }
     } catch (error) {
-      toast.error('Failed to update table status');
+  const msg = error?.response?.data?.message || error?.message || 'Failed to update table status';
+  toast.error(msg);
     }
   };
 
   const handleBlockSelectedTable = async () => {
-    if (!selectedTable?._id) {
-      return toast.error('Please select a table to block.');
+    const targetId = actionTableId || selectedTable?._id;
+    if (!targetId) {
+      return toast.error('Choose a table first (use Action table or click a card).');
     }
-    if (!window.confirm(`Block table ${selectedTable.TableName || selectedTable.name}?`)) return;
-    await handleStatusChange(selectedTable._id, 'blocked');
+    const target = tables.find(t => t._id === targetId);
+    const targetName = target?.TableName || target?.name || 'Table';
+    if (!window.confirm(`Block table ${targetName}?`)) return;
+    await handleStatusChange(targetId, 'blocked');
   };
 
   const handleHoldSelectedTable = async () => {
-    if (!selectedTable?._id) {
-      return toast.error('Please select a table to hold.');
+    const targetId = actionTableId || selectedTable?._id;
+    if (!targetId) {
+      return toast.error('Choose a table first (use Action table or click a card).');
     }
     // Using 'reserved' as Hold semantics
-    await handleStatusChange(selectedTable._id, 'reserved');
+    await handleStatusChange(targetId, 'reserved');
+  };
+
+  // Unblock and Unhold helpers
+  const actionTargetId = actionTableId || selectedTable?._id;
+  const actionTarget = tables.find(t => t._id === actionTargetId);
+  const actionStatus = (actionTarget?.status || '').toLowerCase();
+  const canHoldAction = actionStatus === 'available';
+  const canUnholdAction = actionStatus === 'reserved';
+  const canBlockAction = actionStatus === 'available';
+  const canUnblockAction = actionStatus === 'blocked' || actionStatus === 'maintenance';
+
+  const handleUnblockSelectedTable = async () => {
+    const targetId = actionTargetId;
+    if (!targetId) return toast.error('Choose a table first (use Action table or click a card).');
+  if (!['blocked','maintenance'].includes((actionTarget?.status || '').toLowerCase())) {
+      return toast.error('Selected table is not blocked.');
+    }
+    if (!window.confirm(`Unblock table ${actionTarget?.TableName || actionTarget?.name || 'Table'}?`)) return;
+    await handleStatusChange(targetId, 'available');
+  };
+
+  const handleUnholdSelectedTable = async () => {
+    const targetId = actionTargetId;
+    if (!targetId) return toast.error('Choose a table first (use Action table or click a card).');
+    if ((actionTarget?.status || '').toLowerCase() !== 'reserved') {
+      return toast.error('Selected table is not on hold.');
+    }
+    await handleStatusChange(targetId, 'available');
   };
 
   // Reservations - Server-side
@@ -1090,7 +1135,8 @@ const TableSelection = () => {
         return '#FFF4E6'; // Light orange
       case 'cleaning':
         return '#E6F3FF'; // Light blue
-      case 'blocked':
+  case 'blocked':
+  case 'maintenance':
         return '#F0F0F0'; // Light gray
       default:
         return '#FFFFFF';
@@ -1107,7 +1153,8 @@ const TableSelection = () => {
         return '#FF9800'; // Orange
       case 'cleaning':
         return '#2196F3'; // Blue
-      case 'blocked':
+  case 'blocked':
+  case 'maintenance':
         return '#9E9E9E'; // Gray
       default:
         return '#E0E0E0';
@@ -1158,7 +1205,7 @@ const TableSelection = () => {
     const brColor = isPrinted ? '#7E57C2' : getStatusBorderColor(table.status);
 
     const nextRes = getNextReservationForTable(table._id);
-    return (
+  return (
       <div 
         className={`floor-table ${selectedTable?._id === table._id ? 'selected' : ''}`}
         style={{
@@ -1179,7 +1226,18 @@ const TableSelection = () => {
           fontSize: '12px',
           fontWeight: '600'
         }}
-        onClick={() => handleTableSelect(table)}
+        onClick={(e) => {
+          if (actionPickMode) {
+            e.stopPropagation();
+            try {
+              setActionTableId(table._id);
+              toast.success(`Selected ${table.TableName || table.name} for actions`);
+            } catch (_) {}
+            setActionPickMode(false);
+            return;
+          }
+          handleTableSelect(table);
+        }}
         onDoubleClick={() => handleTableDetails(table)}
       >
         <div style={{ fontSize: '10px', fontWeight: 'bold' }}>
@@ -1274,6 +1332,28 @@ const TableSelection = () => {
           <FaCalendarPlus size={15} color="#4caf50" />
         </button>
 
+        {/* Simple actions menu icon - visible only for the selected Action table */}
+        {(actionTableId === table._id) && (
+          <button
+            type="button"
+            aria-label="Table actions"
+            title="Table actions"
+            onClick={(e) => {
+              e.stopPropagation();
+              setQuickActionsTable(table);
+              setShowQuickActions(true);
+            }}
+            style={{  
+              border: '1px solid #9f9f9f', 
+              borderRadius: '6px',
+              padding: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            <FaEllipsisV size={15} color="#4caf50" />
+          </button>
+        )}
+
         </div>
 
       </div>
@@ -1319,28 +1399,28 @@ const TableSelection = () => {
           </div>
           <div className="d-flex header-right">
             {/* Status Legend */}
-      <div className="mb-0 me-4 status-legend bg-transparent shadow-none p-0">
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#E8F5E8', border: '2px solid #4CAF50' }}></div>
-          <span>Available ({statusCounts.available})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#FFE8E8', border: '2px solid #F44336' }}></div>
-          <span>Occupied ({statusCounts.occupied})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#FFF4E6', border: '2px solid #FF9800' }}></div>
-          <span>Reserved ({statusCounts.reserved})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#E6F3FF', border: '2px solid #2196F3' }}></div>
-          <span>Cleaning ({statusCounts.cleaning})</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-color" style={{ backgroundColor: '#F0F0F0', border: '2px solid #9E9E9E' }}></div>
-          <span>Blocked ({statusCounts.blocked || 0})</span>
-        </div>
-      </div>
+            <div className="mb-0 me-4 status-legend bg-transparent shadow-none p-0">
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#E8F5E8', border: '2px solid #4CAF50' }}></div>
+                <span>Available ({statusCounts.available})</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#FFE8E8', border: '2px solid #F44336' }}></div>
+                <span>Occupied ({statusCounts.occupied})</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#FFF4E6', border: '2px solid #FF9800' }}></div>
+                <span>Reserved ({statusCounts.reserved})</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#E6F3FF', border: '2px solid #2196F3' }}></div>
+                <span>Cleaning ({statusCounts.cleaning})</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#F0F0F0', border: '2px solid #9E9E9E' }}></div>
+                <span>Blocked ({statusCounts.blocked || 0})</span>
+              </div>
+            </div>
 
             <ButtonGroup size="sm">
               <Button 
@@ -1369,10 +1449,18 @@ const TableSelection = () => {
               <FaHandPaper className="me-1" />
               Move KOT/ Items
             </Button>
-            <Button size="sm" color="light" className="action-btn" onClick={handleBlockSelectedTable}>
-              <FaHandPaper className="me-1" />
-              Block Table
-            </Button>
+            {actionTarget && canBlockAction && (
+              <Button
+                size="sm"
+                color="light"
+                className="action-btn"
+                onClick={handleBlockSelectedTable}
+                disabled={loading}
+              >
+                <FaHandPaper className="me-1" />
+                Block Table
+              </Button>
+            )}
             <Button size="sm" color="info" className="action-btn" onClick={() => setQuickFilter(prev => prev === 'running' ? 'none' : 'running')}>
               <FaTable className="me-1" />
               Running Table
@@ -1381,14 +1469,46 @@ const TableSelection = () => {
               <FaPrint className="me-1" />
               Printed Table
             </Button>
-            <Button size="sm" color="success" className="action-btn" onClick={handleHoldSelectedTable}>
-              <FaCheckCircle className="me-1" />
-              Hold Table
-            </Button>
+            {actionTarget && canHoldAction && (
+              <Button
+                size="sm"
+                color="success"
+                className="action-btn"
+                onClick={handleHoldSelectedTable}
+                disabled={loading}
+              >
+                <FaCheckCircle className="me-1" />
+                Hold Table
+              </Button>
+            )}
+            {actionTarget && canUnholdAction && (
+              <Button
+                size="sm"
+                color="secondary"
+                className="action-btn"
+                onClick={handleUnholdSelectedTable}
+                disabled={loading}
+              >
+                <FaCheckCircle className="me-1" />
+                Unhold
+              </Button>
+            )}
             <Button size="sm" color="primary" className="action-btn" onClick={() => setQuickFilter(prev => prev === 'kot' ? 'none' : 'kot')}>
               <FaUtensils className="me-1" />
               Running KOT Table
             </Button>
+            {actionTarget && canUnblockAction && (
+              <Button
+                size="sm"
+                color="light"
+                className="action-btn"
+                onClick={handleUnblockSelectedTable}
+                disabled={loading}
+              >
+                <FaHandPaper className="me-1" />
+                Unblock
+              </Button>
+            )}
           </div>
           
           <div className="view-controls">
@@ -1409,6 +1529,29 @@ const TableSelection = () => {
                   </option>
                 ))}
               </Input>
+            </div>
+            {/* Pick action table (simpler than dropdown) */}
+            <div className="me-3" title="Pick a table to use for Block/Hold without changing the menu selection">
+              <Button
+                size="sm"
+                color={actionPickMode ? 'primary' : 'outline-primary'}
+                onClick={() => setActionPickMode(v => !v)}
+                disabled={loading}
+              >
+                {actionPickMode ? 'Click a table…' : 'Select a Table'}
+              </Button>
+              {actionSelectedTable && (
+                <Badge
+                  className="ms-2"
+                  style={{
+                    backgroundColor: getStatusColor(actionSelectedTable.status),
+                    color: '#333',
+                    border: `2px solid ${getStatusBorderColor(actionSelectedTable.status)}`
+                  }}
+                >
+                  {actionSelectedTable.TableName || actionSelectedTable.name}
+                </Badge>
+              )}
             </div>
             
              
@@ -1511,6 +1654,145 @@ const TableSelection = () => {
               Select This Table
             </Button>
           )}
+        </ModalFooter>
+      </Modal>
+
+      {/* Quick Actions Modal */}
+      <Modal 
+        isOpen={showQuickActions}
+        toggle={() => setShowQuickActions(false)}
+        size="sm"
+      >
+        <ModalHeader toggle={() => setShowQuickActions(false)}>
+          Quick Actions
+        </ModalHeader>
+        <ModalBody>
+          {!quickActionsTable ? (
+            <div className="text-muted small">No table selected.</div>
+          ) : (
+            <div>
+              <div className="d-flex align-items-center mb-3">
+                <strong className="me-2">{quickActionsTable.TableName || quickActionsTable.name}</strong>
+                <Badge 
+                  style={{ 
+                    backgroundColor: getStatusColor(quickActionsTable.status),
+                    color: '#333',
+                    border: `2px solid ${getStatusBorderColor(quickActionsTable.status)}`
+                  }}
+                >
+                  {String(quickActionsTable.status || 'unknown').toUpperCase()}
+                </Badge>
+              </div>
+
+              <div className="d-grid gap-2">
+                <Button 
+                  color="success"
+                  hidden={String(quickActionsTable.status || '').toLowerCase() !== 'available'}
+                  onClick={async () => {
+                    const name = quickActionsTable.TableName || quickActionsTable.name || 'Table';
+                    if (!window.confirm(`Put ${name} on hold?`)) return;
+                    await handleStatusChange(quickActionsTable._id, 'reserved');
+                    setShowQuickActions(false);
+                  }}
+                >
+                  Hold Table
+                </Button>
+
+                <Button 
+                  color="danger"
+                  hidden={String(quickActionsTable.status || '').toLowerCase() !== 'available'}
+                  onClick={async () => {
+                    const name = quickActionsTable.TableName || quickActionsTable.name || 'Table';
+                    if (!window.confirm(`Block ${name}?`)) return;
+                    await handleStatusChange(quickActionsTable._id, 'blocked');
+                    setShowQuickActions(false);
+                  }}
+                >
+                  Block Table
+                </Button>
+
+                <Button 
+                  color="secondary"
+                  hidden={String(quickActionsTable.status || '').toLowerCase() !== 'reserved'}
+                  onClick={async () => {
+                    await handleStatusChange(quickActionsTable._id, 'available');
+                    setShowQuickActions(false);
+                  }}
+                >
+                  Unhold
+                </Button>
+
+                <Button 
+                  color="light"
+                  hidden={!['blocked','maintenance'].includes(String(quickActionsTable.status || '').toLowerCase())}
+                  onClick={async () => {
+                    await handleStatusChange(quickActionsTable._id, 'available');
+                    setShowQuickActions(false);
+                  }}
+                >
+                  Unblock
+                </Button>
+
+                {/* Offer Print Order if applicable */}
+                {(() => {
+                  try {
+                    const orders = getTableOrders(quickActionsTable._id) || [];
+                    const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+                    const placed = orders.filter(o => {
+                      const s = (o?.status || '').toLowerCase();
+                      return o?.kotPrinted === true || kotPlacedStatuses.includes(s);
+                    });
+                    const active = placed.slice().sort((a,b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
+                    const canPrint = placed.length > 0 && (String(quickActionsTable?.status || '').toLowerCase() !== 'available');
+                    return canPrint ? (
+                      <Button 
+                        color="dark"
+                        onClick={() => {
+                          try {
+                            handlePrintForTable(quickActionsTable, active);
+                            setShowQuickActions(false);
+                          } catch (err) {
+                            console.error('Quick print error', err);
+                            toast.error('Unable to print');
+                          }
+                        }}
+                      >
+                        Print Order
+                      </Button>
+                    ) : null;
+                  } catch (_) { return null; }
+                })()}
+
+                <Button 
+                  color="info"
+                  onClick={() => {
+                    handleTableDetails(quickActionsTable);
+                    setShowQuickActions(false);
+                  }}
+                >
+                  View Details
+                </Button>
+
+                <Button 
+                  color="primary"
+                  onClick={() => {
+                    setReservationForm(prev => ({
+                      ...prev,
+                      tableId: quickActionsTable._id,
+                      date: new Date().toISOString().slice(0,10)
+                    }));
+                    setShowReservationModal(true);
+                    setShowQuickActions(false);
+                  }}
+                >
+                  Reservation
+                </Button>
+              </div>
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowQuickActions(false)}>Close</Button>
         </ModalFooter>
       </Modal>
 
