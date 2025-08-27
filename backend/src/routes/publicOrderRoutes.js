@@ -1053,4 +1053,223 @@ router.patch('/:id/payment-status', async (req, res) => {
     }
 });
 
+// Move order to a different table (public endpoint to match POS expectations)
+router.patch('/:id/move-table', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tableId: newTableId } = req.body || {};
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid order ID format' });
+        }
+        if (!newTableId || !mongoose.Types.ObjectId.isValid(newTableId)) {
+            return res.status(400).json({ message: 'Valid destination tableId is required' });
+        }
+
+        const order = await Order.findById(id);
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        const oldTableId = order.tableId ? String(order.tableId) : null;
+        if (oldTableId === String(newTableId)) {
+            const sameOrder = await Order.findById(id)
+                .populate('restaurantId', 'name address country')
+                .populate('branchId', 'name address phone')
+                .populate('items.itemId', 'name description')
+                .populate('items.menuItemId', 'name description')
+                .populate('items.categoryId', 'name')
+                .populate('tableId', 'TableName tableId');
+            return res.status(200).json(sameOrder);
+        }
+
+        const destTable = await DiningTable.findById(newTableId);
+        if (!destTable) {
+            return res.status(404).json({ message: 'Destination table not found' });
+        }
+
+        // Update order's table
+        order.tableId = newTableId;
+        order.updatedAt = new Date();
+        await order.save();
+
+        // Mark destination as occupied
+        try {
+            await DiningTable.findByIdAndUpdate(
+                newTableId,
+                {
+                    status: 'occupied',
+                    isOccupied: true,
+                    currentOrder: order._id,
+                    lastOrderTime: new Date()
+                }
+            );
+        } catch (e) {
+            console.warn('[PUBLIC ORDERS] Failed to update destination table occupancy:', e?.message);
+        }
+
+        // If there was a source table, free it if no active orders remain
+        if (oldTableId) {
+            try {
+                const remainingActive = await Order.countDocuments({
+                    tableId: oldTableId,
+                    _id: { $ne: id },
+                    $or: [
+                        { status: { $in: ['pending', 'confirmed', 'preparing', 'ready'] } },
+                        { orderStatus: { $in: ['Pending', 'Processing'] } }
+                    ]
+                });
+                if (remainingActive === 0) {
+                    await DiningTable.findByIdAndUpdate(oldTableId, {
+                        status: 'available',
+                        isOccupied: false,
+                        currentOrder: null,
+                        lastOrderTime: null
+                    });
+                }
+            } catch (e) {
+                console.warn('[PUBLIC ORDERS] Failed to update source table occupancy:', e?.message);
+            }
+        }
+
+        const updated = await Order.findById(id)
+            .populate('restaurantId', 'name address country')
+            .populate('branchId', 'name address phone')
+            .populate('items.itemId', 'name description')
+            .populate('items.menuItemId', 'name description')
+            .populate('items.categoryId', 'name')
+            .populate('tableId', 'TableName tableId');
+
+        return res.status(200).json(updated);
+    } catch (error) {
+        console.error('[PUBLIC ORDERS] Error moving order to table:', error);
+        return res.status(500).json({ message: 'Server error while moving order', error: error.message });
+    }
+});
+
+// Generic PATCH for public orders (limited fields); used as fallback by POS
+router.patch('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid order ID format' });
+        }
+
+        const current = await Order.findById(id);
+        if (!current) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        const updates = {};
+        const { tableId: newTableId, status: modernStatusInput, paymentStatus, notes } = req.body || {};
+
+        // Handle status mapping similar to /:id/status endpoint
+        if (modernStatusInput) {
+            const validModernStatuses = ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'];
+            const modernToLegacy = {
+                'pending': 'Pending',
+                'confirmed': 'Processing',
+                'preparing': 'Processing',
+                'ready': 'Completed',
+                'delivered': 'Completed',
+                'cancelled': 'Cancelled'
+            };
+            if (!validModernStatuses.includes(modernStatusInput)) {
+                return res.status(400).json({ message: `Invalid status. Must be one of: ${validModernStatuses.join(', ')}` });
+            }
+            updates.status = modernStatusInput;
+            updates.orderStatus = modernToLegacy[modernStatusInput] || 'Pending';
+        }
+
+        if (typeof paymentStatus === 'string') {
+            const validPaymentStatuses = ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial'];
+            if (!validPaymentStatuses.includes(paymentStatus)) {
+                return res.status(400).json({ message: `Invalid payment status. Must be one of: ${validPaymentStatuses.join(', ')}` });
+            }
+            updates.paymentStatus = paymentStatus;
+        }
+
+        if (typeof notes === 'string') {
+            updates.notes = String(notes).trim();
+        }
+
+        // If table move is requested, perform move workflow including table occupancy updates
+        if (newTableId) {
+            if (!mongoose.Types.ObjectId.isValid(newTableId)) {
+                return res.status(400).json({ message: 'Invalid table ID format' });
+            }
+            const oldTableId = current.tableId ? String(current.tableId) : null;
+            if (oldTableId !== String(newTableId)) {
+                const destTable = await DiningTable.findById(newTableId);
+                if (!destTable) {
+                    return res.status(404).json({ message: 'Destination table not found' });
+                }
+                updates.tableId = newTableId;
+
+                // Apply updates including table change
+                await Order.findByIdAndUpdate(id, { $set: { ...updates, updatedAt: new Date() } }, { new: false });
+
+                // Destination table -> occupied
+                try {
+                    await DiningTable.findByIdAndUpdate(newTableId, {
+                        status: 'occupied',
+                        isOccupied: true,
+                        currentOrder: id,
+                        lastOrderTime: new Date()
+                    });
+                } catch (e) {
+                    console.warn('[PUBLIC ORDERS] Failed to update destination table occupancy (generic PATCH):', e?.message);
+                }
+
+                // Source table -> free if no active orders
+                if (oldTableId) {
+                    try {
+                        const remainingActive = await Order.countDocuments({
+                            tableId: oldTableId,
+                            _id: { $ne: id },
+                            $or: [
+                                { status: { $in: ['pending', 'confirmed', 'preparing', 'ready'] } },
+                                { orderStatus: { $in: ['Pending', 'Processing'] } }
+                            ]
+                        });
+                        if (remainingActive === 0) {
+                            await DiningTable.findByIdAndUpdate(oldTableId, {
+                                status: 'available',
+                                isOccupied: false,
+                                currentOrder: null,
+                                lastOrderTime: null
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('[PUBLIC ORDERS] Failed to update source table occupancy (generic PATCH):', e?.message);
+                    }
+                }
+            } else {
+                // Apply non-table updates only
+                if (Object.keys(updates).length > 0) {
+                    await Order.findByIdAndUpdate(id, { $set: { ...updates, updatedAt: new Date() } });
+                }
+            }
+        } else {
+            // No table move, just apply updates
+            if (Object.keys(updates).length > 0) {
+                await Order.findByIdAndUpdate(id, { $set: { ...updates, updatedAt: new Date() } });
+            }
+        }
+
+        const updated = await Order.findById(id)
+            .populate('restaurantId', 'name address country')
+            .populate('branchId', 'name address phone')
+            .populate('items.itemId', 'name description')
+            .populate('items.menuItemId', 'name description')
+            .populate('items.categoryId', 'name')
+            .populate('tableId', 'TableName tableId');
+
+        return res.status(200).json(updated);
+    } catch (error) {
+        console.error('[PUBLIC ORDERS] Error updating order (generic PATCH):', error);
+        return res.status(500).json({ message: 'Server error while updating order', error: error.message });
+    }
+});
+
 module.exports = router;

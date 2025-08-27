@@ -115,19 +115,60 @@ const TableSelection = () => {
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
   const [moveSourceTableId, setMoveSourceTableId] = useState('');
 
+  // Local cart helpers: support both Mongo _id and legacy tableId like "T0653"
+  const getCartCache = () => {
+    try { return JSON.parse(localStorage.getItem('pos_table_carts') || '{}'); } catch (_) { return {}; }
+  };
+  const getTableByAnyId = (id) => {
+    if (!Array.isArray(tables)) return null;
+    return tables.find(t => t?._id === id || t?.tableId === id) || null;
+  };
+  const readCartForTable = (tableObj, carts) => {
+    if (!tableObj) return { items: [], customerInfo: {} };
+    const idKey = tableObj._id;
+    const legacyKey = tableObj.tableId;
+    const saved = carts?.[idKey] || (legacyKey ? carts?.[legacyKey] : undefined);
+    if (saved && Array.isArray(saved.items)) return { items: saved.items, customerInfo: saved.customerInfo || {} };
+    return { items: [], customerInfo: {} };
+  };
+  const writeCartForTable = (tableObj, carts, data) => {
+    if (!tableObj) return;
+    const payload = { items: data?.items || [], customerInfo: data?.customerInfo || {} };
+    carts[tableObj._id] = payload;
+    if (tableObj.tableId) carts[tableObj.tableId] = payload;
+  };
+  const clearCartForTable = (tableObj, carts) => writeCartForTable(tableObj, carts, { items: [], customerInfo: { orderType: 'dine-in' } });
+
   // Helper: does a table have unsent/local cart items?
   const hasLocalCartItems = useCallback((tableId) => {
     try {
-      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-      if (selectedTable?._id === tableId) {
+      const tableObj = getTableByAnyId(tableId);
+      if (!tableObj) return false;
+      if (selectedTable?._id === tableObj._id || (tableObj.tableId && selectedTable?.tableId === tableObj.tableId)) {
         return Array.isArray(cartItems) && cartItems.length > 0;
       }
-      const saved = carts[tableId];
-      return Array.isArray(saved?.items) && saved.items.length > 0;
+      const carts = getCartCache();
+      const saved = readCartForTable(tableObj, carts);
+      return Array.isArray(saved.items) && saved.items.length > 0;
     } catch (_) {
       return false;
     }
-  }, [selectedTable?._id, cartItems]);
+  }, [selectedTable?._id, selectedTable?.tableId, cartItems, tables]);
+  
+  // Helper: does a table have KOT orders that can be moved (active, not printed/billed flow)?
+  const hasMovableKOT = useCallback((tableId) => {
+    try {
+      const orders = getOrdersByTable(tableId) || [];
+  const moveableStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered'];
+      return orders.some(o => {
+        const s = (o?.status || '').toLowerCase();
+        const ls = (o?.orderStatus || '').toLowerCase();
+        return moveableStatuses.includes(s) || ['pending','processing','completed'].includes(ls);
+      });
+    } catch (_) {
+      return false;
+    }
+  }, [getOrdersByTable]);
   const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
   // Track tables with bill printed (local hint)
   const [printedTables, setPrintedTables] = useState(() => {
@@ -142,6 +183,19 @@ const TableSelection = () => {
     if (!tableId) return;
     setPrintedTables(prev => {
       const next = { ...(prev || {}), [tableId]: true };
+      try { localStorage.setItem('pos_table_bill_printed', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  }, []);
+
+  // Clear local printed hint for a specific table
+  const clearTablePrinted = useCallback((tableId) => {
+    if (!tableId) return;
+    setPrintedTables(prev => {
+      const current = prev || {};
+      if (!current[tableId]) return current;
+      const next = { ...current };
+      delete next[tableId];
       try { localStorage.setItem('pos_table_bill_printed', JSON.stringify(next)); } catch (_) {}
       return next;
     });
@@ -510,6 +564,9 @@ const TableSelection = () => {
   // Helpers for quick filters
   const tableHasPrinted = (tableId) => {
     try {
+  // If table is currently available, do not highlight as printed
+  const t = tables.find(x => x._id === tableId);
+  if ((t?.status || '').toLowerCase() === 'available') return false;
       const orders = getOrdersByTable(tableId) || [];
   const orderPrinted = orders.some(o => o?.printed === true || o?.kotPrinted === true || o?.billPrinted === true);
   const locallyPrinted = !!printedTables?.[tableId];
@@ -656,13 +713,11 @@ const TableSelection = () => {
   const handleTableSelect = (table) => {
     console.log('Table selected:', table.TableName || table.name, table);
     try {
-      // Persist current selected table's cart before switching
+      // Persist current selected table's cart before switching (write to both keys)
       if (selectedTable?._id) {
         const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-        carts[selectedTable._id] = {
-          items: cartItems,
-          customerInfo
-        };
+        carts[selectedTable._id] = { items: cartItems, customerInfo };
+        if (selectedTable?.tableId) carts[selectedTable.tableId] = { items: cartItems, customerInfo };
         localStorage.setItem('pos_table_carts', JSON.stringify(carts));
       }
 
@@ -670,9 +725,9 @@ const TableSelection = () => {
       console.log('Calling selectTable function...');
       selectTable(table);
 
-      // Load the new table's persisted cart if present
+      // Load the new table's persisted cart if present (support legacy key)
       const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-      const saved = carts[table._id];
+      const saved = carts[table._id] || (table.tableId ? carts[table.tableId] : undefined);
       if (saved && Array.isArray(saved.items)) {
         replaceCart(saved.items, saved.customerInfo || {});
       } else {
@@ -697,6 +752,11 @@ const TableSelection = () => {
     try {
       await updateTableStatus(tableId, newStatus);
       toast.success('Table status updated successfully');
+      // Once table becomes available/cleaning, remove printed highlight
+      const ns = (newStatus || '').toLowerCase();
+      if (ns === 'available' || ns === 'cleaning') {
+        clearTablePrinted(tableId);
+      }
     } catch (error) {
       toast.error('Failed to update table status');
     }
@@ -757,6 +817,27 @@ const TableSelection = () => {
     loadTodayReservations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tables.length]);
+
+  // Auto-clear printed highlights for tables that are now available
+  useEffect(() => {
+    if (!Array.isArray(tables)) return;
+    setPrintedTables(prev => {
+      const current = prev || {};
+      let changed = false;
+      const next = { ...current };
+      tables.forEach(t => {
+        if ((t?.status || '').toLowerCase() === 'available' && next[t._id]) {
+          delete next[t._id];
+          changed = true;
+        }
+      });
+      if (changed) {
+        try { localStorage.setItem('pos_table_bill_printed', JSON.stringify(next)); } catch (_) {}
+        return next;
+      }
+      return current;
+    });
+  }, [tables]);
 
   const combineDateTime = (dateStr, timeStr) => {
     const [h, m] = (timeStr || '00:00').split(':').map(Number);
@@ -879,7 +960,8 @@ const TableSelection = () => {
 
   const performMoveCart = async () => {
     try {
-      const sourceId = selectedTable?._id || moveSourceTableId;
+  // Prefer modal-selected source if provided, else fall back to currently selected table
+  const sourceId = moveSourceTableId || selectedTable?._id;
       if (!sourceId) return toast.error('Select a source table.');
       if (!moveTargetTableId) return toast.error('Select a destination table.');
       if (moveTargetTableId === sourceId) return toast.error('Source and destination cannot be the same.');
@@ -890,43 +972,105 @@ const TableSelection = () => {
       const isDestPrinted = tableHasPrinted(moveTargetTableId);
       const dstStatus = (destTable?.status || '').toLowerCase();
 
-      // Business rule: source must be non-printed and have unsent items; destination must be available and non-printed
+      // Business rule: source must be non-printed; destination must be available OR occupied and non-printed
       if (isSourcePrinted) {
         return toast.error('Source table has been printed and cannot move items.');
       }
-      if (dstStatus !== 'available' || isDestPrinted) {
-        return toast.error('Destination must be an available (non-printed) table.');
+      if (!(dstStatus === 'available' || dstStatus === 'occupied') || isDestPrinted) {
+        return toast.error('Destination must be an available or occupied (non-printed) table.');
       }
-      if (!hasLocalCartItems(sourceId)) {
-        return toast.error('No unsent items to move from source table.');
+      // Validate that there's something to move: local unsent items OR movable KOT orders
+      const hasLocal = hasLocalCartItems(sourceId);
+      const sourceOrdersPre = getOrdersByTable(sourceId) || [];
+  const moveableStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered'];
+      const toMovePre = sourceOrdersPre
+        .filter(o => {
+          const s = (o?.status || '').toLowerCase();
+          const ls = (o?.orderStatus || '').toLowerCase();
+          const modernOk = moveableStatuses.includes(s);
+          const legacyOk = ['pending','processing','completed'].includes(ls);
+          return modernOk || legacyOk;
+        })
+        .map(o => o._id)
+        .filter(Boolean);
+      if (!hasLocal && toMovePre.length === 0) {
+        return toast.error('Nothing to move from source table (no unsent items or active KOT).');
       }
+
+      // Ensure current selected table cart is persisted before manipulating storage (both keys)
+      try {
+        if (selectedTable?._id) {
+          const cache = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+          cache[selectedTable._id] = { items: cartItems, customerInfo };
+          if (selectedTable?.tableId) cache[selectedTable.tableId] = { items: cartItems, customerInfo };
+          localStorage.setItem('pos_table_carts', JSON.stringify(cache));
+        }
+      } catch (_) {}
 
       const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-      const sourceSaved = carts[sourceId] || (selectedTable?._id === sourceId ? { items: cartItems, customerInfo } : { items: [], customerInfo: {} });
-      const destSaved = carts[moveTargetTableId] || { items: [], customerInfo: {} };
+      const sourceObj = getTableByAnyId(sourceId);
+      const destObj = getTableByAnyId(moveTargetTableId);
+      const sourceSaved = (selectedTable?._id === sourceObj?._id)
+        ? { items: cartItems, customerInfo }
+        : readCartForTable(sourceObj, carts);
+      const destSaved = readCartForTable(destObj, carts);
 
       // Move by concatenating; adjust to business rule as needed
-      carts[moveTargetTableId] = {
+      const merged = {
         items: [...(destSaved.items || []), ...(sourceSaved.items || [])],
         customerInfo: { ...(destSaved.customerInfo || {}), ...(sourceSaved.customerInfo || {}) }
       };
-      carts[sourceId] = { items: [], customerInfo: { orderType: 'dine-in' } };
+      writeCartForTable(destObj, carts, merged);
+      clearCartForTable(sourceObj, carts);
 
       localStorage.setItem('pos_table_carts', JSON.stringify(carts));
 
+      // If destination is currently selected, reflect merged items in UI cart immediately
+      if (selectedTable?._id === moveTargetTableId || (destObj?.tableId && selectedTable?.tableId === destObj.tableId)) {
+        try {
+          const destNow = readCartForTable(destObj, carts);
+          replaceCart(destNow.items || [], destNow.customerInfo || {});
+        } catch (_) {}
+      }
+
       // Always move placed KOT orders to destination (printed orders are not altered here)
-      const sourceOrders = getOrdersByTable(sourceId) || [];
-      const moveableStatuses = ['accepted','placed','in_progress','preparing','ready'];
-      const toMove = sourceOrders
-        .filter(o => moveableStatuses.includes((o?.status || '').toLowerCase()))
-        .map(o => o._id)
-        .filter(Boolean);
+      const sourceOrders = sourceOrdersPre; // reuse
+      const toMove = toMovePre; // reuse
       if (toMove.length > 0) await moveOrdersToTable(toMove, moveTargetTableId);
 
       // If currently on source, clear current cart in UI
-      if (selectedTable?._id === sourceId) {
+  if (selectedTable?._id === sourceId || (sourceObj?.tableId && selectedTable?.tableId === sourceObj.tableId)) {
         replaceCart([], { orderType: 'dine-in' });
       }
+
+      // If destination was available and we moved something, mark it occupied
+      if (dstStatus === 'available' && (hasLocal || toMove.length > 0)) {
+        try { await updateTableStatus(moveTargetTableId, 'occupied'); } catch (_) {}
+      }
+
+      // If source now has no local items and no active KOT, free it
+      try {
+        const remainingOrders = getOrdersByTable(sourceId) || [];
+        const moveableStatusesCheck = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered'];
+        const hasActiveKOTLeft = remainingOrders.some(o => moveableStatusesCheck.includes((o?.status || '').toLowerCase()));
+        const hasLocalLeft = hasLocalCartItems(sourceId);
+        if (!hasActiveKOTLeft && !hasLocalLeft) {
+          await updateTableStatus(sourceId, 'available');
+        }
+      } catch (_) {}
+
+      // Refresh tables/orders to reflect latest state
+      try { await refreshData(); } catch (_) {}
+
+      // Auto-select destination so user sees moved items immediately
+      try {
+        if (destTable) {
+          selectTable(destTable);
+          const latest = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+          const destNow = readCartForTable(destObj, latest);
+          replaceCart(destNow.items || [], destNow.customerInfo || {});
+        }
+      } catch (_) {}
 
       toast.success('Items moved successfully');
       setShowMoveModal(false);
@@ -1382,15 +1526,15 @@ const TableSelection = () => {
         </ModalHeader>
         <ModalBody>
           <p className="mb-3">
-            Select a destination table to move current table's items/cart. This moves unsent items stored locally and also moves placed KOT orders to the destination. Printed/billed orders are not altered here.
+            Select a destination table to move current table's items/cart. This moves unsent items stored locally and also moves placed KOT orders to the destination. Printed/billed orders are not altered here. You can move to an Available or Occupied table.
           </p>
             <div className="mb-2"><strong>From:</strong> {selectedTable?.TableName || selectedTable?.name || 'Not selected'}</div>
-      {(!selectedTable?._id || tableHasPrinted(selectedTable?._id) || !hasLocalCartItems(selectedTable?._id)) && (
+      {(!selectedTable?._id || tableHasPrinted(selectedTable?._id) || (!hasLocalCartItems(selectedTable?._id) && !hasMovableKOT(selectedTable?._id))) && (
             <div className="mb-2">
               <Input type="select" value={moveSourceTableId} onChange={(e) => setMoveSourceTableId(e.target.value)}>
                 <option value="">-- Select Source Table --</option>
                   {tables
-        .filter(t => !tableHasPrinted(t._id) && hasLocalCartItems(t._id))
+        .filter(t => !tableHasPrinted(t._id) && (hasLocalCartItems(t._id) || hasMovableKOT(t._id)))
                     .map(t => (
                   <option key={t._id} value={t._id}>
                     {t.TableName || t.name} [{t.status}]
@@ -1404,7 +1548,7 @@ const TableSelection = () => {
             <option value="">-- Select Destination Table --</option>
             {tables
                 .filter(t => t._id !== (selectedTable?._id || moveSourceTableId))
-                .filter(t => (t?.status || '').toLowerCase() === 'available' && !tableHasPrinted(t._id))
+                .filter(t => ['available','occupied'].includes((t?.status || '').toLowerCase()) && !tableHasPrinted(t._id))
               .map(t => (
                 <option key={t._id} value={t._id}>
                   {t.TableName || t.name} [{t.status}]
