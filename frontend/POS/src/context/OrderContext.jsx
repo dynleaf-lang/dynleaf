@@ -231,6 +231,42 @@ export const OrderProvider = ({ children }) => {
     );
   };
 
+  // Move a single order (KOT/placed) to another table
+  const moveOrderToTable = async (orderId, newTableId) => {
+    try {
+      // Try a dedicated endpoint if supported
+      try {
+        const resp = await axios.patch(`${API_BASE_URL}/public/orders/${orderId}/move-table`, { tableId: newTableId });
+        const updated = resp.data.order || resp.data;
+        updateOrderInState(orderId, { tableId: newTableId });
+        toast.success(`Order #${updated?.orderNumber || orderId} moved to table`);
+        return { success: true, order: updated };
+      } catch (primaryErr) {
+        // Fallback to generic PATCH
+        const resp2 = await axios.patch(`${API_BASE_URL}/public/orders/${orderId}`, { tableId: newTableId });
+        const updated = resp2.data.order || resp2.data;
+        updateOrderInState(orderId, { tableId: newTableId });
+        toast.success(`Order #${updated?.orderNumber || orderId} moved to table`);
+        return { success: true, order: updated };
+      }
+    } catch (error) {
+      const msg = error?.response?.data?.message || error?.message || 'Failed to move order';
+      toast.error(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  // Move multiple orders to another table
+  const moveOrdersToTable = async (orderIds = [], newTableId) => {
+    const results = [];
+    for (const id of orderIds) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await moveOrderToTable(id, newTableId);
+      results.push({ id, ...res });
+    }
+    return results;
+  };
+
   const getOrderById = (orderId) => {
     return orders.find(order => order._id === orderId);
   };
@@ -310,6 +346,8 @@ export const OrderProvider = ({ children }) => {
     createOrder,
     updateOrderStatus,
     updatePaymentStatus,
+  moveOrderToTable,
+  moveOrdersToTable,
 
     // Helpers
     getOrderById,

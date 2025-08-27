@@ -80,7 +80,7 @@ const TableSelection = () => {
   createCustomerIfNeeded
   } = usePOS();
   
-  const { getOrdersByTable } = useOrder();
+  const { getOrdersByTable, moveOrdersToTable } = useOrder();
   const { cartItems, customerInfo, replaceCart } = useCart();
   const { user } = useAuth();
   
@@ -113,6 +113,21 @@ const TableSelection = () => {
   const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
+  const [moveSourceTableId, setMoveSourceTableId] = useState('');
+
+  // Helper: does a table have unsent/local cart items?
+  const hasLocalCartItems = useCallback((tableId) => {
+    try {
+      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+      if (selectedTable?._id === tableId) {
+        return Array.isArray(cartItems) && cartItems.length > 0;
+      }
+      const saved = carts[tableId];
+      return Array.isArray(saved?.items) && saved.items.length > 0;
+    } catch (_) {
+      return false;
+    }
+  }, [selectedTable?._id, cartItems]);
   const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
   // Track tables with bill printed (local hint)
   const [printedTables, setPrintedTables] = useState(() => {
@@ -853,21 +868,41 @@ const TableSelection = () => {
   };
 
   const openMoveModal = () => {
+    // If no source selected, allow choosing in the modal
     if (!selectedTable?._id) {
-      return toast.error('Select a source table first to move items from.');
+  toast('Pick a source table or choose one in the dialog.');
     }
+    setMoveSourceTableId(selectedTable?._id || '');
     setMoveTargetTableId('');
     setShowMoveModal(true);
   };
 
-  const performMoveCart = () => {
+  const performMoveCart = async () => {
     try {
-      if (!selectedTable?._id) return toast.error('No source table selected.');
+      const sourceId = selectedTable?._id || moveSourceTableId;
+      if (!sourceId) return toast.error('Select a source table.');
       if (!moveTargetTableId) return toast.error('Select a destination table.');
-      if (moveTargetTableId === selectedTable._id) return toast.error('Source and destination cannot be the same.');
+      if (moveTargetTableId === sourceId) return toast.error('Source and destination cannot be the same.');
+
+      const sourceTable = tables.find(t => t._id === sourceId);
+      const destTable = tables.find(t => t._id === moveTargetTableId);
+      const isSourcePrinted = tableHasPrinted(sourceId);
+      const isDestPrinted = tableHasPrinted(moveTargetTableId);
+      const dstStatus = (destTable?.status || '').toLowerCase();
+
+      // Business rule: source must be non-printed and have unsent items; destination must be available and non-printed
+      if (isSourcePrinted) {
+        return toast.error('Source table has been printed and cannot move items.');
+      }
+      if (dstStatus !== 'available' || isDestPrinted) {
+        return toast.error('Destination must be an available (non-printed) table.');
+      }
+      if (!hasLocalCartItems(sourceId)) {
+        return toast.error('No unsent items to move from source table.');
+      }
 
       const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-      const sourceSaved = carts[selectedTable._id] || { items: cartItems, customerInfo };
+      const sourceSaved = carts[sourceId] || (selectedTable?._id === sourceId ? { items: cartItems, customerInfo } : { items: [], customerInfo: {} });
       const destSaved = carts[moveTargetTableId] || { items: [], customerInfo: {} };
 
       // Move by concatenating; adjust to business rule as needed
@@ -875,12 +910,23 @@ const TableSelection = () => {
         items: [...(destSaved.items || []), ...(sourceSaved.items || [])],
         customerInfo: { ...(destSaved.customerInfo || {}), ...(sourceSaved.customerInfo || {}) }
       };
-      carts[selectedTable._id] = { items: [], customerInfo: { orderType: 'dine-in' } };
+      carts[sourceId] = { items: [], customerInfo: { orderType: 'dine-in' } };
 
       localStorage.setItem('pos_table_carts', JSON.stringify(carts));
 
+      // Always move placed KOT orders to destination (printed orders are not altered here)
+      const sourceOrders = getOrdersByTable(sourceId) || [];
+      const moveableStatuses = ['accepted','placed','in_progress','preparing','ready'];
+      const toMove = sourceOrders
+        .filter(o => moveableStatuses.includes((o?.status || '').toLowerCase()))
+        .map(o => o._id)
+        .filter(Boolean);
+      if (toMove.length > 0) await moveOrdersToTable(toMove, moveTargetTableId);
+
       // If currently on source, clear current cart in UI
-      replaceCart([], { orderType: 'dine-in' });
+      if (selectedTable?._id === sourceId) {
+        replaceCart([], { orderType: 'dine-in' });
+      }
 
       toast.success('Items moved successfully');
       setShowMoveModal(false);
@@ -1336,14 +1382,29 @@ const TableSelection = () => {
         </ModalHeader>
         <ModalBody>
           <p className="mb-3">
-            Select a destination table to move current table's items/cart. This moves unsent items stored locally. Printed/placed orders are not altered here.
+            Select a destination table to move current table's items/cart. This moves unsent items stored locally and also moves placed KOT orders to the destination. Printed/billed orders are not altered here.
           </p>
-          <div className="mb-2"><strong>From:</strong> {selectedTable?.TableName || selectedTable?.name || 'Not selected'}</div>
+            <div className="mb-2"><strong>From:</strong> {selectedTable?.TableName || selectedTable?.name || 'Not selected'}</div>
+      {(!selectedTable?._id || tableHasPrinted(selectedTable?._id) || !hasLocalCartItems(selectedTable?._id)) && (
+            <div className="mb-2">
+              <Input type="select" value={moveSourceTableId} onChange={(e) => setMoveSourceTableId(e.target.value)}>
+                <option value="">-- Select Source Table --</option>
+                  {tables
+        .filter(t => !tableHasPrinted(t._id) && hasLocalCartItems(t._id))
+                    .map(t => (
+                  <option key={t._id} value={t._id}>
+                    {t.TableName || t.name} [{t.status}]
+                  </option>
+                  ))}
+              </Input>
+            </div>
+          )}
           <div className="mb-2"><strong>To:</strong></div>
           <Input type="select" value={moveTargetTableId} onChange={(e) => setMoveTargetTableId(e.target.value)}>
             <option value="">-- Select Destination Table --</option>
             {tables
-              .filter(t => t._id !== selectedTable?._id)
+                .filter(t => t._id !== (selectedTable?._id || moveSourceTableId))
+                .filter(t => (t?.status || '').toLowerCase() === 'available' && !tableHasPrinted(t._id))
               .map(t => (
                 <option key={t._id} value={t._id}>
                   {t.TableName || t.name} [{t.status}]
