@@ -175,8 +175,10 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   receipt += COMMANDS.BOLD_OFF;
   receipt += '--------------------------------' + COMMANDS.CRLF;
   
-  receipt += `Method: ${paymentDetails.method.toUpperCase()}` + COMMANDS.CRLF;
-  receipt += `Status: ${order.paymentStatus.toUpperCase()}` + COMMANDS.CRLF;
+  const safeMethod = String((paymentDetails && paymentDetails.method) || 'cash').toUpperCase();
+  const safePayStatus = String((order && order.paymentStatus) || 'unpaid').toUpperCase();
+  receipt += `Method: ${safeMethod}` + COMMANDS.CRLF;
+  receipt += `Status: ${safePayStatus}` + COMMANDS.CRLF;
   
   if (paymentDetails.method === 'cash') {
     receipt += `Amount Received: ${formatCurrency(paymentDetails.amountReceived)}` + COMMANDS.CRLF;
@@ -416,18 +418,18 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
 
       <div class="separator"></div>
 
-      <div class="section-title">PAYMENT DETAILS</div>
-      <div>Method: ${paymentDetails.method.toUpperCase()}</div>
-      <div>Status: ${order.paymentStatus.toUpperCase()}</div>
-      ${paymentDetails.method === 'cash' ? `
+  <div class="section-title">PAYMENT DETAILS</div>
+  <div>Method: ${String((paymentDetails && paymentDetails.method) || 'cash').toUpperCase()}</div>
+  <div>Status: ${String((order && order.paymentStatus) || 'unpaid').toUpperCase()}</div>
+  ${((paymentDetails && paymentDetails.method) || 'cash') === 'cash' ? `
         <div>Amount Received: ${formatCurrency(paymentDetails.amountReceived)}</div>
         ${paymentDetails.change > 0 ? `<div>Change: ${formatCurrency(paymentDetails.change)}</div>` : ''}
       ` : ''}
-      ${paymentDetails.method === 'card' && paymentDetails.cardNumber ? `
+  ${((paymentDetails && paymentDetails.method) === 'card') && paymentDetails.cardNumber ? `
         <div>Card: ****${paymentDetails.cardNumber.slice(-4)}</div>
         ${paymentDetails.cardHolder ? `<div>Holder: ${paymentDetails.cardHolder}</div>` : ''}
       ` : ''}
-      ${paymentDetails.method === 'upi' && paymentDetails.upiId ? `
+  ${((paymentDetails && paymentDetails.method) === 'upi') && paymentDetails.upiId ? `
         <div>UPI ID: ${paymentDetails.upiId}</div>
         ${paymentDetails.transactionId ? `<div>Transaction: ${paymentDetails.transactionId}</div>` : ''}
       ` : ''}

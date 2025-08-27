@@ -114,6 +114,23 @@ const TableSelection = () => {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTargetTableId, setMoveTargetTableId] = useState('');
   const [quickFilter, setQuickFilter] = useState('none'); // none | running | printed | kot
+  // Track tables with bill printed (local hint)
+  const [printedTables, setPrintedTables] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('pos_table_bill_printed') || '{}');
+    } catch (_) {
+      return {};
+    }
+  });
+
+  const markTablePrinted = useCallback((tableId) => {
+    if (!tableId) return;
+    setPrintedTables(prev => {
+      const next = { ...(prev || {}), [tableId]: true };
+      try { localStorage.setItem('pos_table_bill_printed', JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  }, []);
 
   // Customer phone suggestions (similar to CartSidebar Customer Information)
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
@@ -479,9 +496,11 @@ const TableSelection = () => {
   const tableHasPrinted = (tableId) => {
     try {
       const orders = getOrdersByTable(tableId) || [];
-      return orders.some(o => o?.printed === true || o?.kotPrinted === true || o?.billPrinted === true);
+  const orderPrinted = orders.some(o => o?.printed === true || o?.kotPrinted === true || o?.billPrinted === true);
+  const locallyPrinted = !!printedTables?.[tableId];
+  return orderPrinted || locallyPrinted;
     } catch (_) {
-      return false;
+  return !!printedTables?.[tableId];
     }
   };
 
@@ -608,6 +627,8 @@ const TableSelection = () => {
       const result = printHTMLReceipt(html);
       if (result?.success) {
         toast.success('Printing started');
+        // Mark this table as printed locally for UI highlighting and filters
+        markTablePrinted(table._id);
       } else {
         toast.error(result?.error || 'Failed to print');
       }
@@ -928,23 +949,31 @@ const TableSelection = () => {
   };
 
   const FloorPlanTable = ({ table, index }) => {
-    const tableOrders = getTableOrders(table._id);
-    const activeStatuses = ['pending','confirmed','preparing','ready','accepted','placed','in_progress'];
-    const activeOrder = (tableOrders || []).find(order => {
+  const tableOrders = getTableOrders(table._id);
+    // Show print only when KOT has been placed (or later in the flow)
+    const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+    const placedOrders = (tableOrders || []).filter(order => {
       const s = (order?.status || '').toLowerCase();
-      return activeStatuses.includes(s);
+      return order?.kotPrinted === true || kotPlacedStatuses.includes(s);
     });
-    const shouldShowPrint = (table.status && table.status.toLowerCase() !== 'available') || !!activeOrder;
- 
-    
+    // Prefer the most recent placed order as the active one for printing
+    const activeOrder = placedOrders
+      .slice()
+      .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
+    const shouldShowPrint = placedOrders.length > 0 && ((table?.status || '').toLowerCase() !== 'available');
 
-  const nextRes = getNextReservationForTable(table._id);
-  return (
+    // Printed state highlighting
+    const isPrinted = tableHasPrinted(table._id);
+    const bgColor = isPrinted ? '#ffc10740' : getStatusColor(table.status);
+    const brColor = isPrinted ? '#7E57C2' : getStatusBorderColor(table.status);
+
+    const nextRes = getNextReservationForTable(table._id);
+    return (
       <div 
         className={`floor-table ${selectedTable?._id === table._id ? 'selected' : ''}`}
         style={{
-          backgroundColor: getStatusColor(table.status),
-          borderColor: getStatusBorderColor(table.status),
+          backgroundColor: bgColor,
+          borderColor: brColor,
           cursor: 'pointer',
           position: 'relative',
           width: '110px',
@@ -966,19 +995,18 @@ const TableSelection = () => {
         <div style={{ fontSize: '10px', fontWeight: 'bold' }}>
           {table.TableName}
         </div>
-    {nextRes && (
+        {nextRes && (
           <div style={{ position: 'absolute', bottom: '4px', left: '4px', right: '4px', textAlign: 'center' }}>
             <Badge color="warning" pill style={{ fontSize: '9px' }}>
-      {new Date(nextRes.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(nextRes.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {' - '}
-      {new Date(nextRes.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(nextRes.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Badge>
           </div>
         )}
         
         <div className='actionButton_container'>
-          
-        
+           
         {/* Print icon for orders */}
         {shouldShowPrint && (
           <button
@@ -988,8 +1016,7 @@ const TableSelection = () => {
             onClick={(e) => {
               e.stopPropagation();
               try {
-                // Select table for context and trigger print
-                handleTableSelect(table);
+                // Select table for context and trigger print 
                 handlePrintForTable(table, activeOrder);
               } catch (err) {
                 console.error('Print action error', err);
@@ -1008,7 +1035,7 @@ const TableSelection = () => {
         )}
         
   {/* Eye icon for viewing */}
-        {table.status === 'occupied' && (
+        {table.status === 'available' && (
           <button
             type="button"
             aria-label="View table details"
@@ -1255,7 +1282,7 @@ const TableSelection = () => {
                       }}
                       className="ms-2"
                     >
-                      {selectedTableForDetails.status.toUpperCase()}
+                      {String(selectedTableForDetails?.status || 'unknown').toUpperCase()}
                     </Badge>
                   </p>
                 </Col>
