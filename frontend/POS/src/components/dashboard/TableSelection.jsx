@@ -976,7 +976,8 @@ const TableSelection = () => {
           </div>
         )}
         
-        
+        <div className='actionButton_container'>
+          
         
         {/* Print icon for orders */}
         {shouldShowPrint && (
@@ -995,18 +996,14 @@ const TableSelection = () => {
                 toast.error('Unable to start print action');
               }
             }}
-            style={{ 
-              position: 'absolute', 
-              top: '2px', 
-              left: '2px',
-              border: 'none',
-              background: 'rgba(0,0,0,0.04)',
+            style={{  
+              border: '1px solid #9f9f9f', 
               borderRadius: '6px',
               padding: '4px',
               cursor: 'pointer'
             }}
           >
-            <FaPrint size={15} color="#555" />
+            <FaPrint size={15} color="#4caf50" />
           </button>
         )}
         
@@ -1025,18 +1022,14 @@ const TableSelection = () => {
                 toast.error('Unable to open table details');
               }
             }}
-            style={{ 
-              position: 'absolute', 
-              top: '2px', 
-              right: '2px',
-              border: 'none',
-              background: 'rgba(0,0,0,0.04)',
+            style={{  
+              border: '1px solid #9f9f9f', 
               borderRadius: '6px',
               padding: '4px',
               cursor: 'pointer'
             }}
           >
-            <FaEye size={15} color="#555" />
+            <FaEye size={15} color="#4caf50" />
           </button>
         )}
 
@@ -1054,19 +1047,18 @@ const TableSelection = () => {
             }));
             setShowReservationModal(true);
           }}
-          style={{ 
-            position: 'absolute', 
-            bottom: '2px', 
-            right: '2px',
-            border: 'none',
-            background: 'rgba(0,0,0,0.04)',
+          style={{  
+            border: '1px solid #9f9f9f', 
             borderRadius: '6px',
             padding: '4px',
             cursor: 'pointer'
           }}
         >
-          <FaCalendarPlus size={15} color="#555" />
+          <FaCalendarPlus size={15} color="#4caf50" />
         </button>
+
+        </div>
+
       </div>
     );
   };
