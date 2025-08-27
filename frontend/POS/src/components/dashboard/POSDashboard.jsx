@@ -64,6 +64,20 @@ const POSDashboard = () => {
     return () => window.removeEventListener('pos:navigateToTables', toTables);
   }, []);
 
+  // Navigate to Settings when requested (e.g., from cog button in TableSelection)
+  useEffect(() => {
+    const toSettings = () => setActiveTab('settings');
+    window.addEventListener('pos:navigateToSettings', toSettings);
+    return () => window.removeEventListener('pos:navigateToSettings', toSettings);
+  }, []);
+
+  // Navigate to Orders when requested (e.g., from header Orders button)
+  useEffect(() => {
+    const toOrders = () => setActiveTab('orders');
+    window.addEventListener('pos:navigateToOrders', toOrders);
+    return () => window.removeEventListener('pos:navigateToOrders', toOrders);
+  }, []);
+
   return (
     <div className="pos-dashboard">
       <Header 

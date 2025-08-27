@@ -84,7 +84,7 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
         </div>
       </NavbarBrand>
   
-      {/* New Order Button - Hidden on table selection page */}
+  {/* New Order Button - Hidden on table selection page */}
       {activeTab !== 'tables' && (
         <Button
           color="success"
@@ -112,6 +112,24 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
           New Order
         </Button>
       )}
+
+      {/* Orders Button - Always visible to let user navigate to Orders page */}
+      <Button
+        color="primary"
+        size="sm"
+        className="me-3 d-flex align-items-center"
+        onClick={() => window.dispatchEvent(new Event('pos:navigateToOrders'))}
+        style={{
+          borderRadius: '20px',
+          padding: '0.5rem 1rem',
+          fontWeight: '600',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}
+        title="Go to Orders"
+      >
+        <FaCashRegister className="me-2" size={14} />
+        Orders
+      </Button>
 
       <Nav className="ms-auto d-flex align-items-center" navbar>
         {/* Fullscreen Toggle Button */}

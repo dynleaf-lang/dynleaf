@@ -1555,7 +1555,7 @@ const TableSelection = () => {
             </div>
             
              
-            <Button size="sm" color="outline-secondary">
+            <Button size="sm" color="outline-secondary" onClick={() => window.dispatchEvent(new Event('pos:navigateToSettings'))}>
               <FaCog />
             </Button>
           </div>
