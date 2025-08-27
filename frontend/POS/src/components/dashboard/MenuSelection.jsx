@@ -604,19 +604,22 @@ const MenuSelection = () => {
                 <div className="mb-4">
                   <Label className="fw-bold mb-3">Size Options</Label>
                   <div className="d-flex flex-wrap gap-2">
-                    {selectedItem.sizeVariants.map((variant, index) => (
+                    {selectedItem.sizeVariants.map((variant, index) => ( 
+
                       <Button
                         key={index}
-                        color={itemCustomizations.selectedVariant === variant.size ? "primary" : "outline-primary"}
+                        color={itemCustomizations.selectedVariant === variant.name ? "primary" : "outline-primary"}
                         size="sm"
                         onClick={() => setItemCustomizations(prev => ({
                           ...prev,
-                          selectedVariant: variant.size,
+                          selectedVariant: variant.name,
                           selectedPrice: variant.price
                         }))}
-                        className="rounded-pill"
+                        className="text-capitalize rounded-0 d-grid"
+                        style={{ minWidth: '110px' }}
                       >
-                        {variant.size} - {formatPrice(variant.price)}
+                        <span>{variant.name}</span>
+                        <span>{formatPrice(variant.price)}</span>
                       </Button>
                     ))}
                   </div>

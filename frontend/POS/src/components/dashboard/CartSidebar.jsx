@@ -1253,11 +1253,13 @@ const CartSidebar = () => {
               <div className="cart-items mb-1">
                 {/* <h6>Order Items</h6> */}
                 <>
-                  {/* Batch Header */}
-                  <div className="batch-headers">
-                    <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
-                  </div>
-                  
+                  {/* Batch Header display only if there any item added */}
+                  {cartItems.length > 0 && (
+                    <div className="batch-headers">
+                      <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
+                    </div>
+                  )}
+
                   {/* Cart Items List */}
                   {cartItems.length > 0 && (
                     <>
@@ -1316,20 +1318,7 @@ const CartSidebar = () => {
                 </>
               </div>
 
-              {/* Debug: Clear persistent data button (temporary) */}
-              {batchCount > 0 && selectedTable?.name === 'Table 01' && (
-                <div className="mb-2">
-                  <Button
-                    size="sm"
-                    color="warning"
-                    onClick={() => clearTableBatchData(selectedTable._id)}
-                    className="w-100"
-                  >
-                    🗑️ Clear Persistent Data for {selectedTable.name}
-                  </Button>
-                </div>
-              )}
-
+         
               {/* Batch Summary for this table */}
               {batchCount > 0 && (
                 <div className="batch-summary mb-2">
