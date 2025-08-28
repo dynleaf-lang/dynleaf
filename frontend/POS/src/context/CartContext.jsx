@@ -148,17 +148,62 @@ export const CartProvider = ({ children }) => {
         });
       } else {
         // Add new item to cart
-        // Use selected variant price if available, otherwise use base price
-        const itemPriceRaw = (customizations && customizations.selectedPrice != null)
+        // Start from selected size price if provided, otherwise base price
+        const basePriceRaw = (customizations && customizations.selectedPrice != null)
           ? customizations.selectedPrice
           : menuItem.price;
-        const itemPrice = Number(itemPriceRaw) || 0;
+        let computedPrice = Number(basePriceRaw) || 0;
+
+        // Add addon prices
+        try {
+          const selectedAddons = (customizations && customizations.selectedAddons) || [];
+          if (Array.isArray(selectedAddons) && Array.isArray(menuItem?.addons)) {
+            selectedAddons.forEach((addonName) => {
+              const addon = menuItem.addons.find(a => a && a.name === addonName);
+              if (addon && addon.price) {
+                const p = Number(addon.price);
+                if (!Number.isNaN(p)) computedPrice += p;
+              }
+            });
+          }
+        } catch {}
+
+        // Add flexible variant group deltas (non-size)
+        try {
+          const vsel = (customizations && customizations.variantSelections) || null;
+          if (vsel && Array.isArray(menuItem?.variantGroups)) {
+            menuItem.variantGroups.forEach(g => {
+              const gName = String(g?.name || '').trim();
+              if (!gName || gName.toLowerCase() === 'size') return;
+              const options = Array.isArray(g?.options) ? g.options : [];
+              const selType = g?.selectionType || 'single';
+              const sel = vsel[gName];
+              if (!sel) return;
+              if (selType === 'single') {
+                const opt = options.find(o => o?.name === sel);
+                if (opt && opt.priceDelta != null) {
+                  const d = Number(opt.priceDelta);
+                  if (!Number.isNaN(d)) computedPrice += d;
+                }
+              } else {
+                const arr = Array.isArray(sel) ? sel : [];
+                arr.forEach(val => {
+                  const opt = options.find(o => o?.name === val);
+                  if (opt && opt.priceDelta != null) {
+                    const d = Number(opt.priceDelta);
+                    if (!Number.isNaN(d)) computedPrice += d;
+                  }
+                });
+              }
+            });
+          }
+        } catch {}
         
         const newItem = {
           cartItemId,
           menuItemId: menuItem._id,
           name: menuItem.name,
-          price: itemPrice,
+          price: computedPrice,
           image: menuItem.image,
           description: menuItem.description,
           category: menuItem.category,

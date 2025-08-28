@@ -318,6 +318,31 @@ const CartItem = memo(({ item }) => {
             paddingRight: theme.spacing.md
           }}>
             {item.title || item.name}
+            {(() => {
+              try {
+                const options = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
+                // Extract size and non-size variant group options captured as category 'option'
+                const sizeOpt = options.find(o => (o.category === 'size' || o.name === 'Choose Size') && o.value);
+                const groupParts = options
+                  .filter(o => o && o.category === 'option' && o.name && o.value)
+                  .reduce((acc, o) => {
+                    acc[o.name] = acc[o.name] || [];
+                    acc[o.name].push(o.value);
+                    return acc;
+                  }, {});
+                const labels = [];
+                if (sizeOpt && sizeOpt.value) labels.push(`${sizeOpt.name || 'Size'}: ${sizeOpt.value}`);
+                Object.entries(groupParts).forEach(([g, vals]) => {
+                  if (!g || String(g).toLowerCase() === 'size') return;
+                  if (vals && vals.length) labels.push(`${g}: ${vals.join(', ')}`);
+                });
+                return labels.length ? (
+                  <div style={{ fontSize: theme.typography.sizes.xs, color: theme.colors.text.muted, marginTop: 2 }}>
+                    ({labels.join(' • ')})
+                  </div>
+                ) : null;
+              } catch { return null; }
+            })()}
           </h4>
           
           <button

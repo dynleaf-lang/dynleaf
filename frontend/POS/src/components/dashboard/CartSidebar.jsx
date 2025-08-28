@@ -75,6 +75,30 @@ const CartSidebar = () => {
   const { createOrder, updatePaymentStatus } = useOrder();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
+  // Format non-size variant group selections for display next to item names
+  const formatVariantSelections = (customizations) => {
+    try {
+      const vsel = (customizations && customizations.variantSelections) || null;
+      if (!vsel || typeof vsel !== 'object') return '';
+      const parts = [];
+      Object.entries(vsel).forEach(([groupName, value]) => {
+        if (!groupName) return;
+        const g = String(groupName).trim();
+        if (!g || g.toLowerCase() === 'size') return; // size shown separately
+        if (Array.isArray(value)) {
+          const names = value.filter(Boolean).map(v => String(v).trim()).filter(Boolean);
+          if (names.length) parts.push(`${g}: ${names.join(', ')}`);
+        } else if (typeof value === 'string') {
+          const s = value.trim();
+          if (s) parts.push(`${g}: ${s}`);
+        }
+      });
+      return parts.join(' • ');
+    } catch {
+      return '';
+    }
+  };
+
   // Autocomplete state for customers
   const [custQueryName, setCustQueryName] = useState('');
   const [custQueryPhone, setCustQueryPhone] = useState('');
@@ -1272,9 +1296,19 @@ const CartSidebar = () => {
                               {item.name}
                               {(() => {
                                 const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
-                                return variantName ? (
-                                  <small className="text-muted ms-1">({variantName})</small>
-                                ) : null;
+                                const extra = formatVariantSelections(item && item.customizations);
+                                if (variantName && extra) {
+                                  return (
+                                    <small className="text-muted ms-1">({variantName} • {extra})</small>
+                                  );
+                                }
+                                if (variantName) {
+                                  return <small className="text-muted ms-1">({variantName})</small>;
+                                }
+                                if (extra) {
+                                  return <small className="text-muted ms-1">({extra})</small>;
+                                }
+                                return null;
                               })()}
                             </div>
                           </div>
@@ -1349,9 +1383,19 @@ const CartSidebar = () => {
                               {item.name}
                               {(() => {
                                 const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
-                                return variantName ? (
-                                  <small className="text-muted ms-1">({variantName})</small>
-                                ) : null;
+                                const extra = formatVariantSelections(item && item.customizations);
+                                if (variantName && extra) {
+                                  return (
+                                    <small className="text-muted ms-1">({variantName} • {extra})</small>
+                                  );
+                                }
+                                if (variantName) {
+                                  return <small className="text-muted ms-1">({variantName})</small>;
+                                }
+                                if (extra) {
+                                  return <small className="text-muted ms-1">({extra})</small>;
+                                }
+                                return null;
                               })()}
                             </div>
                           </div>

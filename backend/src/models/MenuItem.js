@@ -14,6 +14,22 @@ const SizeVariantSchema = new mongoose.Schema({
     }
 }, { _id: false }); // No need for separate IDs for each variant
 
+// Generic variant option schema (for non-size variants). Supports absolute price (for Size) or priceDelta (for add-ons)
+const VariantOptionSchema = new mongoose.Schema({
+    name: { type: String, required: true, trim: true },
+    // Absolute price (used when group is "Size"). Optional.
+    price: { type: Number, min: 0 },
+    // Price delta applied on top of base/size price (used for toppings, spice level, etc.) Optional.
+    priceDelta: { type: Number, default: 0 }
+}, { _id: false });
+
+// Variant group schema, e.g., Size, Spice Level, Add-ons
+const VariantGroupSchema = new mongoose.Schema({
+    name: { type: String, required: true, trim: true },
+    selectionType: { type: String, enum: ['single', 'multiple'], default: 'single' },
+    options: { type: [VariantOptionSchema], default: [] }
+}, { _id: false });
+
 const MenuItemSchema = new mongoose.Schema({
     restaurantId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -72,6 +88,11 @@ const MenuItemSchema = new mongoose.Schema({
         default: true,
     },    sizeVariants: {
         type: [SizeVariantSchema],
+        default: []
+    },
+    // New flexible variant groups (non-breaking addition)
+    variantGroups: {
+        type: [VariantGroupSchema],
         default: []
     }
 }, {

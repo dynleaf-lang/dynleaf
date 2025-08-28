@@ -154,7 +154,7 @@ const RestaurantProvider = ({ children }) => {
       setTable(tableData);
       
       // Check for sizeVariants before setting menuItems
-      const processedMenuItems = (menuItemsData || []).map(item => {
+    const processedMenuItems = (menuItemsData || []).map(item => {
         // Log any products with sizeVariants for debugging
         if (item.sizeVariants && item.sizeVariants.length > 0) {
           console.log(`RestaurantContext - Found menu item with sizeVariants:`, {
@@ -165,6 +165,8 @@ const RestaurantProvider = ({ children }) => {
         }
         return {
           ...item,
+      // Ensure variantGroups is passed through so UI can render options+
+      variantGroups: item.variantGroups || [],
           sizeVariants: item.sizeVariants || [],
           variants: item.variants || [],
           sizes: item.sizes || []

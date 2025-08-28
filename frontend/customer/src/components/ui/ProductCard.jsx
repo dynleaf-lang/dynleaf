@@ -312,6 +312,22 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
       });
     });
 
+    // Include variantGroups selections as options for order review
+    if (Array.isArray(product.variantGroups)) {
+      product.variantGroups.forEach(g => {
+        const gName = (g?.name || '').trim();
+        if (!gName || gName.toLowerCase() === 'size') return;
+        const sel = selectedOptions[`vg:${gName}`];
+        if (!sel) return;
+        const pushEntry = (val) => formattedOptions.push({ category: 'option', name: gName, value: val });
+        if (Array.isArray(sel)) {
+          sel.forEach(pushEntry);
+        } else {
+          pushEntry(sel);
+        }
+      });
+    }
+
     // Add special instructions if any
     if (specialInstructions.trim()) {
       formattedOptions.push({
@@ -399,6 +415,10 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
       if (category === 'size' && product.variants && Array.isArray(product.variants)) {
         return;
       }
+      // Skip variant group synthetic keys here; we'll handle them below
+      if (typeof category === 'string' && category.startsWith('vg:')) {
+        return;
+      }
       
       Object.entries(options).forEach(([name, value]) => {
         if (Array.isArray(value)) {
@@ -428,6 +448,27 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
         }
       });
     });
+
+    // Add variantGroups priceDelta (non-size groups)
+    if (Array.isArray(product.variantGroups)) {
+      product.variantGroups.forEach(g => {
+        const gName = (g?.name || '').trim();
+        if (!gName || gName.toLowerCase() === 'size') return;
+        const optSel = selectedOptions[`vg:${gName}`];
+        if (!optSel) return;
+        const options = Array.isArray(g?.options) ? g.options : [];
+        if ((g.selectionType || 'single') === 'single') {
+          const opt = options.find(o => o?.name === optSel);
+          if (opt && (opt.priceDelta || 0)) total += (parseFloat(opt.priceDelta) || 0) * quantity;
+        } else {
+          const arr = Array.isArray(optSel) ? optSel : [];
+          arr.forEach(sel => {
+            const opt = options.find(o => o?.name === sel);
+            if (opt && (opt.priceDelta || 0)) total += (parseFloat(opt.priceDelta) || 0) * quantity;
+          });
+        }
+      });
+    }
 
     return total.toFixed(2);
   };  
@@ -465,6 +506,75 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
       default:
         return null;
     }
+  };
+
+  // Render a variant group (non-size) similar to POS behavior
+  const renderVariantGroup = (group, index) => {
+    const groupName = (group?.name || '').trim();
+    const selectionType = group?.selectionType || 'single';
+    const options = Array.isArray(group?.options) ? group.options : [];
+    if (!groupName || options.length === 0) return null;
+    if (groupName.toLowerCase() === 'size') return null;
+
+    const key = `vg:${groupName}`;
+    const current = selectedOptions[key];
+
+    return (
+      <div key={index} style={{ marginBottom: '16px' }}>
+        <p style={{ fontWeight: 'bold', margin: '0 0 8px 0', fontSize: '16px' }}>{groupName}</p>
+        <div style={{ display: 'flex', flexDirection: selectionType === 'single' ? 'row' : 'column', gap: '8px', flexWrap: 'wrap' }}>
+          {options.map((opt, idx) => {
+            const extra = opt.priceDelta ? parseFloat(opt.priceDelta) : 0;
+            if (selectionType === 'single') {
+              const active = current === opt.name;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedOptions(prev => ({ ...prev, [key]: opt.name }))}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: theme.borderRadius.lg,
+                    border: `1px solid ${active ? theme.colors.secondary : theme.colors.border}`,
+                    background: active ? theme.colors.secondary + '10' : 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>{opt.name}</span>
+                  {extra ? (
+                    <span style={{ marginLeft: 6, color: theme.colors.secondary, fontWeight: 600 }}>+<CurrencyDisplay amount={extra} /></span>
+                  ) : null}
+                </button>
+              );
+            }
+            // multiple
+            const checked = Array.isArray(current) ? current.includes(opt.name) : false;
+            return (
+              <label key={idx} style={{ display: 'flex', alignItems: 'center', padding: '10px', border: `1px solid ${theme.colors.border}`, borderRadius: theme.borderRadius.md }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    const isChecked = e.target.checked;
+                    setSelectedOptions(prev => {
+                      const curr = Array.isArray(prev[key]) ? prev[key] : [];
+                      const next = isChecked ? [...curr, opt.name] : curr.filter(n => n !== opt.name);
+                      return { ...prev, [key]: next };
+                    });
+                  }}
+                  style={{ marginRight: 8 }}
+                />
+                <span style={{ flex: 1 }}>{opt.name}</span>
+                {extra ? (
+                  <span style={{ color: theme.colors.secondary, fontWeight: 600 }}>+<CurrencyDisplay amount={extra} /></span>
+                ) : (
+                  <span style={{ color: theme.colors.text.muted }}>No extra</span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   // Render option groups based on activeTab
@@ -539,6 +649,14 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
               product.options.map((optionGroup, index) =>
                 renderOptionGroup(optionGroup, index)
               )}
+          </div>
+        );
+      case "vg":
+        return (
+          <div className="options-container">
+            {Array.isArray(product.variantGroups) && product.variantGroups
+              .filter(g => (g?.name || '').trim().toLowerCase() !== 'size' && Array.isArray(g.options) && g.options.length > 0)
+              .map((g, idx) => renderVariantGroup(g, idx))}
           </div>
         );
       case "instructions":
@@ -798,10 +916,11 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
 
   // Define tabs for the modal
   const tabs = [
-    { id: "size", label: "Size", icon: "straighten" },
+  { id: "size", label: "Size", icon: "straighten" },
     { id: "extras", label: "Extras", icon: "add_circle" },
     { id: "addons", label: "Add-ons", icon: "lunch_dining" },
-    { id: "options", label: "Options", icon: "tune" },
+  { id: "options", label: "Options", icon: "tune" },
+  { id: "vg", label: "Options+", icon: "tune" },
     { id: "instructions", label: "Instructions", icon: "edit_note" },
   ];  // Show only tabs that have content
   const availableTabs = tabs.filter((tab) => {
@@ -815,7 +934,8 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
     }
     if (tab.id === "extras") return product.extras?.length > 0;
     if (tab.id === "addons") return product.addons?.length > 0;
-    if (tab.id === "options") return product.options?.length > 0;
+  if (tab.id === "options") return product.options?.length > 0;
+  if (tab.id === "vg") return Array.isArray(product.variantGroups) && product.variantGroups.some(g => (g?.name || '').trim().toLowerCase() !== 'size' && Array.isArray(g.options) && g.options.length > 0);
     if (tab.id === "instructions") return true; // Always show instructions
     return false;
   });

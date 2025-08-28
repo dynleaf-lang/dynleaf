@@ -80,7 +80,8 @@ const MenuSelection = () => {
     specialInstructions: '',
     selectedVariant: null,
     selectedPrice: null,
-    selectedAddons: []
+  selectedAddons: [],
+  variantSelections: {}
   });
 
   // Menu display settings state
@@ -223,7 +224,7 @@ const MenuSelection = () => {
       basePrice = itemCustomizations.selectedPrice;
     }
     
-    // Add addon prices
+  // Add addon prices
     let addonTotal = 0;
     if (itemCustomizations.selectedAddons && selectedItem.addons) {
       itemCustomizations.selectedAddons.forEach(addonName => {
@@ -233,8 +234,30 @@ const MenuSelection = () => {
         }
       });
     }
+    // Add flexible variant group deltas (non-size)
+    let groupDelta = 0;
+    if (Array.isArray(selectedItem.variantGroups) && itemCustomizations.variantSelections) {
+      selectedItem.variantGroups.forEach(g => {
+        const gName = (g?.name || '').trim();
+        if (!gName || gName.toLowerCase() === 'size') return;
+        const options = Array.isArray(g?.options) ? g.options : [];
+        const selType = g?.selectionType || 'single';
+        const selection = itemCustomizations.variantSelections[gName];
+        if (!selection) return;
+        if (selType === 'single') {
+          const opt = options.find(o => o?.name === selection);
+          if (opt) groupDelta += parseFloat(opt.priceDelta || 0);
+        } else {
+          const arr = Array.isArray(selection) ? selection : [];
+          arr.forEach(sel => {
+            const opt = options.find(o => o?.name === sel);
+            if (opt) groupDelta += parseFloat(opt.priceDelta || 0);
+          });
+        }
+      });
+    }
     
-    return (basePrice + addonTotal) * itemQuantity;
+    return (basePrice + addonTotal + groupDelta) * itemQuantity;
   };
 
   const handleAddToCart = (item, quantity = 1, customizations = {}) => {
@@ -261,7 +284,8 @@ const MenuSelection = () => {
       specialInstructions: '',
       selectedVariant: null,
       selectedPrice: null,
-      selectedAddons: []
+  selectedAddons: [],
+  variantSelections: {}
     });
   };
 
@@ -275,19 +299,37 @@ const MenuSelection = () => {
     let defaultPrice = item.price;
     
     if (item.sizeVariants && item.sizeVariants.length > 0) {
-      defaultVariant = item.sizeVariants[0].size;
+      // Support both { name } and legacy { size }
+      defaultVariant = item.sizeVariants[0].name || item.sizeVariants[0].size;
       defaultPrice = item.sizeVariants[0].price;
     } else if (item.variants && item.variants.length > 0) {
       defaultVariant = item.variants[0].name;
       defaultPrice = item.variants[0].price || item.price;
     }
     
+    // Defaults for flexible variant groups (exclude Size)
+    const vgDefaults = {};
+    if (Array.isArray(item.variantGroups)) {
+      item.variantGroups.forEach(g => {
+        const gName = (g?.name || '').trim();
+        if (!gName || gName.toLowerCase() === 'size') return;
+        const options = Array.isArray(g?.options) ? g.options : [];
+        if (options.length === 0) return;
+        if ((g.selectionType || 'single') === 'single') {
+          vgDefaults[gName] = options[0]?.name || null;
+        } else {
+          vgDefaults[gName] = [];
+        }
+      });
+    }
+
     setItemCustomizations({
       spiceLevel: 'medium',
       specialInstructions: '',
       selectedVariant: defaultVariant,
       selectedPrice: defaultPrice,
-      selectedAddons: []
+      selectedAddons: [],
+      variantSelections: vgDefaults
     });
     setShowItemModal(true);
   };
@@ -321,6 +363,21 @@ const MenuSelection = () => {
     
     // Check for size options
     if (item.sizeVariants && item.sizeVariants.length > 1) {
+      return true;
+    }
+
+    // Check for flexible variant groups (non-size)
+    if (Array.isArray(item.variantGroups)) {
+      const hasNonSizeGroups = item.variantGroups.some(g => {
+        const name = (g?.name || '').trim().toLowerCase();
+        const opts = Array.isArray(g?.options) ? g.options : [];
+        return name !== 'size' && opts.length > 0;
+      });
+      if (hasNonSizeGroups) return true;
+    }
+
+    // Check for add-ons
+    if (Array.isArray(item.addons) && item.addons.length > 0) {
       return true;
     }
     
@@ -690,6 +747,81 @@ const MenuSelection = () => {
                   </div>
                 </div>
               )}
+
+              {/* Flexible Variant Groups (non-size) */}
+              {Array.isArray(selectedItem.variantGroups) && selectedItem.variantGroups.filter(g => (g?.name || '').trim().toLowerCase() !== 'size' && Array.isArray(g.options) && g.options.length > 0).map((group, gIdx) => {
+                const groupName = (group?.name || '').trim();
+                const selectionType = group?.selectionType || 'single';
+                const options = group.options || [];
+                return (
+                  <div key={`vg-${gIdx}`} className="mb-4">
+                    <Label className="fw-bold mb-2">{groupName}</Label>
+                    {selectionType === 'single' ? (
+                      <div className="d-flex flex-wrap gap-2">
+                        {options.map((opt, idx) => (
+                          <Button
+                            key={idx}
+                            color={itemCustomizations.variantSelections?.[groupName] === opt.name ? 'primary' : 'outline-primary'}
+                            size="sm"
+                            onClick={() => setItemCustomizations(prev => ({
+                              ...prev,
+                              variantSelections: {
+                                ...(prev.variantSelections || {}),
+                                [groupName]: opt.name
+                              }
+                            }))}
+                            className="rounded-pill"
+                          >
+                            {opt.name}
+                            {opt.priceDelta ? (
+                              <span className="ms-1">{opt.priceDelta >= 0 ? '+' : ''}{formatPrice(Math.abs(opt.priceDelta))}</span>
+                            ) : null}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="d-flex flex-column gap-2">
+                        {options.map((opt, idx) => {
+                          const selectedArr = itemCustomizations.variantSelections?.[groupName] || [];
+                          const checked = Array.isArray(selectedArr) && selectedArr.includes(opt.name);
+                          return (
+                            <div key={idx} className="d-flex justify-content-between align-items-center p-2 border rounded">
+                              <div className="d-flex align-items-center">
+                                <Input
+                                  type="checkbox"
+                                  id={`vg-${gIdx}-opt-${idx}`}
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const isChecked = e.target.checked;
+                                    setItemCustomizations(prev => {
+                                      const current = Array.isArray(prev.variantSelections?.[groupName]) ? prev.variantSelections[groupName] : [];
+                                      const next = isChecked ? [...current, opt.name] : current.filter(n => n !== opt.name);
+                                      return {
+                                        ...prev,
+                                        variantSelections: {
+                                          ...(prev.variantSelections || {}),
+                                          [groupName]: next
+                                        }
+                                      };
+                                    });
+                                  }}
+                                  className="me-2"
+                                />
+                                <Label for={`vg-${gIdx}-opt-${idx}`} className="mb-0">{opt.name}</Label>
+                              </div>
+                              {opt.priceDelta ? (
+                                <span className="text-primary fw-bold">{opt.priceDelta >= 0 ? '+' : '-'}{formatPrice(Math.abs(opt.priceDelta))}</span>
+                              ) : (
+                                <span className="text-muted">No extra</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               {/* Total Price Display */}
               <div className="text-center mt-4 p-3 bg-light rounded">

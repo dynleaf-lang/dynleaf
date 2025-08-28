@@ -59,6 +59,7 @@ export const mapMenuItemToFrontend = (menuItem) => {
     preparationTime: menuItem.preparationTime,
     options: menuItem.options || [],
     // Add size variants and other variant-related fields
+  variantGroups: menuItem.variantGroups || [],
     sizeVariants: menuItem.sizeVariants || [],
     variants: menuItem.variants || [],
     sizes: menuItem.sizes || [],

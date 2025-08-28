@@ -139,12 +139,32 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     receipt += padString(item.quantity.toString(), 4);
     receipt += padString(formatCurrency(itemTotal), 12) + COMMANDS.CRLF;
     
-    // Customizations
-    if (item.customizations && item.customizations.length > 0) {
-      item.customizations.forEach(custom => {
-        receipt += `  + ${custom}` + COMMANDS.CRLF;
-      });
-    }
+    // Customizations / Variant selections display
+    try {
+      const cust = item.customizations || {};
+      // Support both array of strings and structured variantSelections
+      if (Array.isArray(cust)) {
+        cust.forEach(custom => {
+          receipt += `  + ${custom}` + COMMANDS.CRLF;
+        });
+      } else if (cust && typeof cust === 'object') {
+        const vsel = cust.variantSelections || null;
+        const sizeName = cust.selectedVariant || cust.selectedSize || null;
+        const parts = [];
+        if (sizeName) parts.push(`Size: ${sizeName}`);
+        if (vsel && typeof vsel === 'object') {
+          Object.entries(vsel).forEach(([g, val]) => {
+            if (!g || String(g).toLowerCase() === 'size') return;
+            if (Array.isArray(val)) {
+              if (val.length) parts.push(`${g}: ${val.join(', ')}`);
+            } else if (val) {
+              parts.push(`${g}: ${val}`);
+            }
+          });
+        }
+        parts.forEach(p => { receipt += `  + ${p}` + COMMANDS.CRLF; });
+      }
+    } catch {}
   });
   
   receipt += '--------------------------------' + COMMANDS.CRLF;
@@ -387,9 +407,31 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
           <div class="item-qty">${item.quantity}</div>
           <div class="item-price">${formatCurrency(item.price * item.quantity)}</div>
         </div>
-        ${item.customizations ? item.customizations.map(custom => 
-          `<div class="customization">+ ${custom}</div>`
-        ).join('') : ''}
+        ${(() => {
+          try {
+            const cust = item.customizations || {};
+            if (Array.isArray(cust)) {
+              return cust.map(c => `<div class="customization">+ ${c}</div>`).join('');
+            } else if (cust && typeof cust === 'object') {
+              const vsel = cust.variantSelections || null;
+              const sizeName = cust.selectedVariant || cust.selectedSize || null;
+              const parts = [];
+              if (sizeName) parts.push(`Size: ${sizeName}`);
+              if (vsel && typeof vsel === 'object') {
+                Object.entries(vsel).forEach(([g, val]) => {
+                  if (!g || String(g).toLowerCase() === 'size') return;
+                  if (Array.isArray(val)) {
+                    if (val.length) parts.push(`${g}: ${val.join(', ')}`);
+                  } else if (val) {
+                    parts.push(`${g}: ${val}`);
+                  }
+                });
+              }
+              return parts.map(p => `<div class="customization">+ ${p}</div>`).join('');
+            }
+          } catch {}
+          return '';
+        })()}
       `).join('')}
 
       <div class="separator"></div>

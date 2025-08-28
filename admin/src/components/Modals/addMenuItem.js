@@ -22,6 +22,8 @@ import {
 import "../../assets/css/modal-right.css"; // Import the custom modal CSS  
  
 import { handleTagsChange, handleTagKeyDown, removeTag } from "../Utils/handleTagsChange"; // Import the utility functions for handling tags
+import VariantGroupsEditor from "./VariantGroupsEditor";
+import { mirrorSizeGroupToSizeVariants, normalizeVariantGroups } from "../Utils/variantGroups";
 import { MenuContext } from "../../context/MenuContext";
 import { CategoryContext } from "../../context/CategoryContext";
 import { AuthContext } from "../../context/AuthContext";
@@ -56,8 +58,9 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
         isActive: true,
         imageFile: null,
         restaurantId: user?.restaurantId || "",
-        branchId: user?.branchId || "", // Add branchId to the state
-        sizeVariants: [] // Add size variants array
+    branchId: user?.branchId || "", // Add branchId to the state
+    sizeVariants: [], // Legacy size variants
+    variantGroups: [] // New flexible groups
     });
     
 
@@ -205,7 +208,8 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 imageFile: null,
                 // Keep existing restaurantId and branchId
                 restaurantId: editItem.restaurantId,
-                branchId: editItem.branchId || ""
+                branchId: editItem.branchId || "",
+                variantGroups: editItem.variantGroups || []
             });
         } else {
             // Determine the appropriate restaurantId based on user role
@@ -233,7 +237,9 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                 isActive: true,
                 imageFile: null,
                 restaurantId: restaurantId,
-                branchId: ""
+                branchId: "",
+                sizeVariants: [],
+                variantGroups: []
             });
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -412,6 +418,15 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
 
 
         
+        // Prepare variant groups and mirror Size -> sizeVariants
+        const normalizedGroups = normalizeVariantGroups(menuItem.variantGroups || []);
+        const mirroredSizes = mirrorSizeGroupToSizeVariants(normalizedGroups);
+
+        // If user didn't explicitly set sizeVariants, use mirrored from Size group
+        const effectiveSizeVariants = (menuItem.sizeVariants && menuItem.sizeVariants.length > 0)
+            ? menuItem.sizeVariants.map(v => ({ ...v, price: parseFloat(v.price) }))
+            : mirroredSizes;
+
         // Clone menuItem to send to parent - ensure categoryId is kept
         const itemToSave = {
             ...menuItem,
@@ -419,7 +434,8 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
             restaurantId: restaurantId, // Use the determined restaurantId
             categoryId: menuItem.categoryId, // Always include the category ID - don't override to undefined
             branchId: branchId || undefined,
-            sizeVariants: menuItem.sizeVariants || [] // Ensure size variants are included
+            sizeVariants: effectiveSizeVariants || [],
+            variantGroups: normalizedGroups
         };
          
         
@@ -501,7 +517,9 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                     isActive: true,
                     imageFile: null,
                     restaurantId: nextRestaurantId,
-                    branchId: ""
+                    branchId: "",
+                    sizeVariants: [],
+                    variantGroups: []
                 });
             }
             
@@ -1094,6 +1112,16 @@ const MenuItemModal = ({ isOpen, toggle, onSave, editItem = null }) => {
                                     rows="3"
                                 />
                             </FormGroup>
+
+                            {/* Variant Groups (Generic) */}
+                            <VariantGroupsEditor
+                                value={menuItem.variantGroups}
+                                onChange={(groups) => setMenuItem({ ...menuItem, variantGroups: groups })}
+                                currencySymbol={currencySymbol}
+                            />
+                            <small className="text-muted d-block mb-2">
+                                Note: A group named "Size" with absolute prices will auto-fill legacy Size Variants for compatibility.
+                            </small>
 
                             {/* Size Variants Section */}
                             <FormGroup className="mt-3">

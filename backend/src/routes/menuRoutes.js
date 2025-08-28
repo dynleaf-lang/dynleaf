@@ -142,8 +142,8 @@ router.get('/export', authenticateJWT, async (req, res) => {
         // Process based on requested format
         if (format === 'csv') {
             // Create CSV content
-            // Add Size Variants columns to header
-            const header = 'Name,Category,Base Price,Size Variants,Description,Vegetarian,Featured,Active\n';
+            // Add Size Variants and Variant Groups columns to header
+            const header = 'Name,Category,Base Price,Size Variants,Variant Groups (JSON),Description,Vegetarian,Featured,Active\n';
             
             const rows = menuItems.map(item => {
                 const categoryName = item.categoryId?.name || 'Uncategorized';
@@ -156,8 +156,19 @@ router.get('/export', authenticateJWT, async (req, res) => {
                         .map(v => `${v.name}: ${v.price}`)
                         .join(', ');
                 }
+                // Variant groups as JSON for flexibility
+                const vgSanitized = Array.isArray(item.variantGroups) ? item.variantGroups.map(g => ({
+                    name: g && g.name ? String(g.name) : '',
+                    selectionType: g && g.selectionType === 'multiple' ? 'multiple' : 'single',
+                    options: Array.isArray(g?.options) ? g.options.map(o => ({
+                        name: o && o.name ? String(o.name) : '',
+                        price: o && o.price !== undefined && o.price !== null ? Number(o.price) : undefined,
+                        priceDelta: o && o.priceDelta !== undefined && o.priceDelta !== null ? Number(o.priceDelta) : 0
+                    })).filter(o => o.name) : []
+                })).filter(g => g.name && g.options.length > 0) : [];
+                const vgJson = JSON.stringify(vgSanitized).replace(/"/g, '""');
                 
-                return `"${item.name}","${categoryName}",${basePrice},"${sizeVariantsStr}","${item.description || ''}",${item.isVegetarian ? 'Yes' : 'No'},${item.featured ? 'Yes' : 'No'},${item.isActive ? 'Available' : 'Unavailable'}`;
+                return `"${item.name}","${categoryName}",${basePrice},"${sizeVariantsStr}","${vgJson}","${item.description || ''}",${item.isVegetarian ? 'Yes' : 'No'},${item.featured ? 'Yes' : 'No'},${item.isActive ? 'Available' : 'Unavailable'}`;
             });
             
             const csvContent = header + rows.join('\n');
@@ -171,12 +182,13 @@ router.get('/export', authenticateJWT, async (req, res) => {
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet('Menu Items');
             
-            // Define columns - updated to include size variants
+            // Define columns - updated to include size variants and variant groups
             worksheet.columns = [
                 { header: 'Name', key: 'name', width: 30 },
                 { header: 'Category', key: 'category', width: 20 },
                 { header: 'Base Price', key: 'basePrice', width: 12, style: { numFmt: '₹#,##0.00' } },
                 { header: 'Size Variants', key: 'sizeVariants', width: 40 },
+                { header: 'Variant Groups (JSON)', key: 'variantGroups', width: 60 },
                 { header: 'Description', key: 'description', width: 50 },
                 { header: 'Vegetarian', key: 'vegetarian', width: 12 },
                 { header: 'Featured', key: 'featured', width: 12 },
@@ -192,12 +204,24 @@ router.get('/export', authenticateJWT, async (req, res) => {
                         .map(v => `${v.name}: ₹${parseFloat(v.price).toFixed(2)}`)
                         .join(', ');
                 }
+                // Variant groups as JSON string
+                const vgSanitized = Array.isArray(item.variantGroups) ? item.variantGroups.map(g => ({
+                    name: g && g.name ? String(g.name) : '',
+                    selectionType: g && g.selectionType === 'multiple' ? 'multiple' : 'single',
+                    options: Array.isArray(g?.options) ? g.options.map(o => ({
+                        name: o && o.name ? String(o.name) : '',
+                        price: o && o.price !== undefined && o.price !== null ? Number(o.price) : undefined,
+                        priceDelta: o && o.priceDelta !== undefined && o.priceDelta !== null ? Number(o.priceDelta) : 0
+                    })).filter(o => o.name) : []
+                })).filter(g => g.name && g.options.length > 0) : [];
+                const vgJson = JSON.stringify(vgSanitized);
                 
                 worksheet.addRow({
                     name: item.name,
                     category: item.categoryId?.name || 'Uncategorized',
                     basePrice: item.price !== undefined ? item.price : null, // Use null for empty cells
                     sizeVariants: sizeVariantsStr,
+                    variantGroups: vgJson,
                     description: item.description || '',
                     vegetarian: item.isVegetarian ? 'Yes' : 'No',
                     featured: item.featured ? 'Yes' : 'No',
@@ -245,7 +269,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
 // Create a new menu item
 router.post('/', authenticateJWT, async (req, res) => {
     try {
-        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants } = req.body;
+    const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants, variantGroups } = req.body;
         
         console.log("Backend received menu item data:", {
             name,
@@ -254,6 +278,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             restaurantId: req.body.restaurantId,
             branchId,
             sizeVariants,
+            variantGroups,
             // other fields omitted for brevity
         });
         
@@ -289,7 +314,18 @@ router.post('/', authenticateJWT, async (req, res) => {
             }        }
           // Validate that either price or sizeVariants is provided
         const hasValidPrice = price !== undefined && price !== null && parseFloat(price) > 0;
-        const hasSizeVariants = sizeVariants && sizeVariants.length > 0;
+        // Allow deriving sizeVariants from a variant group named "Size" if present
+        let normalizedSizeVariants = Array.isArray(sizeVariants) ? [...sizeVariants] : [];
+        let normalizedVariantGroups = Array.isArray(variantGroups) ? [...variantGroups] : [];
+        if ((!normalizedSizeVariants || normalizedSizeVariants.length === 0) && Array.isArray(normalizedVariantGroups)) {
+            const sizeGroup = normalizedVariantGroups.find(g => typeof g.name === 'string' && g.name.trim().toLowerCase() === 'size');
+            if (sizeGroup && Array.isArray(sizeGroup.options)) {
+                normalizedSizeVariants = sizeGroup.options
+                    .filter(o => o && o.name && (o.price !== undefined && o.price !== null && !isNaN(parseFloat(o.price))))
+                    .map(o => ({ name: String(o.name).trim(), price: parseFloat(o.price) }));
+            }
+        }
+        const hasSizeVariants = normalizedSizeVariants && normalizedSizeVariants.length > 0;
         
         if (!hasValidPrice && !hasSizeVariants) {
             return res.status(400).json({ 
@@ -298,8 +334,8 @@ router.post('/', authenticateJWT, async (req, res) => {
         }
         
         // Validate size variants if they exist
-        if (sizeVariants && sizeVariants.length > 0) {
-            const invalidVariants = sizeVariants.filter(v => !v.name || v.price === undefined);
+        if (hasSizeVariants) {
+            const invalidVariants = normalizedSizeVariants.filter(v => !v.name || v.price === undefined);
             if (invalidVariants.length > 0) {
                 return res.status(400).json({ 
                     message: 'All size variants must have both name and price'
@@ -307,7 +343,7 @@ router.post('/', authenticateJWT, async (req, res) => {
             }
             
             // Ensure all prices are numbers
-            for (let variant of sizeVariants) {
+            for (let variant of normalizedSizeVariants) {
                 if (isNaN(parseFloat(variant.price))) {
                     return res.status(400).json({ 
                         message: `Invalid price for size variant "${variant.name}"`
@@ -315,6 +351,20 @@ router.post('/', authenticateJWT, async (req, res) => {
                 }
                 variant.price = parseFloat(variant.price);
             }
+        }
+        // Sanitize/normalize variantGroups if provided
+        if (Array.isArray(normalizedVariantGroups)) {
+            normalizedVariantGroups = normalizedVariantGroups.map(g => ({
+                name: g && g.name ? String(g.name).trim() : '',
+                selectionType: g && g.selectionType === 'multiple' ? 'multiple' : 'single',
+                options: Array.isArray(g?.options) ? g.options.map(o => ({
+                    name: o && o.name ? String(o.name).trim() : '',
+                    price: (o && o.price !== undefined && o.price !== null && !isNaN(parseFloat(o.price))) ? parseFloat(o.price) : undefined,
+                    priceDelta: (o && o.priceDelta !== undefined && o.priceDelta !== null && !isNaN(parseFloat(o.priceDelta))) ? parseFloat(o.priceDelta) : 0
+                })).filter(o => o.name) : []
+            })).filter(g => g.name && g.options.length > 0);
+        } else {
+            normalizedVariantGroups = [];
         }
           // Prepare the menu item data
         const menuItemData = {
@@ -328,7 +378,8 @@ router.post('/', authenticateJWT, async (req, res) => {
             tags: tags || [],
             featured: featured || false,
             isActive: isActive !== undefined ? isActive : true,
-            sizeVariants: sizeVariants || [],
+            sizeVariants: normalizedSizeVariants || [],
+            variantGroups: normalizedVariantGroups || [],
             // Add branchId if provided (optional)
             ...(branchId && { branchId })
         };
@@ -337,7 +388,7 @@ router.post('/', authenticateJWT, async (req, res) => {
         if (price !== undefined) {
             const parsedPrice = parseFloat(price);
             // If price is greater than 0 or we have size variants, it's okay
-            if (parsedPrice > 0 || (sizeVariants && sizeVariants.length > 0)) {
+            if (parsedPrice > 0 || (normalizedSizeVariants && normalizedSizeVariants.length > 0)) {
                 menuItemData.price = parsedPrice;
             }
         }
@@ -412,11 +463,22 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             (!req.user.restaurantId || menuItem.restaurantId.toString() !== req.user.restaurantId.toString())) {
             return res.status(403).json({ message: 'Access denied to update this menu item' });
         }        // Get the fields to update
-        const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants } = req.body;
+    const { name, description, price, categoryId, imageUrl, isVegetarian, tags, featured, isActive, branchId, sizeVariants, variantGroups } = req.body;
         
-        // Validate that either price or sizeVariants is provided
+        // Normalize sizeVariants and variantGroups and validate
         const hasValidPrice = price !== undefined && price !== null && parseFloat(price) > 0;
-        const hasSizeVariants = sizeVariants && sizeVariants.length > 0;
+        let normalizedSizeVariants = Array.isArray(sizeVariants) ? [...sizeVariants] : (sizeVariants === undefined ? undefined : []);
+        let normalizedVariantGroups = Array.isArray(variantGroups) ? [...variantGroups] : (variantGroups === undefined ? undefined : []);
+        // If caller didn't provide sizeVariants but provided variantGroups, try to derive from Size group
+        if ((normalizedSizeVariants === undefined || normalizedSizeVariants.length === 0) && Array.isArray(normalizedVariantGroups)) {
+            const sizeGroup = normalizedVariantGroups.find(g => typeof g.name === 'string' && g.name.trim().toLowerCase() === 'size');
+            if (sizeGroup && Array.isArray(sizeGroup.options)) {
+                normalizedSizeVariants = sizeGroup.options
+                    .filter(o => o && o.name && (o.price !== undefined && o.price !== null && !isNaN(parseFloat(o.price))))
+                    .map(o => ({ name: String(o.name).trim(), price: parseFloat(o.price) }));
+            }
+        }
+        const hasSizeVariants = Array.isArray(normalizedSizeVariants) ? (normalizedSizeVariants.length > 0) : (menuItem.sizeVariants && menuItem.sizeVariants.length > 0);
         
         if (!hasValidPrice && !hasSizeVariants) {
             return res.status(400).json({ 
@@ -425,8 +487,8 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         }
         
         // Validate size variants if they exist
-        if (sizeVariants && sizeVariants.length > 0) {
-            const invalidVariants = sizeVariants.filter(v => !v.name || v.price === undefined);
+        if (Array.isArray(normalizedSizeVariants) && normalizedSizeVariants.length > 0) {
+            const invalidVariants = normalizedSizeVariants.filter(v => !v.name || v.price === undefined);
             if (invalidVariants.length > 0) {
                 return res.status(400).json({ 
                     message: 'All size variants must have both name and price'
@@ -434,7 +496,7 @@ router.put('/:id', authenticateJWT, async (req, res) => {
             }
             
             // Ensure all prices are numbers
-            for (let variant of sizeVariants) {
+            for (let variant of normalizedSizeVariants) {
                 if (isNaN(parseFloat(variant.price))) {
                     return res.status(400).json({ 
                         message: `Invalid price for size variant "${variant.name}"`
@@ -442,7 +504,20 @@ router.put('/:id', authenticateJWT, async (req, res) => {
                 }
                 variant.price = parseFloat(variant.price);
             }
-    }        // Update the menu item - get the current data first
+    }
+        // Normalize/sanitize variantGroups if provided
+        if (Array.isArray(normalizedVariantGroups)) {
+            normalizedVariantGroups = normalizedVariantGroups.map(g => ({
+                name: g && g.name ? String(g.name).trim() : '',
+                selectionType: g && g.selectionType === 'multiple' ? 'multiple' : 'single',
+                options: Array.isArray(g?.options) ? g.options.map(o => ({
+                    name: o && o.name ? String(o.name).trim() : '',
+                    price: (o && o.price !== undefined && o.price !== null && !isNaN(parseFloat(o.price))) ? parseFloat(o.price) : undefined,
+                    priceDelta: (o && o.priceDelta !== undefined && o.priceDelta !== null && !isNaN(parseFloat(o.priceDelta))) ? parseFloat(o.priceDelta) : 0
+                })).filter(o => o.name) : []
+            })).filter(g => g.name && g.options.length > 0);
+        }
+        // Update the menu item - get the current data first
     const oldImageUrl = menuItem.imageUrl;
         let updateData = {
             name,
@@ -456,8 +531,12 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         };
         
         // Handle size variants carefully
-        if (sizeVariants !== undefined) {
-            updateData.sizeVariants = sizeVariants || [];
+        if (normalizedSizeVariants !== undefined) {
+            updateData.sizeVariants = normalizedSizeVariants || [];
+        }
+        // Apply variantGroups if provided
+        if (normalizedVariantGroups !== undefined) {
+            updateData.variantGroups = normalizedVariantGroups || [];
         }
         
         // Handle price carefully
@@ -478,8 +557,8 @@ router.put('/:id', authenticateJWT, async (req, res) => {
         
         // Special handling for the validation condition:
         // If price is being removed or set to 0, we must ensure there are size variants
-        const removingPrice = (price !== undefined && parseFloat(price) <= 0);
-        const removingSizeVariants = (sizeVariants !== undefined && (!sizeVariants || sizeVariants.length === 0));
+    const removingPrice = (price !== undefined && parseFloat(price) <= 0);
+    const removingSizeVariants = (normalizedSizeVariants !== undefined && (!normalizedSizeVariants || normalizedSizeVariants.length === 0));
         
         if (removingPrice && removingSizeVariants) {
             return res.status(400).json({
@@ -641,6 +720,7 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                 const hasCategory = headers.includes('category');
                 const hasPrice = headers.includes('price') || headers.includes('base price');
                 const hasSizeVariantsCol = headers.includes('size variants');
+                const hasVariantGroupsCol = headers.includes('variant groups (json)');
                 const missingHeaders = [];
                 if (!hasName) missingHeaders.push('name');
                 if (!hasCategory) missingHeaders.push('category');
@@ -693,17 +773,32 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     const activeIndex = headers.indexOf('status') !== -1 ?
                                        headers.indexOf('status') : headers.indexOf('active');
                     const sizeVarIndex = hasSizeVariantsCol ? headers.indexOf('size variants') : -1;
+                    const vgIndex = hasVariantGroupsCol ? headers.indexOf('variant groups (json)') : -1;
                     
                     if (nameIndex === -1 || categoryIndex === -1 || priceIndex === -1) {
                         continue; // Skip rows without required fields
                     }
                     
+                    // Helper to parse variant groups JSON safely
+                    const parseVg = (val) => {
+                        if (val === undefined || val === null) return [];
+                        const txt = String(val).trim();
+                        if (!txt) return [];
+                        try {
+                            return JSON.parse(txt);
+                        } catch (e) {
+                            // Try to unescape quotes if needed
+                            try { return JSON.parse(txt.replace(/""/g, '"')); } catch (e2) { return []; }
+                        }
+                    };
+
                     rawItems.push({
                         _row: i + 1,
                         name: columns[nameIndex],
                         categoryName: columns[categoryIndex],
                         price: parsePrice(columns[priceIndex]),
                         sizeVariants: sizeVarIndex !== -1 && columns.length > sizeVarIndex ? parseVariants(columns[sizeVarIndex]) : [],
+                        variantGroups: vgIndex !== -1 && columns.length > vgIndex ? parseVg(columns[vgIndex]) : [],
                         description: descIndex !== -1 && columns.length > descIndex ? columns[descIndex] : '',
             isVegetarian: vegIndex !== -1 && columns.length > vegIndex ? 
                      clean(columns[vegIndex]) === 'yes' : false,
@@ -759,6 +854,7 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                 const activeIndex = headers.indexOf('status') !== -1 ? 
                                    headers.indexOf('status') : headers.indexOf('active');
                 const sizeVarIndexX = headers.indexOf('size variants');
+                const vgIndexX = headers.indexOf('variant groups (json)');
                 
                 // Helper to parse price robustly from Excel values
                 const parsePriceX = (val) => {
@@ -784,6 +880,12 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     }
                     return variants;
                 };
+                const parseVgX = (val) => {
+                    if (val === undefined || val === null) return [];
+                    try {
+                        return typeof val === 'string' ? JSON.parse(val) : val;
+                    } catch (e) { return []; }
+                };
 
                 // Process data rows
                 worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -800,6 +902,7 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                         categoryName: values[categoryIndex + 1],
                         price: parsePriceX(values[priceIndex + 1]),
                         sizeVariants: sizeVarIndexX !== -1 ? parseVariantsX(values[sizeVarIndexX + 1]) : [],
+                        variantGroups: vgIndexX !== -1 ? parseVgX(values[vgIndexX + 1]) : [],
                         description: descIndex !== -1 && values.length > descIndex + 1 ? values[descIndex + 1] : '',
                         isVegetarian: vegIndex !== -1 && values.length > vegIndex + 1 ? 
                                      String(values[vegIndex + 1]).toLowerCase() === 'yes' : false,
@@ -879,9 +982,31 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     continue;
                 }
                 const svArr = Array.isArray(rawItem.sizeVariants) ? rawItem.sizeVariants : [];
+                let vgArr = Array.isArray(rawItem.variantGroups) ? rawItem.variantGroups : [];
+                // Normalize variant groups: basic shape and numeric coercion
+                vgArr = vgArr.map(g => ({
+                    name: g && g.name ? String(g.name).trim() : '',
+                    selectionType: g && g.selectionType === 'multiple' ? 'multiple' : 'single',
+                    options: Array.isArray(g?.options) ? g.options.map(o => ({
+                        name: o && o.name ? String(o.name).trim() : '',
+                        price: (o && o.price !== undefined && o.price !== null && !isNaN(parseFloat(o.price))) ? parseFloat(o.price) : undefined,
+                        priceDelta: (o && o.priceDelta !== undefined && o.priceDelta !== null && !isNaN(parseFloat(o.priceDelta))) ? parseFloat(o.priceDelta) : 0
+                    })).filter(o => o.name) : []
+                })).filter(g => g.name && g.options.length > 0);
                 if (!(rawItem.price > 0) && svArr.length === 0) {
-                    errors.push({ item: rawItem, error: 'Missing price and size variants' });
-                    continue;
+                    // Attempt to derive size variants from a 'Size' variant group
+                    const sizeGroup = vgArr.find(g => g.name.toLowerCase() === 'size');
+                    let derived = [];
+                    if (sizeGroup) {
+                        derived = sizeGroup.options
+                            .filter(o => o.price !== undefined && !isNaN(parseFloat(o.price)))
+                            .map(o => ({ name: o.name, price: parseFloat(o.price) }));
+                    }
+                    if (derived.length === 0) {
+                        errors.push({ item: rawItem, error: 'Missing price and size variants' });
+                        continue;
+                    }
+                    rawItem.sizeVariants = derived;
                 }
                 // Find matching category
                 let categoryId = null;
@@ -941,7 +1066,8 @@ router.post('/import', authenticateJWT, upload.single('file'), async (req, res) 
                     featured: rawItem.featured,
                     isActive: rawItem.isActive,
                     tags: [],
-                    sizeVariants: svArr
+                    sizeVariants: Array.isArray(rawItem.sizeVariants) && rawItem.sizeVariants.length > 0 ? rawItem.sizeVariants : svArr,
+                    variantGroups: vgArr
                 };
                 
                 if (branchId) {

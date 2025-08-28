@@ -146,6 +146,59 @@ export const CartProvider = ({ children }) => {
       }
     }
     
+    // Add extras, addons and variant groups price deltas (non-size)
+    try {
+      const opts = Array.isArray(selectedOptions) ? selectedOptions : [];
+      let delta = 0;
+
+      // Extras
+      if (Array.isArray(item.extras)) {
+        const chosenExtras = opts.filter(o => o && o.category === 'extras' && o.value);
+        chosenExtras.forEach(sel => {
+          const match = item.extras.find(ex => (ex?.value || ex?.name) === sel.value || (ex?.value || ex?.name) === sel.name);
+          if (match) {
+            const d = parseFloat(match.priceDelta ?? match.price ?? 0);
+            if (!isNaN(d)) delta += d;
+          }
+        });
+      }
+
+      // Addons
+      if (Array.isArray(item.addons)) {
+        const chosenAddons = opts.filter(o => o && o.category === 'addons' && o.value);
+        chosenAddons.forEach(sel => {
+          const match = item.addons.find(ad => (ad?.value || ad?.name) === sel.value || (ad?.value || ad?.name) === sel.name);
+          if (match) {
+            const d = parseFloat(match.priceDelta ?? match.price ?? 0);
+            if (!isNaN(d)) delta += d;
+          }
+        });
+      }
+
+      // Variant groups (non-size)
+      if (Array.isArray(item.variantGroups)) {
+        item.variantGroups.forEach(g => {
+          const gName = String(g?.name || '').trim();
+          if (!gName || gName.toLowerCase() === 'size') return;
+          const options = Array.isArray(g?.options) ? g.options : [];
+          const chosen = opts.filter(o => o && o.category === 'option' && o.name === gName && o.value);
+          chosen.forEach(sel => {
+            const opt = options.find(o => o?.name === sel.value || o?.name === sel.name);
+            if (opt) {
+              const d = parseFloat(opt.priceDelta ?? 0);
+              if (!isNaN(d)) delta += d;
+            }
+          });
+        });
+      }
+
+      // Update price with accumulated deltas
+      const base = parseFloat(result.price) || 0;
+      result.price = base + delta;
+    } catch (e) {
+      // Fail-safe: keep existing price if anything goes wrong
+    }
+
     return result;
   };
   
