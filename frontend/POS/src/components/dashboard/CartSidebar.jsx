@@ -342,11 +342,12 @@ const CartSidebar = () => {
 
   // Keep draft values in sync when cart items change
   useEffect(() => {
-    setQtyDrafts((prev) => {
+    // Always reflect the latest cart quantities to avoid stale values when items are re-added
+    setQtyDrafts(() => {
       const next = {};
       for (const ci of cartItems || []) {
         const key = ci.cartItemId;
-        next[key] = prev[key] ?? ci.quantity ?? 1;
+        next[key] = ci.quantity ?? 1;
       }
       return next;
     });
@@ -806,14 +807,14 @@ const CartSidebar = () => {
       const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
       const orderNumber = entry.nextOrderNumber;
       entry.batches = [
+        ...entry.batches,
         {
           orderId: createdOrder._id,
           orderNumber,
           items: orderItems,
           totalAmount: orderData.totalAmount,
           createdAt: new Date().toISOString()
-        },
-        ...entry.batches
+        }
       ];
       entry.nextOrderNumber = orderNumber + 1;
       batchesAll[tableId] = entry;
@@ -916,14 +917,14 @@ const CartSidebar = () => {
           const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
           const orderNumberSeq = entry.nextOrderNumber;
           entry.batches = [
+            ...entry.batches,
             {
               orderId: createdOrder._id,
               orderNumber: orderNumberSeq,
               items: orderItems,
               totalAmount: orderPayload.totalAmount,
               createdAt: new Date().toISOString()
-            },
-            ...entry.batches
+            }
           ];
           entry.nextOrderNumber = orderNumberSeq + 1;
           batchesAll[tableId] = entry;
@@ -1249,7 +1250,77 @@ const CartSidebar = () => {
             <>
               {/* Customer Information and Special Instructions moved to modals */}
 
-              {/* Cart Items */}
+              {/* Batch Summary for this table */}
+              {batchCount > 0 && (
+                <div className="batch-summary mb-2">
+                  {/* <h6>Batches for this Table</h6> */}
+                  {tableBatches.batches
+                    .slice()
+                    .sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0))
+                    .map((batch, batchIdx) => (
+                    <div key={`${batch.orderId || batchIdx}`} className="batch-section">
+                      {/* Batch Header */}
+                      <div className="batch-headers">
+                        <small className="text-decoration-underline fst-italic">Batch #{batch.orderNumber || (batchIdx + 1)}</small>
+                      </div>
+                      
+                      {/* Batch Items */}
+                      {batch.items?.map((item, itemIdx) => (
+                        <div key={`${batch.orderId}-${itemIdx}`} className="cart-item-row d-flex justify-content-between align-items-center">
+                          <div className="item-info">
+                            <div className="item-name">{item.name}</div>
+                          </div>
+                          <div className="item-controls d-flex align-items-center">
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, Math.max(1, item.quantity - 1))}
+                              disabled={item.quantity <= 1}
+                            >
+                              −
+                            </button>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              className="qty-display form-control form-control-sm text-center rounded-0"
+                              style={{ width: 40, height: 26 }}
+                              value={batchQtyDrafts[`${batch.orderId}:${itemIdx}`] ?? (item.quantity ?? 1)}
+                              onChange={(e) => handleBatchQtyInputChange(`${batch.orderId}:${itemIdx}`, e.target.value)}
+                              onBlur={() => commitBatchQtyChange(batch.orderId, itemIdx, item.quantity)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.currentTarget.blur();
+                                } else if (e.key === 'Escape') {
+                                  setBatchQtyDrafts((prev) => ({ ...prev, [`${batch.orderId}:${itemIdx}`]: item.quantity }));
+                                  e.currentTarget.blur();
+                                }
+                                e.stopPropagation();
+                              }}
+                            />
+                            <button 
+                              className="qty-btn"
+                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, item.quantity + 1)}
+                            >
+                              +
+                            </button>
+                            <span className="item-price">{formatPrice((item.price || 0) * (item.quantity || 1))}</span>
+                            <button 
+                              className="delete-btn"
+                              onClick={() => deleteBatchItem(batch.orderId, itemIdx)}
+                            >
+                              <FaTrash size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  
+                  
+                </div>
+              )}
+
+              {/* Cart Items (current, new batch) rendered after existing batches */}
               <div className="cart-items mb-1">
                 {/* <h6>Order Items</h6> */}
                 <>
@@ -1317,74 +1388,6 @@ const CartSidebar = () => {
                   )}
                 </>
               </div>
-
-         
-              {/* Batch Summary for this table */}
-              {batchCount > 0 && (
-                <div className="batch-summary mb-2">
-                  {/* <h6>Batches for this Table</h6> */}
-                  {tableBatches.batches.map((batch, batchIdx) => (
-                    <div key={`${batch.orderId || batchIdx}`} className="batch-section">
-                      {/* Batch Header */}
-                      <div className="batch-headers">
-                        <small className="text-decoration-underline fst-italic">Batch #{batch.orderNumber || (batchCount - batchIdx)}</small>
-                      </div>
-                      
-                      {/* Batch Items */}
-                      {batch.items?.map((item, itemIdx) => (
-                        <div key={`${batch.orderId}-${itemIdx}`} className="cart-item-row d-flex justify-content-between align-items-center">
-                          <div className="item-info">
-                            <div className="item-name">{item.name}</div>
-                          </div>
-                          <div className="item-controls d-flex align-items-center">
-                            <button 
-                              className="qty-btn"
-                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, Math.max(1, item.quantity - 1))}
-                              disabled={item.quantity <= 1}
-                            >
-                              −
-                            </button>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              className="qty-display form-control form-control-sm text-center"
-                              style={{ width: 56 }}
-                              value={batchQtyDrafts[`${batch.orderId}:${itemIdx}`] ?? (item.quantity ?? 1)}
-                              onChange={(e) => handleBatchQtyInputChange(`${batch.orderId}:${itemIdx}`, e.target.value)}
-                              onBlur={() => commitBatchQtyChange(batch.orderId, itemIdx, item.quantity)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.currentTarget.blur();
-                                } else if (e.key === 'Escape') {
-                                  setBatchQtyDrafts((prev) => ({ ...prev, [`${batch.orderId}:${itemIdx}`]: item.quantity }));
-                                  e.currentTarget.blur();
-                                }
-                                e.stopPropagation();
-                              }}
-                            />
-                            <button 
-                              className="qty-btn"
-                              onClick={() => updateBatchItemQuantity(batch.orderId, itemIdx, item.quantity + 1)}
-                            >
-                              +
-                            </button>
-                            <span className="item-price">{formatPrice((item.price || 0) * (item.quantity || 1))}</span>
-                            <button 
-                              className="delete-btn"
-                              onClick={() => deleteBatchItem(batch.orderId, itemIdx)}
-                            >
-                              <FaTrash size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  
-                  
-                </div>
-              )}
 
               {/* Conditional alerts based on order type and validation */}
               {customerInfo.orderType === 'dine-in' && !selectedTable && (

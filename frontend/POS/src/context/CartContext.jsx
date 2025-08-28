@@ -68,23 +68,91 @@ export const CartProvider = ({ children }) => {
     localStorage.setItem('pos_saved_orders', JSON.stringify(savedOrders));
   }, [savedOrders]);
 
+  // --- Helpers to ensure consistent identity for cart items ---
+  const isPlainObject = (val) => Object.prototype.toString.call(val) === '[object Object]';
+
+  // Recursively create a stable object with sorted keys; sort arrays of primitives
+  const normalizeForIdentity = (value) => {
+    if (Array.isArray(value)) {
+      const normalizedArray = value.map(normalizeForIdentity);
+      const allPrimitives = normalizedArray.every(v => (typeof v !== 'object' || v === null));
+      return allPrimitives
+        ? [...normalizedArray].sort((a, b) => String(a).localeCompare(String(b)))
+        : normalizedArray.map((v) => normalizeForIdentity(v)).sort((a, b) => {
+            const sa = JSON.stringify(a);
+            const sb = JSON.stringify(b);
+            return sa.localeCompare(sb);
+          });
+    }
+    if (isPlainObject(value)) {
+      const result = {};
+      Object.keys(value)
+        .filter((k) => value[k] !== undefined && value[k] !== null && value[k] !== '')
+        .sort()
+        .forEach((k) => {
+          result[k] = normalizeForIdentity(value[k]);
+        });
+      return result;
+    }
+    return value;
+  };
+
+  const normalizeCustomizations = (customizations, basePrice) => {
+    const base = isPlainObject(customizations) ? { ...customizations } : {};
+    // Remove neutral defaults so they don't split identity
+    if (base.spiceLevel === 'medium') delete base.spiceLevel; // medium treated as default
+    if (base.specialInstructions === '') delete base.specialInstructions;
+    // If variant/price chosen equals base price or is empty, drop it to avoid identity split
+    if (base.selectedPrice == null) {
+      delete base.selectedPrice;
+    } else if (basePrice != null) {
+      const bp = Number(basePrice);
+      const sp = Number(base.selectedPrice);
+      if (!Number.isNaN(bp) && !Number.isNaN(sp) && bp === sp) {
+        delete base.selectedPrice;
+      }
+    }
+    return normalizeForIdentity(base);
+  };
+
+  const stableStringify = (obj) => JSON.stringify(normalizeForIdentity(obj));
+
   const addToCart = (menuItem, quantity = 1, customizations = {}) => {
-    const cartItemId = `${menuItem._id}_${JSON.stringify(customizations)}`;
+    const normalizedCustom = normalizeCustomizations(customizations, menuItem?.price);
+    const identityString = stableStringify(normalizedCustom);
+    const cartItemId = `${menuItem._id}_${identityString}`;
     
     setCartItems(prevItems => {
-      const existingItem = prevItems.find(item => item.cartItemId === cartItemId);
+      // Try exact ID match first
+      let existingItem = prevItems.find(item => item.cartItemId === cartItemId);
+      // If not found, try legacy match: same menuItemId + normalized customizations equivalence
+      if (!existingItem) {
+        existingItem = prevItems.find(item => (
+          item.menuItemId === menuItem._id &&
+          stableStringify(normalizeForIdentity(item.customizations || {})) === identityString
+        ));
+      }
       
       if (existingItem) {
         // Update quantity if item already exists
-        return prevItems.map(item =>
-          item.cartItemId === cartItemId
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
+        return prevItems.map(item => {
+          if (item === existingItem || item.cartItemId === existingItem.cartItemId) {
+            return {
+              ...item,
+              cartItemId, // standardize to stable id going forward
+              customizations: normalizedCustom, // standardize normalization
+              quantity: (Number(item.quantity) || 0) + (Number(quantity) || 0)
+            };
+          }
+          return item;
+        });
       } else {
         // Add new item to cart
         // Use selected variant price if available, otherwise use base price
-        const itemPrice = customizations.selectedPrice || menuItem.price;
+        const itemPriceRaw = (customizations && customizations.selectedPrice != null)
+          ? customizations.selectedPrice
+          : menuItem.price;
+        const itemPrice = Number(itemPriceRaw) || 0;
         
         const newItem = {
           cartItemId,
@@ -95,7 +163,7 @@ export const CartProvider = ({ children }) => {
           description: menuItem.description,
           category: menuItem.category,
           quantity,
-          customizations,
+          customizations: normalizedCustom,
           addedAt: new Date().toISOString()
         };
         return [...prevItems, newItem];
