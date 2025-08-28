@@ -1268,7 +1268,15 @@ const CartSidebar = () => {
                       {batch.items?.map((item, itemIdx) => (
                         <div key={`${batch.orderId}-${itemIdx}`} className="cart-item-row d-flex justify-content-between align-items-center">
                           <div className="item-info">
-                            <div className="item-name">{item.name}</div>
+                            <div className="item-name">
+                              {item.name}
+                              {(() => {
+                                const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
+                                return variantName ? (
+                                  <small className="text-muted ms-1">({variantName})</small>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                           <div className="item-controls d-flex align-items-center">
                             <button 
@@ -1337,7 +1345,15 @@ const CartSidebar = () => {
                       {cartItems.map((item) => (
                         <div key={item.cartItemId} className="cart-item-row d-flex justify-content-between align-items-center">
                           <div className="item-info">
-                            <div className="item-name">{item.name}</div>
+                            <div className="item-name">
+                              {item.name}
+                              {(() => {
+                                const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
+                                return variantName ? (
+                                  <small className="text-muted ms-1">({variantName})</small>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                           <div className="item-controls d-flex align-items-center">
                             <button 
