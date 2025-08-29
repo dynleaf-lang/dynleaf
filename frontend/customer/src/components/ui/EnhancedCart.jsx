@@ -315,16 +315,30 @@ const CartItem = memo(({ item }) => {
             fontSize: theme.typography.sizes.md,
             fontWeight: theme.typography.fontWeights.semibold,
             color: theme.colors.text.primary,
-            paddingRight: theme.spacing.md
+            paddingRight: theme.spacing.md,
+            textTransform: 'capitalize',
+            textAlign: 'left'
           }}>
             {item.title || item.name}
             {(() => {
               try {
-                const options = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
+                const rawOptions = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
+                // Normalize options: keep only size/option categories and drop stray index→char pairs like { name: "0", value: "E" }
+                const isNumeric = (v) => typeof v === 'string' && /^\d+$/.test(v);
+                const normalizeValue = (v) => {
+                  if (Array.isArray(v)) return v.join(', ');
+                  if (v && typeof v === 'object') return Object.values(v).join(', ');
+                  return v;
+                };
+                const options = rawOptions
+                  .filter(o => o && (o.category === 'size' || o.category === 'option') && o.name && o.value)
+                  .filter(o => !(isNumeric(String(o.name)) && typeof o.value === 'string' && o.value.length === 1))
+                  .map(o => ({ ...o, value: normalizeValue(o.value) }));
+
                 // Extract size and non-size variant group options captured as category 'option'
-                const sizeOpt = options.find(o => (o.category === 'size' || o.name === 'Choose Size') && o.value);
+                const sizeOpt = options.find(o => (o.category === 'size' || /size/i.test(String(o.name))) && o.value);
                 const groupParts = options
-                  .filter(o => o && o.category === 'option' && o.name && o.value)
+                  .filter(o => o && o.category === 'option' && o.name && o.value && String(o.name).toLowerCase() !== 'size')
                   .reduce((acc, o) => {
                     acc[o.name] = acc[o.name] || [];
                     acc[o.name].push(o.value);
@@ -390,7 +404,21 @@ const CartItem = memo(({ item }) => {
         </div>
         
         {/* Item options if any */}
-        {item.selectedOptions && item.selectedOptions.length > 0 && (
+        {Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0 && (() => {
+          // Render only normalized, relevant options (size and variant groups), skipping stray index→char entries
+          const isNumeric = (v) => typeof v === 'string' && /^\d+$/.test(v);
+          const normalizeValue = (v) => {
+            if (Array.isArray(v)) return v.join(', ');
+            if (v && typeof v === 'object') return Object.values(v).join(', ');
+            return v;
+          };
+          const displayOptions = item.selectedOptions
+            .filter(o => o && (o.category === 'size' || o.category === 'option') && o.name && o.value)
+            .filter(o => !(isNumeric(String(o.name)) && typeof o.value === 'string' && o.value.length === 1))
+            .map(o => ({ ...o, value: normalizeValue(o.value) }));
+
+          if (displayOptions.length === 0) return null;
+          return (
           <div style={{ 
             margin: '0 0 8px',
             fontSize: theme.typography.sizes.sm,
@@ -399,8 +427,8 @@ const CartItem = memo(({ item }) => {
             flexWrap: 'wrap',
             gap: theme.spacing.xs
           }}>
-            {item.selectedOptions.map((option, index) => (
-              <span key={`${option.category}-${option.name}-${option.value}`} style={{
+            {displayOptions.map((option) => (
+              <span key={`${option.category}-${option.name}-${String(option.value)}`} style={{
                 backgroundColor: theme.colors.background,
                 padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
                 borderRadius: theme.borderRadius.sm,
@@ -411,7 +439,8 @@ const CartItem = memo(({ item }) => {
               </span>
             ))}
           </div>
-        )}
+          );
+        })()}
         
         {/* Price and quantity controls */}
         <div style={{
@@ -631,14 +660,14 @@ const CartContent = memo(({ checkoutStep = 'cart', setCheckoutStep }) => {
             backgroundColor: 'white',
             boxShadow: '0 -4px 10px rgba(0,0,0,0.03)',
             borderRadius: theme.borderRadius.lg,
-            padding: theme.spacing.lg
+            padding: theme.spacing.md,
+            marginBottom: theme.spacing.md
           }}
         >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: theme.spacing.md
+            alignItems: 'center', 
           }}>
             <div>
               <span style={{ 

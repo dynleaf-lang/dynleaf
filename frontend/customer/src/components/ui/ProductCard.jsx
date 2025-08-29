@@ -747,7 +747,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
                   multiple
                     ? theme.colors.border
                     : selectedOptions[category]?.[title] === option.value
-                    ? theme.colors.primary
+                    ? theme.colors.secondary
                     : theme.colors.border
                 }`,
                 borderRadius: theme.borderRadius.md,
@@ -755,7 +755,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
                 backgroundColor: multiple
                   ? "white"
                   : selectedOptions[category]?.[title] === option.value
-                  ? `${theme.colors.primaryLight}`
+                  ? 'rgba(30, 41, 59, 0.063)'
                   : "white",
               }}
             >
@@ -950,7 +950,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
         style={{
           backgroundColor: theme.colors.card,
           borderRadius: theme.borderRadius.xl,
-          padding: isMobileCompact ? "12px" : isDesktop ? "24px" : "20px",
+          padding: isMobileCompact ? "12px" : isDesktop ? "24px" : "10px",
           boxShadow: theme.shadows.md,
           display: "flex",
           flexDirection: "column",
@@ -1080,7 +1080,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
           />
         </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", textTransform: "capitalize" }}>
           <h2
             style={{
               fontSize: isMobileCompact 
@@ -1305,14 +1305,18 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
                         objectFit: imageError ? "cover" : "contain",
                       }}
                     />
-                  </div>                  <div>
+                  </div>                  
+                  <div className="text-start" style={{
+                    textTransform: "capitalize"
+                  }}>
                     <h3
                       style={{
                         margin: "0 0 4px 0",
                         fontWeight: theme.typography.fontWeights.bold,
                         fontSize: theme.typography.sizes.xl,
                       }}
-                    >                      {product.title}                       
+                    >                    
+                      {product.title}                       
                     </h3>
                     <p
                       style={{
@@ -1374,14 +1378,14 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
                           padding: "10px 16px",
                           backgroundColor:
                             activeTab === tab.id
-                              ? theme.colors.primaryLight
+                              ? theme.colors.primary
                               : "transparent",
                           border: "none",
                           borderRadius: theme.borderRadius.lg,
                           cursor: "pointer",
                           color:
                             activeTab === tab.id
-                              ? theme.colors.primary
+                              ? 'white'
                               : theme.colors.text.secondary,
                           fontWeight:
                             activeTab === tab.id

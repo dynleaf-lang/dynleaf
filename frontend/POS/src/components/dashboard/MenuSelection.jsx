@@ -514,7 +514,7 @@ const MenuSelection = () => {
         }}>
           <div className="text-left">
             {/* Item Name */}
-            <h6 className="card-title mb-1" style={{ 
+            <h6 className="card-title mb-0" style={{ 
               fontSize: menuSettings.compactView ? '0.85rem' : '0.95rem', 
               fontWeight: '600',
               color: '#2d3748',
