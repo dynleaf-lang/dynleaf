@@ -69,7 +69,7 @@ const MenuSelection = () => {
     }).format(price || 0);
   };
   
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('featured');
   const [searchTerm, setSearchTerm] = useState('');
   const searchInputRef = useRef(null);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -83,6 +83,18 @@ const MenuSelection = () => {
   selectedAddons: [],
   variantSelections: {}
   });
+
+  // Helper to detect featured items across possible schema variants
+  const isItemFeatured = useCallback((item) => {
+    if (!item || typeof item !== 'object') return false;
+    // Common fields: featured or isFeatured; also support nested flags
+    if (item.featured === true || item.isFeatured === true) return true;
+    if (item.flags && (item.flags.featured === true || item.flags.isFeatured === true)) return true;
+    // Optional: tags or badges arrays may contain a featured marker
+    const hasTag = Array.isArray(item.tags) && item.tags.some(t => (t || '').toString().toLowerCase() === 'featured');
+    const hasBadge = Array.isArray(item.badges) && item.badges.some(t => (t || '').toString().toLowerCase() === 'featured');
+    return hasTag || hasBadge;
+  }, []);
 
   // Menu display settings state
   const [menuSettings, setMenuSettings] = useState({
@@ -148,13 +160,20 @@ const MenuSelection = () => {
 
   // Filter menu items based on category and search
   const filteredItems = useMemo(() => {
-    let items = selectedCategory === 'all' 
-      ? menuItems 
-      : getMenuItemsByCategory(selectedCategory);
-    
+    let items;
+    if (selectedCategory === 'all') {
+      items = menuItems;
+    } else if (selectedCategory === 'featured') {
+      items = menuItems.filter(isItemFeatured);
+    } else {
+      items = getMenuItemsByCategory(selectedCategory);
+    }
+
     if (searchTerm.trim()) {
       items = searchMenuItems(searchTerm);
-      if (selectedCategory !== 'all') {
+      if (selectedCategory === 'featured') {
+        items = items.filter(isItemFeatured);
+      } else if (selectedCategory !== 'all') {
         items = items.filter(item => {
           let itemCategoryId = item.categoryId || item.category?._id || item.category;
           // If category is a populated object, extract the _id
@@ -165,9 +184,9 @@ const MenuSelection = () => {
         });
       }
     }
-    
+
     return items;
-  }, [menuItems, selectedCategory, searchTerm, getMenuItemsByCategory, searchMenuItems]);
+  }, [menuItems, selectedCategory, searchTerm, getMenuItemsByCategory, searchMenuItems, isItemFeatured]);
 
   // Stable handlers to avoid recreations in memoized grids
   // Stable click handler reference so item grid doesn't re-render on unrelated state changes
@@ -601,11 +620,11 @@ const MenuSelection = () => {
                   <Nav pills vertical className="category-vertical">
                     <NavItem>
                       <NavLink
-                        className={selectedCategory === 'all' ? 'active' : ''}
-                        onClick={() => setSelectedCategory('all')}
+                        className={selectedCategory === 'featured' ? 'active' : ''}
+                        onClick={() => setSelectedCategory('featured')}
                         style={{ cursor: 'pointer' }}
                       >
-                        All Items
+                        Featured
                       </NavLink>
                     </NavItem>
                     {categories.map(category => (
