@@ -35,8 +35,8 @@
 /* Vertical category sidebar */
 .category-sidebar-col {
   height: calc(100vh - 200px);
-  max-width: 210px; /* cap width */
-  flex: 0 0 210px; /* slimmer sidebar */
+  max-width: 170px; /* cap width */
+  flex: 0 0 170px; /* slimmer sidebar */
 }
 
 .category-sidebar {

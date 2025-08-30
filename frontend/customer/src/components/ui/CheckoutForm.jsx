@@ -366,10 +366,11 @@ const CheckoutForm = memo(() => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             style={{
-              backgroundColor: theme.colors.background,
+              backgroundColor: 'white',
               padding: theme.spacing.lg,
               borderRadius: theme.borderRadius.md,
               marginBottom: theme.spacing.lg,
+              marginTop: theme.spacing.md,
               border: `1px solid ${theme.colors.border}`
             }}
           >
@@ -742,7 +743,7 @@ const CheckoutForm = memo(() => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           style={{
-            backgroundColor: theme.colors.background,
+            backgroundColor: 'white',
             padding: theme.spacing.lg,
             borderRadius: theme.borderRadius.md,
             marginBottom: theme.spacing.xl,
