@@ -50,7 +50,7 @@ import './CartSidebar.css';
 import axios from 'axios';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 
-const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
 const CartSidebar = () => {
   const { 
@@ -270,12 +270,29 @@ const CartSidebar = () => {
   };
 
   // Get batches for the currently selected table from localStorage
+  // Tries multiple identifiers to handle cases where orders are keyed by table code (e.g., "T0653")
+  // or by Mongo _id, depending on the event source.
   const getCurrentTableBatches = () => {
-    const tableId = selectedTable?._id;
-    if (!tableId) return null;
+    if (!selectedTable) return null;
+    const keys = [];
     try {
+      const candidates = [
+        selectedTable?._id,
+        selectedTable?.tableId,
+        selectedTable?.id,
+        selectedTable?.TableId,
+        selectedTable?.TableID,
+        selectedTable?.name,
+        selectedTable?.TableName
+      ]
+        .map((k) => (k != null ? String(k) : null))
+        .filter(Boolean);
+      keys.push(...candidates);
       const map = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-      return map[tableId] || null;
+      for (const k of keys) {
+        if (map[k] && Array.isArray(map[k].batches)) return map[k];
+      }
+      return null;
     } catch {
       return null;
     }
@@ -321,9 +338,34 @@ const CartSidebar = () => {
   const hideNameSuggestions = () => setTimeout(() => setShowNameSuggestions(false), 100);
   const hidePhoneSuggestions = () => setTimeout(() => setShowPhoneSuggestions(false), 100);
 
-  const tableBatches = getCurrentTableBatches();
-  const batchCount = tableBatches?.batches?.length || 0;
-  const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
+  // Force refresh of batches when real-time events arrive (must be before useMemo uses it)
+  const [batchesTick, setBatchesTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setBatchesTick((t) => t + 1);
+    window.addEventListener('newOrder', bump);
+    window.addEventListener('orderUpdate', bump);
+    window.addEventListener('orderStatusUpdate', bump);
+    window.addEventListener('paymentStatusUpdate', bump);
+    window.addEventListener('tableStatusUpdate', bump);
+    window.addEventListener('batchesUpdated', bump);
+    return () => {
+      window.removeEventListener('newOrder', bump);
+      window.removeEventListener('orderUpdate', bump);
+      window.removeEventListener('orderStatusUpdate', bump);
+      window.removeEventListener('paymentStatusUpdate', bump);
+      window.removeEventListener('tableStatusUpdate', bump);
+      window.removeEventListener('batchesUpdated', bump);
+    };
+  }, []);
+
+  const tableBatches = useMemo(
+    () => getCurrentTableBatches(),
+    [selectedTable && selectedTable._id, selectedTable && selectedTable.tableId, batchesTick]
+  );
+  const batchCount = useMemo(() => tableBatches?.batches?.length || 0, [tableBatches]);
+  const batchesTotal = useMemo(() => (
+    tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0
+  ), [tableBatches]);
 
   // Settle: open payment modal for table settlement
   const handleSettleTable = async () => {
@@ -824,25 +866,8 @@ const CartSidebar = () => {
         }
       }
 
-      // Record batch for this table with incremental order number
-      const tableId = selectedTable?._id || 'no-table';
-      const batchesKey = 'pos_table_batches';
-      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
-      const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
-      const orderNumber = entry.nextOrderNumber;
-      entry.batches = [
-        ...entry.batches,
-        {
-          orderId: createdOrder._id,
-          orderNumber,
-          items: orderItems,
-          totalAmount: orderData.totalAmount,
-          createdAt: new Date().toISOString()
-        }
-      ];
-      entry.nextOrderNumber = orderNumber + 1;
-      batchesAll[tableId] = entry;
-      localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+  // Do not write batches locally here to avoid duplication.
+  // OrderContext will upsert the batch into pos_table_batches on socket events.
 
       // Clear only current table's cart items but keep customer info
       replaceCart([], { ...customerInfo });
@@ -934,28 +959,8 @@ const CartSidebar = () => {
           console.warn('Failed to set table occupied:', e);
         }
 
-        try {
-          const tableId = selectedTable._id;
-          const batchesKey = 'pos_table_batches';
-          const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
-          const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
-          const orderNumberSeq = entry.nextOrderNumber;
-          entry.batches = [
-            ...entry.batches,
-            {
-              orderId: createdOrder._id,
-              orderNumber: orderNumberSeq,
-              items: orderItems,
-              totalAmount: orderPayload.totalAmount,
-              createdAt: new Date().toISOString()
-            }
-          ];
-          entry.nextOrderNumber = orderNumberSeq + 1;
-          batchesAll[tableId] = entry;
-          localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
-        } catch (e) {
-          console.warn('Failed to persist batch entry:', e);
-        }
+  // Do not write batches locally here to avoid duplication.
+  // OrderContext will upsert the batch into pos_table_batches on socket events.
       }
 
       // Save last order for UI context
@@ -1204,10 +1209,7 @@ const CartSidebar = () => {
 
         {/* Enhanced Customer Info & Special Instructions Section */}
         {(() => {
-          const tableId = selectedTable?._id;
-          const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-          const tableBatches = tableId ? batchesMap[tableId] : null;
-          const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
+          const hasBatches = batchCount > 0;
 
           // Hide section when "No items added to cart" state (no cart items AND no batches)
           if (cartItems.length === 0 && !hasBatches) return null;
@@ -1263,10 +1265,7 @@ const CartSidebar = () => {
         })()}
         <CardBody className="p-3" style={{ overflowY: 'auto', height: 'calc(100% - 280px)' }}>
           {(() => {
-            const tableId = selectedTable?._id;
-            const batchesMap = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-            const tableBatches = tableId ? batchesMap[tableId] : null;
-            const hasBatches = !!(tableBatches && Array.isArray(tableBatches.batches) && tableBatches.batches.length);
+            const hasBatches = batchCount > 0;
             
             // Always show content if there are cart items OR batch items
             if (cartItems.length > 0 || hasBatches) {
@@ -1275,7 +1274,7 @@ const CartSidebar = () => {
               {/* Customer Information and Special Instructions moved to modals */}
 
               {/* Batch Summary for this table */}
-              {batchCount > 0 && (
+              {hasBatches && (
                 <div className="batch-summary mb-2">
                   {/* <h6>Batches for this Table</h6> */}
                   {tableBatches.batches

@@ -27,6 +27,35 @@ const OrderConfirmation = memo(() => {
   const { currencySymbol, formatCurrency } = useCurrency();
   const [isDownloading, setIsDownloading] = useState(false);
   
+  // Sanitize helper: remove synthetic variant-group artifacts (vg:*) and per-character entries
+  const sanitizeOptions = (opts) => {
+    if (!Array.isArray(opts)) return [];
+    return opts.filter(o => {
+      if (!o) return false;
+      const cat = String(o.category || '').toLowerCase();
+      const name = String(o.name || '');
+      const val = String(o.value || '');
+      // Drop synthetic variant-group keys and per-character artifacts
+      if (cat.startsWith('vg:')) return false;
+      if (/^\d+$/.test(name) && val.length <= 2) return false; // e.g., name='0', value='E'
+      if (!name || !val) return false;
+      return true;
+    });
+  };
+
+  const sanitizeNotes = (notes) => {
+    const text = String(notes || '').trim();
+    if (!text) return '';
+    // Remove tokens like "vg:Add-ons: E" or empty "vg:Add-ons:" fragments
+    let cleaned = text
+      .replace(/(?:^|,\s*)vg:[^:]+:\s*[A-Za-z](?=,|$)/gi, '')
+      .replace(/(?:^|,\s*)vg:[^:]+:\s*(?=,|$)/gi, '')
+      .replace(/\s*,\s*,+/g, ', ') // collapse duplicate commas
+      .replace(/^\s*,\s*|\s*,\s*$/g, '') // trim leading/trailing commas
+      .trim();
+    return cleaned;
+  };
+  
   // Only show error banner if there's an error AND no valid order was created
   const shouldShowErrorBanner = orderError && (!currentOrder || !currentOrder._id);
   const [showErrorBanner, setShowErrorBanner] = useState(shouldShowErrorBanner);
@@ -182,8 +211,8 @@ const OrderConfirmation = memo(() => {
         // Items data
         const displayItems = currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : cartItems;
         
-        pdf.setFont('helvetica', 'normal');
-        displayItems.forEach((item) => {
+  pdf.setFont('helvetica', 'normal');
+  displayItems.forEach((item) => {
           const itemName = item.name || item.title;
           const itemQuantity = item.quantity;
           const itemPrice = item.price;
@@ -213,7 +242,7 @@ const OrderConfirmation = memo(() => {
           yPosition += Math.max(itemLines.length * 4, 8);
           
           // Add item options/notes if available
-          const itemOptions = item.selectedOptions || [];
+          const itemOptions = sanitizeOptions(item.selectedOptions);
           if (itemOptions.length > 0) {
             pdf.setFontSize(8);
             pdf.setFont('helvetica', 'italic');
@@ -226,7 +255,8 @@ const OrderConfirmation = memo(() => {
           } else if (item.notes) {
             pdf.setFontSize(8);
             pdf.setFont('helvetica', 'italic');
-            const notesLines = pdf.splitTextToSize(`   ${item.notes}`, maxItemWidth);
+            const cleaned = sanitizeNotes(item.notes);
+            const notesLines = pdf.splitTextToSize(`   ${cleaned}`, maxItemWidth);
             pdf.text(notesLines, margin + colWidths.qty, yPosition - 2);
             yPosition += notesLines.length * 3;
             pdf.setFontSize(9);
@@ -318,9 +348,12 @@ ${(currentOrder?.items && currentOrder.items.length > 0 ? currentOrder.items : c
   .map(item => {
     const itemPrice = formatCurrency ? formatCurrency(item.price) : `${currencySymbol || '$'}${item.price.toFixed(2)}`;
     const itemTotal = formatCurrency ? formatCurrency(item.price * item.quantity) : `${currencySymbol || '$'}${(item.price * item.quantity).toFixed(2)}`;
+    const opts = sanitizeOptions(item.selectedOptions);
+    const notes = sanitizeNotes(item.notes);
+    const extra = opts.length > 0 ? `\n   Options: ${opts.map(o => `${o.name}: ${o.value}`).join(', ')}` : (notes ? `\n   Notes: ${notes}` : '');
     return `${item.quantity}x ${item.name || item.title}
    Unit Price: ${itemPrice}
-   Total: ${itemTotal}`;
+   Total: ${itemTotal}${extra}`;
   }).join('\n\n')}
 
 ═══════════════════════════════════════
@@ -332,7 +365,7 @@ ${taxName || 'Tax'}: ${formatCurrency ? formatCurrency(tax) : `${currencySymbol 
 TOTAL: ${formatCurrency ? formatCurrency(total) : `${currencySymbol || '$'}${total.toFixed(2)}`}
 ═══════════════════════════════════════
 
-${(currentOrder?.notes || orderNote) ? `Special Instructions:\n${currentOrder?.notes || orderNote}\n\n` : ''}Thank you for your order!
+${(currentOrder?.notes || orderNote) ? `Special Instructions:\n${sanitizeNotes(currentOrder?.notes || orderNote)}\n\n` : ''}Thank you for your order!
 Visit us again soon.
 
 Generated on: ${new Date().toLocaleString()}
@@ -756,7 +789,7 @@ Generated on: ${new Date().toLocaleString()}
           {/* Table header */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '50px 1fr auto auto',
+            gridTemplateColumns: '20px 1fr auto auto',
             gap: theme.spacing.md,
             padding: theme.spacing.sm,
             backgroundColor: theme.colors.background,
@@ -778,7 +811,7 @@ Generated on: ${new Date().toLocaleString()}
               const itemName = item.name || item.title;
               const itemQuantity = item.quantity;
               const itemPrice = item.price;
-              const itemOptions = item.selectedOptions || [];
+              const itemOptions = sanitizeOptions(item.selectedOptions || []);
               const itemKey = item.menuItemId || item.id || item._id || index;
               
               return (
@@ -786,7 +819,7 @@ Generated on: ${new Date().toLocaleString()}
                   key={`${itemKey}-${index}`}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '50px 1fr auto auto',
+                    gridTemplateColumns: '20px 1fr auto auto',
                     gap: theme.spacing.md,
                     padding: theme.spacing.sm,
                     borderBottom: `1px solid ${theme.colors.border}10`,
@@ -795,8 +828,8 @@ Generated on: ${new Date().toLocaleString()}
                 >
                   <div style={{ color: theme.colors.text.primary, fontWeight: theme.typography.fontWeights.semibold }}>{itemQuantity}</div>
                   <div>
-                    <div style={{ color: theme.colors.text.primary }}>{itemName}</div>
-                    
+                    <div style={{ color: theme.colors.text.primary, textTransform: 'capitalize', textAlign: 'left' }}>{itemName}</div>
+
                     {/* Item options/notes */}
                     {itemOptions && itemOptions.length > 0 ? (
                       <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, marginTop: '2px' }}>
@@ -807,9 +840,9 @@ Generated on: ${new Date().toLocaleString()}
                           </span>
                         ))}
                       </div>
-                    ) : item.notes && (
+          ) : item.notes && (
                       <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.secondary, marginTop: '2px' }}>
-                        {item.notes}
+            {sanitizeNotes(item.notes)}
                       </div>
                     )}
                   </div>

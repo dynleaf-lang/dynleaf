@@ -62,7 +62,8 @@ const SignupModal = ({ isOpen, onClose }) => {
             fontSize: "14px", 
             color: hasError ? "#EF4444" : "#64748B",
             fontWeight: "500",
-            transition: "color 0.2s ease"
+            transition: "color 0.2s ease",
+            textAlign: "left"
           }}
         >
           {label}

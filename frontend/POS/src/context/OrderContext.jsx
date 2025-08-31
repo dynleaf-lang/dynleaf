@@ -43,12 +43,83 @@ export const OrderProvider = ({ children }) => {
       updateOrderInState(paymentData.orderId, { paymentStatus: paymentData.paymentStatus });
     };
 
+    const upsertBatchFromOrder = (ord) => {
+      try {
+        const tId = typeof ord?.tableId === 'object' ? (ord?.tableId?._id || ord?.tableId?.tableId || ord?.tableId?.id) : ord?.tableId;
+        if (!tId) return; // only track dine-in/table orders
+        const tableKey = String(tId);
+        const batchesKey = 'pos_table_batches';
+        const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+        const entry = all[tableKey] || { nextOrderNumber: 1, batches: [] };
+        const list = Array.isArray(entry.batches) ? entry.batches : [];
+        const idx = list.findIndex((b) => b.orderId === ord._id);
+        const safeItems = Array.isArray(ord.items) ? ord.items : [];
+        const total = Number(ord.totalAmount) || safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+        if (idx === -1) {
+          const orderNumber = ord.orderNumber || entry.nextOrderNumber;
+          const batch = {
+            orderId: ord._id,
+            orderNumber,
+            items: safeItems,
+            totalAmount: total,
+            createdAt: ord.createdAt || new Date().toISOString()
+          };
+          entry.batches = [batch, ...list];
+          // increment nextOrderNumber only if we used it
+          if (!ord.orderNumber) entry.nextOrderNumber = (Number(entry.nextOrderNumber) || 1) + 1;
+        } else {
+          // update existing batch
+          const existing = list[idx];
+          const updated = {
+            ...existing,
+            items: safeItems,
+            totalAmount: total
+          };
+          entry.batches = [updated, ...list.filter((_, i) => i !== idx)];
+        }
+        all[tableKey] = entry;
+        localStorage.setItem(batchesKey, JSON.stringify(all));
+      } catch (_) {}
+    };
+
+    const handleNewOrder = (event) => {
+      try {
+        const payload = event.detail;
+        const created = payload?.order || payload; // backend sometimes sends { order, ... }
+        if (!created || typeof created !== 'object') return;
+        // If order already present, update; else prepend
+        setOrders(prev => {
+          const exists = prev.some(o => o._id === created._id);
+          return exists ? prev.map(o => (o._id === created._id ? { ...o, ...created } : o)) : [created, ...prev];
+        });
+        // Mirror into local batches so CartSidebar shows it
+        upsertBatchFromOrder(created);
+  // Notify UI listeners that batches changed
+  try { window.dispatchEvent(new CustomEvent('batchesUpdated', { detail: { tableId: created.tableId, orderId: created._id } })); } catch {}
+      } catch {}
+    };
+
+    const handleOrderUpdate = (event) => {
+      try {
+        const payload = event.detail;
+        const updated = payload?.order || payload;
+        if (!updated || typeof updated !== 'object') return;
+        setOrders(prev => prev.map(o => (o._id === updated._id ? { ...o, ...updated } : o)));
+        upsertBatchFromOrder(updated);
+  try { window.dispatchEvent(new CustomEvent('batchesUpdated', { detail: { tableId: updated.tableId, orderId: updated._id } })); } catch {}
+      } catch {}
+    };
+
     window.addEventListener('orderStatusUpdate', handleOrderStatusUpdate);
     window.addEventListener('paymentStatusUpdate', handlePaymentStatusUpdate);
+    window.addEventListener('newOrder', handleNewOrder);
+    window.addEventListener('orderUpdate', handleOrderUpdate);
 
     return () => {
       window.removeEventListener('orderStatusUpdate', handleOrderStatusUpdate);
       window.removeEventListener('paymentStatusUpdate', handlePaymentStatusUpdate);
+      window.removeEventListener('newOrder', handleNewOrder);
+      window.removeEventListener('orderUpdate', handleOrderUpdate);
     };
   }, []);
 

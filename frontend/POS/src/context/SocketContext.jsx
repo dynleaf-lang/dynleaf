@@ -21,7 +21,7 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated && user) {
       // Initialize socket connection
-      const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
+  const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001', {
         transports: ['websocket'],
         upgrade: true,
         rememberUpgrade: true
@@ -69,6 +69,12 @@ export const SocketProvider = ({ children }) => {
         
         // Emit custom event for order context to handle
         window.dispatchEvent(new CustomEvent('newOrder', { detail: data }));
+      });
+
+      // Listen for generic order updates (created/updated/deleted)
+      newSocket.on('orderUpdate', (data) => {
+        console.log('[SOCKET] Order update event:', data);
+        window.dispatchEvent(new CustomEvent('orderUpdate', { detail: data }));
       });
 
       // Listen for table status updates

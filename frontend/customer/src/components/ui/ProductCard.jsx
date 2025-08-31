@@ -300,16 +300,25 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
       if (category === 'size' && selectedVariant) {
         return;
       }
-      
-      Object.entries(options).forEach(([name, value]) => {
-        if (Array.isArray(value)) {
-          value.forEach((val) => {
-            formattedOptions.push({ category, name, value: val });
-          });
-        } else if (value) {
-          formattedOptions.push({ category, name, value });
-        }
-      });
+
+      // IMPORTANT: skip synthetic variant-group keys (vg:*) here.
+      // They are handled in the dedicated variantGroups block below.
+      if (typeof category === 'string' && category.startsWith('vg:')) {
+        return;
+      }
+
+      // For regular categories, options should be an object map of name -> value(s)
+      if (options && typeof options === 'object') {
+        Object.entries(options).forEach(([name, value]) => {
+          if (Array.isArray(value)) {
+            value.forEach((val) => {
+              formattedOptions.push({ category, name, value: val });
+            });
+          } else if (value) {
+            formattedOptions.push({ category, name, value });
+          }
+        });
+      }
     });
 
     // Include variantGroups selections as options for order review

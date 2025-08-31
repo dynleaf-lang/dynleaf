@@ -26,7 +26,7 @@ export const POSProvider = ({ children }) => {
   const [restaurant, setRestaurant] = useState(null);
 
   // API base URL
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
+  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
   // Fetch data when user is authenticated
   useEffect(() => {
@@ -41,6 +41,28 @@ export const POSProvider = ({ children }) => {
       fetchRestaurantInfo();
     }
   }, [user]);
+
+  // Real-time: update a single table on tableStatusUpdate socket event
+  useEffect(() => {
+    const onTableStatus = (e) => {
+      try {
+        const d = e.detail || {};
+        const tid = d.tableId;
+        if (!tid) return;
+        setTables((prev) =>
+          Array.isArray(prev)
+            ? prev.map((t) =>
+                (t?._id === tid || t?.tableId === tid)
+                  ? { ...t, status: d.status || t.status, currentOrderId: d.currentOrderId ?? t.currentOrderId, isOccupied: (d.status || '').toLowerCase() === 'occupied' }
+                  : t
+              )
+            : prev
+        );
+      } catch (_) {}
+    };
+    window.addEventListener('tableStatusUpdate', onTableStatus);
+    return () => window.removeEventListener('tableStatusUpdate', onTableStatus);
+  }, []);
 
   const fetchTables = async () => {
     try {

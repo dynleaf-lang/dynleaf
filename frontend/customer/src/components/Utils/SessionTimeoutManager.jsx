@@ -10,9 +10,9 @@ const SESSION_CONFIG = {
   // Enable/disable session timeout (set to false to disable completely)
   ENABLED: true, // Re-enabled with proper logic
   // Time before showing warning (in milliseconds)
-  WARNING_TIME: 25 * 60 * 1000, // 25 minutes
+  WARNING_TIME: 55 * 60 * 1000, // 55 minutes
   // Total session timeout (in milliseconds)
-  TIMEOUT_TIME: 30 * 60 * 1000, // 30 minutes
+  TIMEOUT_TIME: 60 * 60 * 1000, // 60 minutes (1 hour)
   // Warning countdown duration (in milliseconds)
   WARNING_COUNTDOWN: 5 * 60 * 1000, // 5 minutes
   // Backend check interval (in milliseconds) - reduced frequency

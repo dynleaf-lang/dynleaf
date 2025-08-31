@@ -12,7 +12,7 @@ import { FavoritesProvider } from "./context/FavoritesContext";
 import NetworkErrorHandler from "./components/Utils/NetworkErrorHandler.new";
 import ConnectionStatusModal from "./components/Utils/ConnectionStatusModal";
 import ServerStatusCheck from "./components/Utils/ServerStatusCheck"; 
-import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager";
+import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager"; // Auto-logout after 1 hour of inactivity
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
 import './App.css';

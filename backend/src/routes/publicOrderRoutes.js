@@ -489,7 +489,7 @@ router.post('/', async (req, res) => {
         }
 
         // If it's a dine-in order, update the table status and add order reference
-        if (tableId) {
+                if (tableId) {
             try {
                 await DiningTable.findByIdAndUpdate(
                     tableId, 
@@ -501,6 +501,20 @@ router.post('/', async (req, res) => {
                     }
                 );
                 console.log('[PUBLIC ORDER CREATE] Table status updated:', tableId);
+                                // Emit real-time table status update for POS and others
+                                try {
+                                    const { emitTableStatusUpdate } = require('../utils/socketUtils');
+                                    emitTableStatusUpdate({
+                                        tableId,
+                                        status: 'occupied',
+                                        branchId,
+                                        restaurantId,
+                                        currentOrderId: savedOrder._id,
+                                        source: 'customer-order'
+                                    });
+                                } catch (e) {
+                                    console.warn('[PUBLIC ORDER CREATE] Failed to emit table status update:', e?.message);
+                                }
             } catch (tableUpdateError) {
                 console.error('[PUBLIC ORDER CREATE] Failed to update table status:', tableUpdateError);
                 // Don't fail the order if table update fails
@@ -1088,12 +1102,12 @@ router.patch('/:id/move-table', async (req, res) => {
             return res.status(404).json({ message: 'Destination table not found' });
         }
 
-        // Update order's table
+    // Update order's table
         order.tableId = newTableId;
         order.updatedAt = new Date();
         await order.save();
 
-        // Mark destination as occupied
+                // Mark destination as occupied
         try {
             await DiningTable.findByIdAndUpdate(
                 newTableId,
@@ -1104,6 +1118,17 @@ router.patch('/:id/move-table', async (req, res) => {
                     lastOrderTime: new Date()
                 }
             );
+                        try {
+                            const { emitTableStatusUpdate } = require('../utils/socketUtils');
+                            emitTableStatusUpdate({
+                                tableId: newTableId,
+                                status: 'occupied',
+                                branchId: order.branchId,
+                                restaurantId: order.restaurantId,
+                                currentOrderId: order._id,
+                                source: 'move-table-dest'
+                            });
+                        } catch (_) {}
         } catch (e) {
             console.warn('[PUBLIC ORDERS] Failed to update destination table occupancy:', e?.message);
         }
@@ -1119,14 +1144,25 @@ router.patch('/:id/move-table', async (req, res) => {
                         { orderStatus: { $in: ['Pending', 'Processing'] } }
                     ]
                 });
-                if (remainingActive === 0) {
-                    await DiningTable.findByIdAndUpdate(oldTableId, {
-                        status: 'available',
-                        isOccupied: false,
-                        currentOrder: null,
-                        lastOrderTime: null
-                    });
-                }
+                                if (remainingActive === 0) {
+                                        await DiningTable.findByIdAndUpdate(oldTableId, {
+                                                status: 'available',
+                                                isOccupied: false,
+                                                currentOrder: null,
+                                                lastOrderTime: null
+                                        });
+                                        try {
+                                            const { emitTableStatusUpdate } = require('../utils/socketUtils');
+                                            emitTableStatusUpdate({
+                                                tableId: oldTableId,
+                                                status: 'available',
+                                                branchId: order.branchId,
+                                                restaurantId: order.restaurantId,
+                                                currentOrderId: null,
+                                                source: 'move-table-source-free'
+                                            });
+                                        } catch (_) {}
+                                }
             } catch (e) {
                 console.warn('[PUBLIC ORDERS] Failed to update source table occupancy:', e?.message);
             }

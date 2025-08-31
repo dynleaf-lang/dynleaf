@@ -33,12 +33,22 @@ const emitOrderUpdate = (order, eventType = 'updated') => {
       io.to(`branch_${order.branchId}`).emit('orderUpdate', eventData);
       console.log(`[SOCKET] Emitted order ${eventType} to branch_${order.branchId}`);
     }
+
+    // Emit to POS rooms (so POS dashboards receive updates without listening to generic rooms)
+    if (order.branchId) {
+      io.to(`pos_branch_${order.branchId}`).emit('orderUpdate', eventData);
+      console.log(`[SOCKET] Emitted order ${eventType} to pos_branch_${order.branchId}`);
+    }
+    if (order.restaurantId) {
+      io.to(`pos_restaurant_${order.restaurantId}`).emit('orderUpdate', eventData);
+      console.log(`[SOCKET] Emitted order ${eventType} to pos_restaurant_${order.restaurantId}`);
+    }
     
     // Emit to global admin room
     io.to('admin_global').emit('orderUpdate', eventData);
     console.log(`[SOCKET] Emitted order ${eventType} to admin_global`);
 
-    // Emit to customer rooms
+  // Emit to customer rooms
     if (order.tableId) {
       io.to(`table_${order.tableId}`).emit('orderUpdate', eventData);
       console.log(`[SOCKET] Emitted order ${eventType} to table_${order.tableId}`);
@@ -145,12 +155,61 @@ const emitNewOrder = (order) => {
       io.to(`branch_${order.branchId}`).emit('newOrder', eventData);
     }
     
+    // Notify POS rooms directly as well
+    if (order.branchId) {
+      io.to(`pos_branch_${order.branchId}`).emit('newOrder', eventData);
+      console.log(`[SOCKET] Emitted new order to pos_branch_${order.branchId}`);
+    }
+    if (order.restaurantId) {
+      io.to(`pos_restaurant_${order.restaurantId}`).emit('newOrder', eventData);
+      console.log(`[SOCKET] Emitted new order to pos_restaurant_${order.restaurantId}`);
+    }
+
     io.to('admin_global').emit('newOrder', eventData);
     
     console.log(`[SOCKET] Emitted new order notification for order ${order.orderId}`);
     
   } catch (error) {
     console.error('[SOCKET] Error emitting new order notification:', error);
+  }
+};
+
+/**
+ * Emit table status update to relevant rooms (POS, admin, kitchen and table room if applicable)
+ * @param {Object} data - { tableId, status, branchId, restaurantId, currentOrderId? }
+ */
+const emitTableStatusUpdate = (data = {}) => {
+  if (!global.io) {
+    console.warn('[SOCKET] Socket.IO instance not available');
+    return;
+  }
+  const io = global.io;
+  try {
+    const payload = {
+      tableId: data.tableId,
+      status: data.status,
+      branchId: data.branchId,
+      restaurantId: data.restaurantId,
+      currentOrderId: data.currentOrderId || null,
+      timestamp: new Date().toISOString(),
+      source: data.source || 'server'
+    };
+
+    if (data.branchId) {
+      io.to(`pos_branch_${data.branchId}`).emit('tableStatusUpdate', payload);
+      io.to(`kitchen_branch_${data.branchId}`).emit('tableStatusUpdate', payload);
+      io.to(`branch_${data.branchId}`).emit('tableStatusUpdate', payload);
+    }
+    if (data.restaurantId) {
+      io.to(`pos_restaurant_${data.restaurantId}`).emit('tableStatusUpdate', payload);
+      io.to(`restaurant_${data.restaurantId}`).emit('tableStatusUpdate', payload);
+    }
+    if (data.tableId) {
+      io.to(`table_${data.tableId}`).emit('tableStatusUpdate', payload);
+    }
+    console.log(`[SOCKET] Emitted table status update for table ${data.tableId}: ${data.status}`);
+  } catch (error) {
+    console.error('[SOCKET] Error emitting table status update:', error);
   }
 };
 
@@ -181,6 +240,7 @@ module.exports = {
   emitOrderUpdate,
   emitStatusUpdate,
   emitNewOrder,
+  emitTableStatusUpdate,
   getConnectedClientsCount,
   getClientsInRoom
 };
