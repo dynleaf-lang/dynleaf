@@ -55,6 +55,15 @@ export const OrderProvider = ({ children }) => {
         const idx = list.findIndex((b) => b.orderId === ord._id);
         const safeItems = Array.isArray(ord.items) ? ord.items : [];
         const total = Number(ord.totalAmount) || safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+
+        // Derive customer/order meta from the order
+        const ci = ord.customer || ord.customerInfo || {};
+        const name = ci.name || ord.customerName || '';
+        const phone = ci.phone || ord.customerPhone || '';
+        const customerId = ci.customerId || ci._id || ord.customerId || null;
+        const orderType = ord.orderType || ord.type || 'dine-in';
+        const specialInstructions = ord.specialInstructions || ord.notes || ord.instructions || '';
+        const deliveryAddress = ord.deliveryAddress || ci.address || '';
         if (idx === -1) {
           const orderNumber = ord.orderNumber || entry.nextOrderNumber;
           const batch = {
@@ -62,7 +71,12 @@ export const OrderProvider = ({ children }) => {
             orderNumber,
             items: safeItems,
             totalAmount: total,
-            createdAt: ord.createdAt || new Date().toISOString()
+            createdAt: ord.createdAt || new Date().toISOString(),
+            // Extra meta so POS can reflect customer/order context
+            orderType,
+            customer: { name, phone, customerId },
+            specialInstructions,
+            deliveryAddress
           };
           entry.batches = [batch, ...list];
           // increment nextOrderNumber only if we used it
@@ -73,12 +87,39 @@ export const OrderProvider = ({ children }) => {
           const updated = {
             ...existing,
             items: safeItems,
-            totalAmount: total
+            totalAmount: total,
+            orderType: orderType || existing.orderType,
+            customer: {
+              ...(existing.customer || {}),
+              ...(name ? { name } : {}),
+              ...(phone ? { phone } : {}),
+              ...(customerId ? { customerId } : {})
+            },
+            specialInstructions: specialInstructions || existing.specialInstructions || '',
+            deliveryAddress: deliveryAddress || existing.deliveryAddress || ''
           };
           entry.batches = [updated, ...list.filter((_, i) => i !== idx)];
         }
         all[tableKey] = entry;
         localStorage.setItem(batchesKey, JSON.stringify(all));
+
+        // Also mirror customer meta into per-table cart storage so selecting the table restores it
+        try {
+          const cartsKey = 'pos_table_carts';
+          const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
+          const saved = cartsAll[tableKey] || { items: [], customerInfo: {} };
+          const mergedCustomer = {
+            ...(saved.customerInfo || {}),
+            ...(name ? { name } : {}),
+            ...(phone ? { phone } : {}),
+            ...(customerId ? { customerId } : {}),
+            ...(orderType ? { orderType } : {}),
+            ...(specialInstructions ? { specialInstructions } : {}),
+            ...(deliveryAddress ? { deliveryAddress } : {})
+          };
+          cartsAll[tableKey] = { items: saved.items || [], customerInfo: mergedCustomer };
+          localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
+        } catch (_) {}
       } catch (_) {}
     };
 

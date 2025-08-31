@@ -367,6 +367,34 @@ const CartSidebar = () => {
     tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0
   ), [tableBatches]);
 
+  // When cart is empty but there are existing batches for the table (e.g., from customer portal),
+  // adopt order meta (orderType, customer info, instructions, deliveryAddress) from the latest batch.
+  useEffect(() => {
+    try {
+      const hasCart = Array.isArray(cartItems) && cartItems.length > 0;
+      const batches = tableBatches?.batches || [];
+      if (hasCart || !Array.isArray(batches) || batches.length === 0) return;
+      // Prefer the most recent batch (first if we prepend newest)
+      const latest = batches[0];
+      if (!latest) return;
+      const next = {};
+      if (latest.orderType && latest.orderType !== customerInfo.orderType) next.orderType = latest.orderType;
+      const cust = latest.customer || {};
+      if (cust.name && cust.name !== customerInfo.name) next.name = cust.name;
+      if (cust.phone && cust.phone !== customerInfo.phone) next.phone = cust.phone;
+      if (cust.customerId && cust.customerId !== customerInfo.customerId) next.customerId = cust.customerId;
+      if (typeof latest.specialInstructions === 'string' && latest.specialInstructions !== customerInfo.specialInstructions) {
+        next.specialInstructions = latest.specialInstructions;
+      }
+      if (latest.deliveryAddress && latest.deliveryAddress !== customerInfo.deliveryAddress) {
+        next.deliveryAddress = latest.deliveryAddress;
+      }
+      if (Object.keys(next).length) {
+        updateCustomerInfo(next);
+      }
+    } catch (_) {}
+  }, [tableBatches, cartItems]);
+
   // Settle: open payment modal for table settlement
   const handleSettleTable = async () => {
     if (!selectedTable?._id) {

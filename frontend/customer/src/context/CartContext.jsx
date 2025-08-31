@@ -35,6 +35,8 @@ export const CartProvider = ({ children }) => {
   // Track ongoing order requests to prevent duplicates
   const [ongoingOrderRequest, setOngoingOrderRequest] = useState(null);
   const [lastOrderAttempt, setLastOrderAttempt] = useState(null);
+  // Cooldown timestamp for too-many-attempts protection
+  const [orderCooldownUntil, setOrderCooldownUntil] = useState(null);
   const [orderSubmissionCount, setOrderSubmissionCount] = useState(0);
   const orderAttempts = useRef(0);
 
@@ -411,19 +413,31 @@ export const CartProvider = ({ children }) => {
 
     // Prevent duplicate orders
     if (ongoingOrderRequest) {
+      setOrderError('Order is currently being submitted. Please wait...');
       return null;
     }
 
     // Rate limiting: prevent too many rapid order attempts
     const now = Date.now();
+    if (orderCooldownUntil && now < orderCooldownUntil) {
+      const secs = Math.max(1, Math.ceil((orderCooldownUntil - now) / 1000));
+      setOrderError(`Too many order attempts. Please wait ${secs} seconds before trying again.`);
+      return null;
+    }
     if (lastOrderAttempt && (now - lastOrderAttempt) < 3000) {
+      setOrderError('Please wait a moment before trying again.');
       return null;
     }
 
     // Session rate limiting: prevent too many order attempts in a short time
     orderAttempts.current++;
     if (orderAttempts.current > 5) {
-      setOrderError('Too many order attempts. Please wait a moment before trying again.');
+      // Exponential backoff cooldown (max 60s)
+      const over = orderAttempts.current - 5; // 1..n
+      const cooldownSecs = Math.min(60, Math.pow(2, over) * 5); // 5,10,20,40,60...
+      const until = Date.now() + cooldownSecs * 1000;
+      setOrderCooldownUntil(until);
+      setOrderError(`Too many order attempts. Please wait ${cooldownSecs} seconds before trying again.`);
       return null;
     }
 
@@ -599,6 +613,9 @@ export const CartProvider = ({ children }) => {
         setCurrentOrder(createdOrder);
         setOrderPlaced(true);
         setOrderSubmissionCount(0); // Reset submission count on success
+        // Reset attempt guards on success
+        orderAttempts.current = 0;
+        setOrderCooldownUntil(null);
         clearCart();
         
         // Track the order for notifications
@@ -658,6 +675,20 @@ export const CartProvider = ({ children }) => {
       setOngoingOrderRequest(null);
     }
   };
+
+  // Auto-clear cooldown when time passes
+  useEffect(() => {
+    if (!orderCooldownUntil) return;
+    const t = setInterval(() => {
+      const now = Date.now();
+      if (now >= orderCooldownUntil) {
+        orderAttempts.current = 0;
+        setOrderCooldownUntil(null);
+        setOrderError(null);
+      }
+    }, 500);
+    return () => clearInterval(t);
+  }, [orderCooldownUntil]);
   // Check order status using public API
   const checkOrderStatus = async (orderId) => {
     if (!orderId) {
