@@ -84,6 +84,102 @@ const TableManagement = () => {
   const [tableOrders, setTableOrders] = useState([]);
   const [loadingTableOrders, setLoadingTableOrders] = useState(false);
 
+  // Determine if an order is active (POS perspective)
+  const isOrderActive = (order) => {
+    const s = (order?.orderStatus || '').toLowerCase();
+    // Treat cancelled/completed/refunded/void as not active
+    return !['cancelled', 'completed', 'refunded', 'void'].includes(s);
+  };
+
+  // Check multiple possible table reference formats to match an order to a table
+  const orderMatchesTable = (order, table) => {
+    if (!order || !table) return false;
+
+    // Direct id matches
+    if (order.tableId && order.tableId === table._id) return true;
+    if (order.table && typeof order.table === 'object' && order.table._id === table._id) return true;
+    if (order.table && typeof order.table !== 'object' && order.table === table._id) return true;
+
+    // Name matches
+    const orderTableName = (order.tableName || order.TableName || '').toLowerCase();
+    const tableName = (table.TableName || '').toLowerCase();
+    if (orderTableName && tableName && orderTableName === tableName) return true;
+
+    // table object with TableName or tableId
+    if (order.table && typeof order.table === 'object') {
+      const objName = (order.table.TableName || '').toLowerCase();
+      if (objName && tableName && objName === tableName) return true;
+      if (order.table.tableId && order.table.tableId === table.tableId) return true;
+    }
+
+    // tableNumber pattern
+    if (order.tableNumber && order.tableNumber === table.tableId) return true;
+
+    // Fallback: currentOrderId linkage
+    if (table.currentOrderId && order._id === table.currentOrderId) return true;
+
+    return false;
+  };
+
+  // Does this table have any active order in POS (OrderContext)?
+  const hasActiveOrderForTable = (table) => {
+    if (!Array.isArray(contextOrders) || contextOrders.length === 0) return false;
+    return contextOrders.some(o => isOrderActive(o) && orderMatchesTable(o, table));
+  };
+
+  // Compute UI status from POS (orders) + table flags. POS wins for occupied.
+  const deriveStatus = (table) => {
+    if (hasActiveOrderForTable(table)) return 'occupied';
+    switch (table.status) {
+      case 'reserved':
+        return 'reserved';
+      case 'maintenance':
+        return 'maintenance';
+      case 'occupied':
+        // Only show occupied if POS also indicates it; else treat as available
+        return 'available';
+      case 'available':
+      default:
+        return 'available';
+    }
+  };
+
+  // Optional: reconcile backend table flags with POS-derived status
+  const syncTablesWithPOS = async () => {
+    if (!Array.isArray(tables) || tables.length === 0) return;
+    try {
+      const updates = [];
+      for (const t of tables) {
+        const uiStatus = deriveStatus(t);
+        const shouldBeOccupied = uiStatus === 'occupied';
+        const serverSaysOccupied = t.status === 'occupied' || !!t.isOccupied;
+
+        if (shouldBeOccupied !== serverSaysOccupied || (t.status || 'available') !== uiStatus) {
+          const payload = {
+            status: uiStatus,
+            isOccupied: shouldBeOccupied,
+          };
+          if (!shouldBeOccupied) {
+            payload.currentOrder = null;
+            payload.currentOrderId = null;
+          }
+          updates.push(updateTable(t._id, payload));
+        }
+      }
+      if (updates.length > 0) {
+        await Promise.allSettled(updates);
+        // Refresh after sync
+        if (isSuperAdmin()) {
+          await fetchTables();
+        } else if (user?.restaurantId && user?.branchId) {
+          await fetchTables({ restaurantId: user.restaurantId, branchId: user.branchId });
+        }
+      }
+    } catch (e) {
+      console.error('POS sync failed:', e);
+    }
+  };
+
   // Test function to manually set table statuses (for debugging)
   const setTestStatuses = async () => {
     if (!tables || tables.length === 0) return;
@@ -1050,30 +1146,26 @@ const TableManagement = () => {
 
   // Function to get status color for grid view
   const getStatusColor = (table) => {
-    // Check if table has active orders first (highest priority)
-    if (table.currentOrder || table.currentOrderId || table.isOccupied || table.status === 'occupied') {
-      return '#dc3545'; // Red for occupied
-    }
-    
-    // Then check other statuses
-    switch (table.status) {
+    const status = deriveStatus(table);
+    switch (status) {
+      case 'occupied':
+        return '#dc3545';
       case 'reserved':
-        return '#ffc107'; // Yellow for reserved
+        return '#ffc107';
       case 'maintenance':
-        return '#6c757d'; // Gray for maintenance
+        return '#6c757d';
       case 'available':
       default:
-        return '#28a745'; // Green for available
+        return '#28a745';
     }
   };
 
   // Function to get status text
   const getStatusText = (table) => {
-    if (table.currentOrder || table.currentOrderId || table.isOccupied || table.status === 'occupied') {
-      return 'Occupied';
-    }
-    
-    switch (table.status) {
+    const status = deriveStatus(table);
+    switch (status) {
+      case 'occupied':
+        return 'Occupied';
       case 'reserved':
         return 'Reserved';
       case 'maintenance':
@@ -1109,23 +1201,11 @@ const TableManagement = () => {
 
   // Get status badge with mutually exclusive logic (matches badge counts)
   const getStatusBadge = (table) => {
-    // Use the same priority-based logic as badge counts
-    // 1. Occupied (highest priority)
-    if (table.currentOrder || table.currentOrderId || table.isOccupied || table.status === 'occupied') {
-      return <Badge color="danger">Occupied</Badge>;
-    }
-    // 2. Reserved (if not occupied)
-    else if (table.status === 'reserved') {
-      return <Badge color="warning">Reserved</Badge>;
-    }
-    // 3. Maintenance (if not occupied or reserved)
-    else if (table.status === 'maintenance') {
-      return <Badge color="secondary">Maintenance</Badge>;
-    }
-    // 4. Available (all remaining)
-    else {
-      return <Badge color="success">Available</Badge>;
-    }
+    const status = deriveStatus(table);
+    if (status === 'occupied') return <Badge color="danger">Occupied</Badge>;
+    if (status === 'reserved') return <Badge color="warning">Reserved</Badge>;
+    if (status === 'maintenance') return <Badge color="secondary">Maintenance</Badge>;
+    return <Badge color="success">Available</Badge>;
   };
 
   return (
@@ -1205,22 +1285,14 @@ const TableManagement = () => {
                     <h3 className="mb-0 font-weight-bold">
                       <i className="fas fa-chair mr-2"></i>Dining Tables
                     </h3>
-                    <p className="mb-0 small">
+          <p className="mb-0 small">
                       <i className="fas fa-info-circle mr-1"></i>Manage your restaurant's tables
                       {tables && tables.length > 0 && (() => {
-                        // Calculate mutually exclusive counts
-                        const occupiedTables = tables.filter(t => 
-                          t.currentOrder || t.currentOrderId || t.isOccupied || t.status === 'occupied'
-                        );
-                        const reservedTables = tables.filter(t => 
-                          t.status === 'reserved' && !occupiedTables.includes(t)
-                        );
-                        const maintenanceTables = tables.filter(t => 
-                          t.status === 'maintenance' && !occupiedTables.includes(t) && !reservedTables.includes(t)
-                        );
-                        const availableTables = tables.filter(t => 
-                          !occupiedTables.includes(t) && !reservedTables.includes(t) && !maintenanceTables.includes(t)
-                        );
+            // Calculate mutually exclusive counts using POS-derived status
+            const occupiedTables = tables.filter(t => deriveStatus(t) === 'occupied');
+            const reservedTables = tables.filter(t => deriveStatus(t) === 'reserved');
+            const maintenanceTables = tables.filter(t => deriveStatus(t) === 'maintenance');
+            const availableTables = tables.filter(t => deriveStatus(t) === 'available');
                         
                         // Verification: Ensure counts are consistent
                         const totalCount = availableTables.length + occupiedTables.length + reservedTables.length + maintenanceTables.length;
@@ -1253,9 +1325,8 @@ const TableManagement = () => {
                   </div>
                   <div>
                     <Button color="info" size="sm" className="mr-2" onDoubleClick={() => setTestMode(!testMode)} onClick={async () => {
-                      // Force a complete data refresh
                       try {
-                        // Refresh tables to get latest status
+                        // Refresh tables
                         if (isSuperAdmin()) {
                           await fetchTables();
                         } else if (user && user.restaurantId && user.branchId) {
@@ -1264,11 +1335,21 @@ const TableManagement = () => {
                             branchId: user.branchId
                           });
                         }
+                        // Also refresh orders to reflect POS status accurately
+                        const oFilters = {};
+                        if (!isSuperAdmin() && user) {
+                          oFilters.restaurantId = user.restaurantId;
+                          oFilters.branchId = user.branchId;
+                        }
+                        await getAllOrders(oFilters);
                       } catch (err) {
                         console.error('Error refreshing table status:', err);
                       }
                     }}>
                       <i className="fas fa-sync-alt mr-1"></i> Refresh Status
+                    </Button>
+                    <Button color="success" size="sm" className="mr-2" onClick={syncTablesWithPOS}>
+                      <i className="fas fa-link mr-1"></i> Sync with POS
                     </Button>
                     {testMode && (
                       <Button color="warning" size="sm" className="mr-2" onClick={setTestStatuses}>
@@ -1431,7 +1512,7 @@ const TableManagement = () => {
                           {getStatusBadge(table)}
                         </td>
                         <td>
-                          {table.currentOrder || table.currentOrderId ? (
+                          {hasActiveOrderForTable(table) ? (
                             <div>
                               <Badge color="info" className="mb-1">
                                 <i className="fas fa-utensils mr-1"></i>
@@ -1540,7 +1621,7 @@ const TableManagement = () => {
                                 deleteTable(table._id);
                               }
                             }}
-                            disabled={table.isOccupied || table.status === 'occupied' || table.currentOrder || table.currentOrderId}
+                            disabled={hasActiveOrderForTable(table)}
                           >
                             <i className="fas fa-trash"></i>
                           </Button>
@@ -1604,22 +1685,13 @@ const TableManagement = () => {
                     <h3 className="mb-0 font-weight-bold">
                       <i className="fas fa-th-large mr-2"></i>Table Grid View
                     </h3>
-                    <p className="mb-0 small">
+          <p className="mb-0 small">
                       <i className="fas fa-info-circle mr-1"></i>Click on any table to view current orders
                       {tables && tables.length > 0 && (() => {
-                        // Calculate mutually exclusive counts
-                        const occupiedTables = tables.filter(t => 
-                          t.currentOrder || t.currentOrderId || t.isOccupied || t.status === 'occupied'
-                        );
-                        const reservedTables = tables.filter(t => 
-                          t.status === 'reserved' && !occupiedTables.includes(t)
-                        );
-                        const maintenanceTables = tables.filter(t => 
-                          t.status === 'maintenance' && !occupiedTables.includes(t) && !reservedTables.includes(t)
-                        );
-                        const availableTables = tables.filter(t => 
-                          !occupiedTables.includes(t) && !reservedTables.includes(t) && !maintenanceTables.includes(t)
-                        );
+            const occupiedTables = tables.filter(t => deriveStatus(t) === 'occupied');
+            const reservedTables = tables.filter(t => deriveStatus(t) === 'reserved');
+            const maintenanceTables = tables.filter(t => deriveStatus(t) === 'maintenance');
+            const availableTables = tables.filter(t => deriveStatus(t) === 'available');
                         
                         return (
                           <span className="ml-2">
@@ -1792,8 +1864,8 @@ const TableManagement = () => {
                               {getStatusText(table)}
                             </div>
                             
-                            {/* Active Order Indicator */}
-                            {(table.currentOrder || table.currentOrderId) && (
+                            {/* Active Order Indicator (POS-derived) */}
+                            {(deriveStatus(table) === 'occupied') && (
                               <div style={{
                                 position: 'absolute',
                                 bottom: '5px',
