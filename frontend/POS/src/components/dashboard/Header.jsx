@@ -113,7 +113,8 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
         </Button>
       )}
 
-      {/* Orders Button - Always visible to let user navigate to Orders page */}
+      {/* Orders Button - hidden on order page */}
+      {activeTab !== 'orders' && (
       <Button
         color="primary"
         size="sm"
@@ -130,6 +131,7 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
         <FaCashRegister className="me-2" size={14} />
         Orders
       </Button>
+      )}
 
       <Nav className="ms-auto d-flex align-items-center" navbar>
         {/* Fullscreen Toggle Button */}
