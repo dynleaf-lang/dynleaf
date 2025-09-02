@@ -82,6 +82,14 @@
   position: relative;
 }
 
+/* VIP highlighting */
+.vip-order {
+  box-shadow: 0 0 0 2px #ffc107 inset, 0 8px 25px rgba(255, 193, 7, 0.25);
+}
+.vip-badge {
+  background: linear-gradient(135deg, #ff6b6b, #c92a2a);
+}
+
 .order-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);

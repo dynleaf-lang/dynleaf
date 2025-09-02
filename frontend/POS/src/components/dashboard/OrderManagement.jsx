@@ -70,6 +70,9 @@ const OrderManagement = () => {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
+  const [showDelivered, setShowDelivered] = useState(false);
+  const [unpaidOnly, setUnpaidOnly] = useState(false);
+  const [sortMode, setSortMode] = useState('slaOldest'); // 'slaOldest' | 'newest'
 
   // SLA settings (minutes) with persistence
   const SLA_STORAGE_KEY = 'pos_sla_settings';
@@ -181,6 +184,13 @@ const OrderManagement = () => {
     return 'sla-ok';
   };
 
+  const getSlaRank = (o) => {
+    const cls = getSlaClass(o);
+    if (cls === 'sla-danger') return 0;
+    if (cls === 'sla-warn') return 1;
+    return 2; // ok
+  };
+
   // Helper to display table info with fallbacks
   const getTableLabel = (o) => {
     try {
@@ -201,7 +211,13 @@ const OrderManagement = () => {
   // Filter orders based on main view, active tab, search, and filters
   const filteredOrders = React.useMemo(() => {
     let filtered = orders;
- 
+    
+    // Optionally exclude delivered orders
+    if (!showDelivered) {
+      try {
+        filtered = filtered.filter(o => (o?.status || '').toLowerCase() !== 'delivered');
+      } catch {}
+    }
   
 
     // Filter by main view (orders vs kot)
@@ -244,12 +260,28 @@ const OrderManagement = () => {
     }
 
     // Filter by payment status
-    if (paymentFilter !== 'all') {
-      filtered = filtered.filter(order => order.paymentStatus === paymentFilter);
+    if (unpaidOnly) {
+      filtered = filtered.filter(order => (order.paymentStatus || '').toLowerCase() === 'unpaid');
+    } else if (paymentFilter !== 'all') {
+      filtered = filtered.filter(order => (order.paymentStatus || '').toLowerCase() === paymentFilter);
     }
 
-    return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [orders, mainView, activeTab, searchTerm, paymentFilter, getOrdersByStatus, tick]);
+    // Sorting
+    if (sortMode === 'slaOldest') {
+      filtered = filtered.slice().sort((a, b) => {
+        const rankA = getSlaRank(a);
+        const rankB = getSlaRank(b);
+        if (rankA !== rankB) return rankA - rankB; // danger -> warn -> ok
+        const ta = new Date(a.createdAt || a.orderDate || 0).getTime();
+        const tb = new Date(b.createdAt || b.orderDate || 0).getTime();
+        return ta - tb; // oldest first
+      });
+    } else {
+      filtered = filtered.slice().sort((a, b) => new Date(b.createdAt || b.orderDate || 0) - new Date(a.createdAt || a.orderDate || 0));
+    }
+
+    return filtered;
+  }, [orders, mainView, activeTab, searchTerm, paymentFilter, unpaidOnly, showDelivered, sortMode, getOrdersByStatus, tick, slaSettings.warnMinutes, slaSettings.dangerMinutes]);
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
@@ -375,9 +407,10 @@ const OrderManagement = () => {
 
   const OrderCard = ({ order }) => {
     const orderType = order.customerInfo?.orderType || order.orderType || 'dine-in';
+    const isVip = !!(order?.customerInfo?.vip || order?.customerInfo?.isVIP || order?.isVIP || (order?.priority && String(order.priority).toLowerCase() === 'vip'));
     
     return (
-      <Card className="order-card h-100 shadow-sm">
+      <Card className={`order-card h-100 shadow-sm ${isVip ? 'vip-order' : ''}`}>
         <CardHeader className="order-card-header">
           <div className="d-flex justify-content-between align-items-start">
             <div className="order-header-info">
@@ -386,6 +419,9 @@ const OrderManagement = () => {
                   {getStatusIcon(order.status)}
                 </div>
                 <h6 className="order-number mb-0">#{order.orderId}</h6>
+                {isVip && (
+                  <Badge color="danger" className="ms-2 vip-badge" title="VIP Order">VIP</Badge>
+                )}
               </div>
               <div className="d-flex align-items-center mb-2">
                 <div className="order-type-badge me-2">
@@ -562,25 +598,61 @@ const OrderManagement = () => {
           </InputGroup>
         </Col>
         <Col md={4}>
-          <Input
-            type="select"
-            value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value)}
-          >
-            <option value="all">All Payment Status</option>
-            <option value="paid">Paid</option>
-            <option value="unpaid">Unpaid</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-            <option value="refunded">Refunded</option>
-            <option value="partial">Partial</option>
-          </Input>
+          <div className="d-grid gap-2">
+            <Input
+              type="select"
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              disabled={unpaidOnly}
+            >
+              <option value="all">All Payment Status</option>
+              <option value="paid">Paid</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="refunded">Refunded</option>
+              <option value="partial">Partial</option>
+            </Input>
+            <div className="form-check">
+              <Input
+                id="unpaidOnly"
+                type="checkbox"
+                className="form-check-input"
+                checked={unpaidOnly}
+                onChange={(e) => setUnpaidOnly(e.target.checked)}
+              />
+              <label className="form-check-label ms-2" htmlFor="unpaidOnly">Unpaid only</label>
+            </div>
+            <div className="form-check">
+              <Input
+                id="showDelivered"
+                type="checkbox"
+                className="form-check-input"
+                checked={showDelivered}
+                onChange={(e) => setShowDelivered(e.target.checked)}
+              />
+              <label className="form-check-label ms-2" htmlFor="showDelivered">Show delivered</label>
+            </div>
+          </div>
         </Col>
         <Col md={4}>
-          <Button color="outline-secondary" block>
-            <FaFilter className="me-2" />
-            Advanced Filters
-          </Button>
+          <div className="d-grid gap-2">
+            <div>
+              <label className="form-label">Sort</label>
+              <Input
+                type="select"
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value)}
+              >
+                <option value="slaOldest">SLA priority, oldest first</option>
+                <option value="newest">Newest first</option>
+              </Input>
+            </div>
+            <Button color="outline-secondary">
+              <FaFilter className="me-2" />
+              Advanced Filters
+            </Button>
+          </div>
         </Col>
       </Row>
 
@@ -623,7 +695,17 @@ const OrderManagement = () => {
               onClick={() => setActiveTab('all')}
               style={{ cursor: 'pointer' }}
             >
-              All Orders ({orders.length})
+              All Orders ({orders.filter(o => showDelivered ? true : (o?.status || '').toLowerCase() !== 'delivered').length})
+            </NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'cancelled' ? 'active' : ''}
+              onClick={() => setActiveTab('cancelled')}
+              style={{ cursor: 'pointer' }}
+            >
+              <FaExclamationTriangle className="me-2" />
+              Cancelled
             </NavLink>
           </NavItem>
           <NavItem>
