@@ -63,7 +63,7 @@ const Tables = () => {
   const [totalPages, setTotalPages] = useState(1);
   
   // Context data
-  const { menuItems, loading, error, fetchMenuItems, deleteMenuItem } = useContext(MenuContext); 
+  const { menuItems, loading, error, fetchMenuItems, deleteMenuItem, updateMenuItem } = useContext(MenuContext); 
   const { categories, fetchCategories } = useContext(CategoryContext);
   const { user, isSuperAdmin } = useContext(AuthContext);
   const { restaurants } = useContext(RestaurantContext);
@@ -95,6 +95,8 @@ const Tables = () => {
   
   // Access denied error state
   const [accessDeniedError, setAccessDeniedError] = useState(null);
+  // Inline update states
+  const [updatingFeatured, setUpdatingFeatured] = useState(new Set());
   
   // Update derived state - use either context menu items or locally filtered items
   const displayedMenuItems = useMemo(() => {
@@ -383,6 +385,32 @@ const Tables = () => {
     appliedFilters.current = filters;
     fetchMenuItems({ ...filters, page: 1, limit });
   }, [buildFilters, fetchMenuItems]);
+
+  // Toggle Featured inline
+  const handleToggleFeatured = useCallback(async (item) => {
+    const id = item._id;
+    const nextValue = !item.featured;
+    setUpdatingFeatured(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    try {
+      const res = await updateMenuItem(id, { featured: nextValue });
+      if (!res?.success) {
+        const msg = res?.error?.message || 'Failed to update Featured status';
+        setAccessDeniedError(msg);
+      }
+    } catch (e) {
+      setAccessDeniedError(e?.message || 'Failed to update Featured status');
+    } finally {
+      setUpdatingFeatured(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [updateMenuItem]);
   
   return (
     <>
@@ -861,20 +889,21 @@ const Tables = () => {
                         <i className={`ml-1 fas fa-sort-${currentSort.direction === 'asc' ? 'up' : 'down'}`}></i>
                       )}
                     </th>
+                    <th scope="col">Featured</th>
                     <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={isUserSuperAdmin ? "9" : "7"} className="text-center py-4">
+                      <td colSpan={isUserSuperAdmin ? "10" : "8"} className="text-center py-4">
                         <i className="fas fa-spinner fa-spin mr-2"></i>
                         <span className="font-italic text-muted mb-0">Loading menu items...</span>
                       </td>
                     </tr>
                   ) : !displayedMenuItems || displayedMenuItems.length === 0 ? (
                     <tr>
-                      <td colSpan={isUserSuperAdmin ? "9" : "7"} className="text-center py-4">
+                      <td colSpan={isUserSuperAdmin ? "10" : "8"} className="text-center py-4">
                         <p className="font-italic text-muted mb-0">
                           {searchTerm ? "No results match your search criteria" : "No menu items available"}
                         </p>
@@ -926,7 +955,7 @@ const Tables = () => {
                         <td>
                           <Media className="align-items-center">
                             <Media>
-                              <span className="mb-0 text-sm font-weight-bold">
+                              <span className="mb-0 text-sm font-weight-bold text-capitalize">
                                 {menuItem.name}
                               </span>
                               {menuItem.isVegetarian && (
@@ -970,11 +999,22 @@ const Tables = () => {
                             <i className={menuItem.isActive ? "bg-success" : "bg-warning"} />
                             {menuItem.isActive ? "Available" : "Unavailable"}
                           </Badge>
-                          {menuItem.featured && (
-                            <Badge color="info" pill className="ml-2">
-                              Featured
-                            </Badge>
-                          )}
+                           
+                        </td>
+                        <td>
+                          <div className="custom-control custom-switch">
+                            <input
+                              type="checkbox"
+                              className="custom-control-input"
+                              id={`featured-switch-${menuItem._id}`}
+                              checked={!!menuItem.featured}
+                              onChange={() => handleToggleFeatured(menuItem)}
+                              disabled={updatingFeatured.has(menuItem._id)}
+                            />
+                            <label className="custom-control-label" htmlFor={`featured-switch-${menuItem._id}`}>
+                              {updatingFeatured.has(menuItem._id) ? 'Updating…' : (menuItem.featured ? 'Yes' : 'No')}
+                            </label>
+                          </div>
                         </td>
                         <td className="text-right">
                           <UncontrolledDropdown>
