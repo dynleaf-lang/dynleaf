@@ -159,159 +159,99 @@ const TableDetail = () => {
   const handlePrint = () => {
     const printContent = printContainerRef.current;
     if (!printContent) return;
-    
-    const printCSS = `
-      <style>
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #print-container, #print-container * {
-            visibility: visible;
-          }
-          #print-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 20px;
-          }
-          .no-print {
-            display: none !important;
-          }
-          th, td {
-            padding: 8px;
-            border: 1px solid #ddd;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-          }
-          .qr-code-container {
-            text-align: center;
-            margin: 20px 0;
-          }
-          .qr-code-container canvas {
-            width: 200px !important;
-            height: 200px !important;
-          }
-          .table-info {
-            margin-bottom: 20px;
-          }
-          h1, h2, h3 {
-            margin-top: 10px;
-            margin-bottom: 15px;
-          }
-          .header {
-            text-align: center;
-            margin-bottom: 30px;
-          }
-          .badge {
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-weight: bold;
-          }
-          .badge-success {
-            background-color: #2dce89;
-            color: white;
-          }
-          .badge-warning {
-            background-color: #fb6340;
-            color: white;
-          }
-          .badge-danger {
-            background-color: #f5365c;
-            color: white;
-          }
-          .badge-secondary {
-            background-color: #6c757d;
-            color: white;
-          }
-          .badge-info {
-            background-color: #11cdef;
-            color: white;
-          }
-          .restaurant-logo {
-            max-width: 150px;
-            margin-bottom: 10px;
-          }
-          .restaurant-header {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            margin-bottom: 20px;
-          }
-          .detail-card {
-            border: 1px solid #eee;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-          }
-          .detail-header {
-            background: #f8f9fe;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 15px;
-            font-weight: bold;
-          }
-          .info-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-          }
-          .info-item {
-            display: flex;
-            flex-direction: column;
-          }
-          .info-label {
-            font-size: 0.9rem;
-            font-weight: bold;
-            color: #8898aa;
-          }
-          .info-value {
-            font-size: 1rem;
-            margin-top: 5px;
-          }
-          .detail-section {
-            margin-bottom: 25px;
-          }
-          footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #8898aa;
-            border-top: 1px solid #eee;
-            padding-top: 15px;
-          }
+
+    // Clone the printable node so we can tweak it for printing without affecting the UI
+    const cloned = printContent.cloneNode(true);
+
+    // Ensure the QR code prints correctly: replace canvas with an <img> using the canvas data URL
+    try {
+      const liveCanvas = qrRef.current?.querySelector('canvas');
+      const cloneCanvas = cloned.querySelector('.qr-code-container canvas');
+      const targetCanvas = liveCanvas || cloneCanvas;
+      if (targetCanvas) {
+        const dataUrl = targetCanvas.toDataURL('image/png');
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.alt = 'Table QR Code';
+        img.style.width = '220px';
+        img.style.height = '220px';
+        if (cloneCanvas && cloneCanvas.parentNode) {
+          cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
         }
-      </style>
-    `;
-    
+      }
+    } catch (e) {
+      // If anything goes wrong, just proceed – the rest will still print
+      console.warn('QR canvas conversion failed:', e);
+    }
+
+    // Open a lightweight print window
     const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Table Details - ${table?.TableName || 'Table'}</title>
-          ${printCSS}
-        </head>
-        <body>
-          <div id="print-container">
-            ${printContent.innerHTML}
-          </div>
-        </body>
-      </html>
-    `);
-    
-    printWindow.document.close();
-    printWindow.focus();
-    
-    // Wait for images and fonts to load
-    setTimeout(() => {
+    if (!printWindow) return;
+    const printDoc = printWindow.document;
+
+    // Basic skeleton
+    printDoc.open();
+    printDoc.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Table Details - ${table?.TableName || 'Table'}</title></head><body></body></html>`);
+    printDoc.close();
+
+    // Bring over existing stylesheets (Bootstrap/Argon/etc.) so layout matches the app
+    const head = printDoc.head || printDoc.getElementsByTagName('head')[0];
+    Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).forEach((node) => {
+      try {
+        head.appendChild(node.cloneNode(true));
+      } catch (_) {
+        /* ignore */
+      }
+    });
+
+    // Add some print-focused tweaks
+    const styleEl = printDoc.createElement('style');
+    styleEl.type = 'text/css';
+    styleEl.appendChild(printDoc.createTextNode(`
+      @page { margin: 16mm; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; color: #32325d; }
+      .no-print { display: none !important; }
+      #print-container { padding: 12px; }
+      .qr-code-container { text-align: center; margin: 20px 0; }
+      .restaurant-logo { max-width: 150px; margin-bottom: 10px; }
+      .detail-header { background: #f8f9fe; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-weight: 600; }
+      footer { margin-top: 30px; text-align: center; font-size: 12px; color: #8898aa; border-top: 1px solid #eee; padding-top: 15px; }
+      /* Keep only the print container visible when printing */
+      @media print {
+        body * { visibility: hidden; }
+        #print-container, #print-container * { visibility: visible; }
+        #print-container { position: absolute; left: 0; top: 0; width: 100%; }
+      }
+    `));
+    head.appendChild(styleEl);
+
+    // Inject the cloned content
+    const container = printDoc.createElement('div');
+    container.id = 'print-container';
+    container.innerHTML = cloned.innerHTML;
+    printDoc.body.appendChild(container);
+
+    // Wait for resources (images/fonts) to load, then print
+    const resourcesReady = () => new Promise((resolve) => {
+      const imgs = Array.from(printDoc.images || []);
+      if (imgs.length === 0) return resolve();
+      let loaded = 0;
+      const done = () => (++loaded >= imgs.length) && resolve();
+      imgs.forEach((img) => {
+        if (img.complete) return done();
+        img.addEventListener('load', done);
+        img.addEventListener('error', done);
+      });
+      // Fallback timeout
+      setTimeout(resolve, 1000);
+    });
+
+    resourcesReady().then(() => {
+      printWindow.focus();
       printWindow.print();
-      printWindow.close();
-    }, 1000);
+      // Give the print dialog a moment before closing (prevents some browsers from blocking)
+      setTimeout(() => printWindow.close(), 300);
+    });
   };
 
   // Get status badge
@@ -425,116 +365,14 @@ const TableDetail = () => {
                       </div>
 
                       <Row>
-                        {/* Left Column - Table Information */}
-                        <Col md="6">
-                          <div className="detail-section">
-                            <div className="detail-header">
-                              <i className="fas fa-info-circle mr-2"></i> Basic Information
-                            </div>
-                            <div className="p-3">
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Table Name:</Col>
-                                <Col xs="7" className="font-weight-bold">{table.TableName}</Col>
-                              </Row>
-                              
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Table ID:</Col>
-                                <Col xs="7">
-                                  <Badge color="primary" pill className="px-3">{table.tableId}</Badge>
-                                </Col>
-                              </Row>
-                              
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Capacity:</Col>
-                                <Col xs="7">
-                                  <i className="fas fa-user mr-1"></i> {table.capacity} persons
-                                </Col>
-                              </Row>
-                              
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Type:</Col>
-                                <Col xs="7">
-                                  {table.isVIP ? (
-                                    <Badge color="warning" pill className="px-3">
-                                      <i className="fas fa-crown mr-1"></i> VIP Table
-                                    </Badge>
-                                  ) : (
-                                    <span>Regular Table</span>
-                                  )}
-                                </Col>
-                              </Row>
-                            </div>
-                          </div>
-
-                          <div className="detail-section">
-                            <div className="detail-header">
-                              <i className="fas fa-map-marker-alt mr-2"></i> Location Details
-                            </div>
-                            <div className="p-3">
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Zone:</Col>
-                                <Col xs="7">
-                                  <Badge color="info" pill className="px-3">
-                                    {table.location?.zone || 'Main'}
-                                  </Badge>
-                                </Col>
-                              </Row>
-                              
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Shape:</Col>
-                                <Col xs="7" style={{ textTransform: 'capitalize' }}>
-                                  <i className={`fas fa-${table.shape === 'round' ? 'circle' : table.shape === 'rectangle' ? 'rectangle-wide' : 'square'} mr-1`}></i>
-                                  {table.shape || 'Square'}
-                                </Col>
-                              </Row>
-                              
-                              <Row className="mb-3">
-                                <Col xs="5" className="text-muted">Position:</Col>
-                                <Col xs="7">
-                                  X: {table.location?.x || 0}, Y: {table.location?.y || 0}
-                                </Col>
-                              </Row>
-                            </div>
-                          </div>
-                          
-                          {table.notes && (
-                            <div className="detail-section">
-                              <div className="detail-header">
-                                <i className="fas fa-sticky-note mr-2"></i> Notes
-                              </div>
-                              <div className="p-3">
-                                <p className="mb-0">{table.notes}</p>
-                              </div>
-                            </div>
-                          )}
-                        </Col>
+                        
                         
                         {/* Right Column - Status and QR Code */}
-                        <Col md="6">
-                          <div className="detail-section">
-                            <div className="detail-header">
-                              <i className="fas fa-chart-pie mr-2"></i> Current Status
-                            </div>
-                            <div className="p-3 text-center">
-                              <div className="mb-4">
-                                <div className="mb-3">Current Status:</div>
-                                <div style={{ transform: 'scale(1.2)' }}>
-                                  {getStatusBadge(table.status || (table.isOccupied ? 'occupied' : 'available'))}
-                                </div>
-                              </div>
-                              
-                              {table.currentOrder && (
-                                <div className="mt-3 mb-4">
-                                  <Badge color="danger" pill className="px-3 py-2">
-                                    <i className="fas fa-utensils mr-1"></i> Active Order: #{table.currentOrder.orderNumber || 'N/A'}
-                                  </Badge>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                        <Col md="12">
+                          
                           
                           <div className="detail-section">
-                            <div className="detail-header">
+                            <div className="detail-header text-center">
                               <i className="fas fa-qrcode mr-2"></i> QR Code
                             </div>
                             <div className="p-3 text-center">
@@ -549,9 +387,9 @@ const TableDetail = () => {
                                   includeMargin={true}
                                 />
                               </div>
-                              <small className="text-muted d-block">
+                              {/* <small className="text-muted d-block">
                                 URL: {getQRCodeValue()}
-                              </small>
+                              </small> */}
                             </div>
                           </div>
                         </Col>
