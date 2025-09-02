@@ -173,9 +173,22 @@ const OrderManagement = () => {
   };
   const formatDuration = (ms) => {
     const totalSec = Math.max(0, Math.floor(ms / 1000));
-    const mm = Math.floor(totalSec / 60);
+    if (totalSec < 60) {
+      return `${totalSec}s`;
+    }
+    const totalMin = Math.floor(totalSec / 60);
     const ss = totalSec % 60;
-    return `${mm}m ${ss.toString().padStart(2, '0')}s`;
+    if (totalMin < 60) {
+      return `${totalMin}m ${ss.toString().padStart(2, '0')}s`;
+    }
+    const totalHours = Math.floor(totalMin / 60);
+    const mm = totalMin % 60;
+    if (totalHours < 24) {
+      return `${totalHours}h ${mm.toString().padStart(2, '0')}m`;
+    }
+    const days = Math.floor(totalHours / 24);
+    const hh = totalHours % 24;
+    return hh > 0 ? `${days}d ${hh}h` : `${days}d`;
   };
   const getSlaClass = (o) => {
     const mins = getElapsedMs(o) / 60000;
@@ -637,8 +650,8 @@ const OrderManagement = () => {
         </Col>
         <Col md={4}>
           <div className="d-grid gap-2">
-            <div>
-              <label className="form-label">Sort</label>
+            <div className='align-items-baseline d-flex'>
+              <label className="form-label me-2">Sort: </label>
               <Input
                 type="select"
                 value={sortMode}
