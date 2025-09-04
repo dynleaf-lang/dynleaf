@@ -429,6 +429,14 @@ const CartSidebar = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
   const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
+  // Split bill states
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitCount, setSplitCount] = useState(2);
+  const [splitAllocations, setSplitAllocations] = useState({}); // { cartItemId: [q1,q2,...] }
+  const [splitPayerIndex, setSplitPayerIndex] = useState(null); // for sequential payments
+  const [currentSplitCart, setCurrentSplitCart] = useState([]); // cart for current payer
+  const [splitSelectedIndex, setSplitSelectedIndex] = useState(0); // chosen person to pay now
+  const [splitSingleMode, setSplitSingleMode] = useState(false);   // pay only one person, not all
 
   // Inline quantity edit drafts
   const [qtyDrafts, setQtyDrafts] = useState({}); // { [cartItemId]: string|number }
@@ -790,6 +798,24 @@ const CartSidebar = () => {
     if (offerType === 'bogo') {
       toast.success('BOGO offer applied to cart');
     } else if (offerType === 'split') {
+      // Initialize split allocations and open split modal
+      if (cartItems.length === 0) {
+        toast.error('Add items to cart before splitting');
+        return;
+      }
+      // default split into two with even quantities where possible
+      const defaultCount = Math.max(2, splitCount || 2);
+      const initial = {};
+      for (const item of cartItems) {
+        const arr = new Array(defaultCount).fill(0);
+        const q = Math.max(1, Number(item.quantity) || 1);
+        // simple round-robin distribution
+        for (let i = 0; i < q; i++) arr[i % defaultCount] += 1;
+        initial[item.cartItemId] = arr;
+      }
+      setSplitCount(defaultCount);
+      setSplitAllocations(initial);
+      setShowSplitModal(true);
       toast.info('Split bill mode activated');
     }
   };
@@ -2137,6 +2163,282 @@ const CartSidebar = () => {
         selectedTable={selectedTable}
         orderTotal={getTotal()}
       />
+
+      {/* Split Bill Modal */}
+      <Modal isOpen={showSplitModal} toggle={() => setShowSplitModal(false)} size="lg" centered scrollable>
+        <ModalHeader toggle={() => setShowSplitModal(false)}>Split Bill</ModalHeader>
+        <ModalBody>
+                  {/* Split controls */}
+                  <div className="d-flex align-items-center mb-3 gap-2">
+                    <Label className="mb-0">Number of people</Label>
+                    <Input
+                      type="number"
+                      min={2}
+                      max={8}
+                      value={splitCount}
+                      onChange={(e) => {
+                        const next = Math.min(8, Math.max(2, parseInt(e.target.value || '2', 10)));
+                        setSplitCount(next);
+                        // Resize allocations arrays keeping totals the same (shift into first indices)
+                        setSplitAllocations((prev) => {
+                          const copy = { ...prev };
+                          for (const item of cartItems) {
+                            const id = item.cartItemId;
+                            const cur = (copy[id] || []).slice();
+                            const total = cur.reduce((a,b)=>a+(Number(b)||0),0) || Math.max(1, Number(item.quantity)||1);
+                            const arr = new Array(next).fill(0);
+                            for (let i=0;i<total;i++) arr[i%next] += 1;
+                            copy[id] = arr;
+                          }
+                          return copy;
+                        });
+                        setSplitSelectedIndex(0);
+                      }}
+                      style={{ width: 120 }}
+                    />
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      outline
+                      onClick={() => {
+                        // Distribute each item's quantity equally (round-robin)
+                        setSplitAllocations(() => {
+                          const next = {};
+                          for (const item of cartItems) {
+                            const totalQty = Math.max(1, Number(item.quantity)||1);
+                            const arr = new Array(splitCount).fill(0);
+                            for (let i=0; i<totalQty; i++) arr[i % splitCount] += 1;
+                            next[item.cartItemId] = arr;
+                          }
+                          return next;
+                        });
+                      }}
+                    >Split equally</Button>
+                  </div>
+
+                  {/* Allocation table */}
+                  <div className="table-responsive">
+                    <table className="table table-sm align-middle">
+                      <thead>
+                        <tr>
+                          <th>Item</th>
+                          <th className="text-end">Qty</th>
+                          {[...Array(splitCount)].map((_, i) => (
+                            <th key={i} className="text-end">P{i+1}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cartItems.map((item) => {
+                          const arr = splitAllocations[item.cartItemId] || new Array(splitCount).fill(0);
+                          const totalQty = Math.max(1, Number(item.quantity)||1);
+                          const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
+                          return (
+                            <tr key={item.cartItemId}>
+                              <td>
+                                <div className="fw-medium">{item.name}</div>
+                                {item.customizations?.selectedVariant && (
+                                  <small className="text-muted">({item.customizations.selectedVariant})</small>
+                                )}
+                              </td>
+                              <td className="text-end">
+                                <Badge color={sum===totalQty? 'success' : 'warning'}>{totalQty}</Badge>
+                              </td>
+                              {arr.map((val, idx) => (
+                                <td key={idx} className="text-end">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={totalQty}
+                                    value={val}
+                                    onChange={(e) => {
+                                      const v = Math.max(0, Math.min(totalQty, parseInt(e.target.value || '0', 10)));
+                                      setSplitAllocations((prev) => {
+                                        const next = { ...prev };
+                                        const a = (next[item.cartItemId] || new Array(splitCount).fill(0)).slice();
+                                        a[idx] = v;
+                                        // ensure total equals original quantity by redistributing
+                                        let diff = totalQty - a.reduce((s,n)=>s+(Number(n)||0),0);
+                                        if (diff !== 0) {
+                                          if (diff > 0) {
+                                            // add missing units to other slots (round-robin)
+                                            for (let j=0; j<a.length && diff>0; j++) {
+                                              if (j===idx) continue;
+                                              a[j] += 1; diff -= 1; j = (j===a.length-1 && diff>0) ? -1 : j; // wrap
+                                            }
+                                          } else {
+                                            // remove excess units from other slots
+                                            diff = -diff;
+                                            for (let j=0; j<a.length && diff>0; j++) {
+                                              if (j===idx) continue;
+                                              const take = Math.min(a[j], diff);
+                                              a[j] -= take; diff -= take;
+                                            }
+                                            // if still diff>0, reduce from idx itself
+                                            if (diff>0) {
+                                              const take = Math.min(a[idx], diff);
+                                              a[idx] -= take;
+                                            }
+                                          }
+                                        }
+                                        next[item.cartItemId] = a;
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ width: 70 }}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Per-payer totals */}
+                  <div className="mt-3">
+                    <h6 className="mb-2">Per Person Totals</h6>
+                    <div className="d-flex flex-wrap gap-2">
+                      {[...Array(splitCount)].map((_, i) => {
+                        const total = cartItems.reduce((sum,item) => {
+                          const arr = splitAllocations[item.cartItemId] || new Array(splitCount).fill(0);
+                          const qty = Number(arr[i])||0;
+                          return sum + qty * (Number(item.price)||0);
+                        }, 0);
+                        return (
+                          <Badge key={i} color="info" className="me-1">P{i+1}: {formatPrice(total)}</Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+        </ModalBody>
+        <ModalFooter>
+          <div className="me-auto d-flex align-items-center gap-2">
+            <Label className="mb-0">Pay person</Label>
+            <Input
+              type="select"
+              style={{ width: 120 }}
+              value={splitSelectedIndex}
+              onChange={(e)=> setSplitSelectedIndex(parseInt(e.target.value,10) || 0)}
+            >
+              {[...Array(splitCount)].map((_,i)=> (
+                <option key={i} value={i}>P{i+1}</option>
+              ))}
+            </Input>
+            <Button
+              color="info"
+              outline
+              onClick={() => {
+                // Validate each row sums to original qty
+                for (const item of cartItems) {
+                  const arr = splitAllocations[item.cartItemId] || [];
+                  const totalQty = Math.max(1, Number(item.quantity)||1);
+                  const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
+                  if (sum !== totalQty) {
+                    toast.error(`Allocation mismatch for ${item.name}`);
+                    return;
+                  }
+                }
+                // Ensure selected person has items
+                const hasItems = cartItems.some(it => ((splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0) > 0);
+                if (!hasItems) {
+                  toast.error('Selected person has no items assigned');
+                  return;
+                }
+                // Start single payment flow
+                setShowSplitModal(false);
+                setSplitSingleMode(true);
+                setSplitPayerIndex(splitSelectedIndex);
+                const slice = cartItems.map((it)=> ({
+                  ...it,
+                  quantity: (splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0
+                })).filter(it=>it.quantity>0);
+                setCurrentSplitCart(slice);
+              }}
+            >Pay Selected</Button>
+          </div>
+          <Button color="secondary" onClick={() => setShowSplitModal(false)}>Close</Button>
+          <Button
+            color="primary"
+            onClick={() => {
+              // Validate each row sums to original qty
+              for (const item of cartItems) {
+                const arr = splitAllocations[item.cartItemId] || [];
+                const totalQty = Math.max(1, Number(item.quantity)||1);
+                const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
+                if (sum !== totalQty) {
+                  toast.error(`Allocation mismatch for ${item.name}`);
+                  return;
+                }
+              }
+              // start sequential payments, payer 0
+              setShowSplitModal(false);
+              setSplitPayerIndex(0);
+              setSplitSingleMode(false);
+              // build cart slice for payer 0
+              const slice = cartItems.map((it)=>({
+                ...it,
+                quantity: (splitAllocations[it.cartItemId] || [])[0] || 0
+              })).filter(it=>it.quantity>0);
+              setCurrentSplitCart(slice);
+            }}
+          >Proceed to Payment</Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Split Payment Modal (reusing PaymentModal) */}
+      {splitPayerIndex !== null && (
+        <PaymentModal
+          isOpen={true}
+          toggle={() => {
+            // cancel split flow
+            setSplitPayerIndex(null);
+            setCurrentSplitCart([]);
+          }}
+          cartItems={currentSplitCart}
+          customerInfo={customerInfo}
+          selectedTable={selectedTable}
+          orderTotal={currentSplitCart.reduce((s,i)=>s + (Number(i.price)||0)*(Number(i.quantity)||0), 0)}
+          disableTableSettlement={true}
+          suppressPostActions={true}
+          onProcessed={() => {
+            // subtract this payer's quantities from the main cart so remaining items stay
+            const payerIdx = splitPayerIndex;
+            const nextItems = [];
+            for (const it of cartItems) {
+              const paid = (splitAllocations[it.cartItemId] || [])[payerIdx] || 0;
+              const newQty = Math.max(0, (Number(it.quantity)||0) - paid);
+              if (newQty > 0) nextItems.push({ ...it, quantity: newQty });
+            }
+            replaceCart(nextItems, { ...customerInfo });
+
+            if (splitSingleMode) {
+              // stop after single payment
+              setSplitPayerIndex(null);
+              setCurrentSplitCart([]);
+              toast.success('Split paid. Remaining items kept in cart');
+              return;
+            }
+            // advance to next payer (sequential all)
+            const nextIdx = payerIdx + 1;
+            if (nextIdx >= splitCount) {
+              // finished all
+              setSplitPayerIndex(null);
+              setCurrentSplitCart([]);
+              toast.success('All splits paid');
+              // cart already reduced progressively; ensure empty if all covered
+              return;
+            }
+            setSplitPayerIndex(nextIdx);
+            const slice = cartItems.map((it)=>({
+              ...it,
+              quantity: (splitAllocations[it.cartItemId] || [])[nextIdx] || 0
+            })).filter(it=>it.quantity>0);
+            setCurrentSplitCart(slice);
+          }}
+        />
+      )}
     </>
   );
 };

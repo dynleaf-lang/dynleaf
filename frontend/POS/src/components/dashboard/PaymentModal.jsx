@@ -41,7 +41,20 @@ import toast from 'react-hot-toast';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
-const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, orderTotal }) => {
+const PaymentModal = ({ 
+  isOpen, 
+  toggle, 
+  cartItems, 
+  customerInfo, 
+  selectedTable, 
+  orderTotal,
+  // Split/standalone controls
+  disableTableSettlement = false, // when true, ignore/skip existing table batches settlement
+  suppressPostActions = false,    // when true, don't clear selected table or navigate after success
+  onProcessed,                  // optional callback when payment succeeds; gets created order
+  autoPrintOnSuccess = false,   // when true, automatically prints after creating an order (useful for splits)
+  splitMeta = null              // optional { payerIndex, splitCount, label }
+}) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [paymentData, setPaymentData] = useState({
     method: 'cash',
@@ -82,10 +95,10 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     }
   };
 
-  const tableBatches = getCurrentTableBatches();
+  const tableBatches = disableTableSettlement ? null : getCurrentTableBatches();
   const batchCount = tableBatches?.batches?.length || 0;
   const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
-  const totalAmount = orderTotal + batchesTotal;
+  const totalAmount = orderTotal + (disableTableSettlement ? 0 : batchesTotal);
 
   // Payment method options
   const paymentMethods = [
@@ -241,8 +254,8 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
         resolvedCustomerId = await findOrCreateCustomer();
       } catch (_) {}
       
-      // If there are current cart items, create a new order
-      if (cartItems && cartItems.length > 0) {
+    // If there are current cart items, create a new order
+  if (cartItems && cartItems.length > 0) {
         orderData = {
           tableId: selectedTable?._id,
           tableName: selectedTable?.name || selectedTable?.TableName,
@@ -271,7 +284,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           customerId: resolvedCustomerId || customerInfo?.customerId || null,
           totalAmount: orderTotal,
           paymentMethod: paymentData.method,
-          paymentStatus: 'paid'
+      paymentStatus: 'paid',
+      // attach optional split metadata for receipts/audit
+      ...(splitMeta ? { splitInfo: { isSplit: true, ...splitMeta } } : {})
         };
         
         // First attempt with stock enforcement ON and override OFF
@@ -295,7 +310,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           throw new Error(result.error || 'Failed to create order');
         }
         
-        orderData = result.order;
+  orderData = result.order;
+        // store for post actions (receipt/preview)
+        try { setOrderCreated(orderData); } catch {}
         
         // Update table status for dine-in orders
         if (selectedTable?._id && (customerInfo?.orderType || 'dine-in') === 'dine-in') {
@@ -306,28 +323,32 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
           }
         }
         
-        // Record batch for this table
-        const tableId = selectedTable?._id || 'no-table';
-        const batchesKey = 'pos_table_batches';
-        const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
-        const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
-        const orderNumber = entry.nextOrderNumber;
-        entry.batches = [
-          {
-            orderId: orderData._id,
-            orderNumber,
-            items: orderData.items,
-            totalAmount: orderData.totalAmount,
-            createdAt: new Date().toISOString()
-          },
-          ...entry.batches
-        ];
-        entry.nextOrderNumber = orderNumber + 1;
-        batchesAll[tableId] = entry;
-        localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        // Optionally record batch for this table (skip in standalone/split mode)
+        if (!disableTableSettlement) {
+          const tableId = selectedTable?._id || 'no-table';
+          const batchesKey = 'pos_table_batches';
+          const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+          const entry = batchesAll[tableId] || { nextOrderNumber: 1, batches: [] };
+          const orderNumber = entry.nextOrderNumber;
+          entry.batches = [
+            {
+              orderId: orderData._id,
+              orderNumber,
+              items: orderData.items,
+              totalAmount: orderData.totalAmount,
+              createdAt: new Date().toISOString()
+            },
+            ...entry.batches
+          ];
+          entry.nextOrderNumber = orderNumber + 1;
+          batchesAll[tableId] = entry;
+          localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+        }
         
-        // Clear current cart
-        clearCart();
+  // Clear current cart unless suppressed (split flow manages cart itself)
+        if (!suppressPostActions) {
+          clearCart();
+        }
         
         // Emit socket event
         if (emitNewOrder) {
@@ -336,7 +357,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
       }
       
       // Handle table settlement if there are existing batches
-      if (batchCount > 0) {
+  if (!disableTableSettlement && batchCount > 0) {
         const method = paymentData.method;
         const ordersToPay = tableBatches.batches.filter(b => b.orderId);
         const results = await Promise.allSettled(
@@ -382,11 +403,29 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
         toast.success('Payment processed successfully!');
       }
       
-      // Close modal and go back to Table Selection
-      try { clearSelectedTable && clearSelectedTable(); } catch {}
-      handleClose();
-      // Notify dashboard to switch to Tables tab
-      try { window.dispatchEvent(new Event('pos:navigateToTables')); } catch {}
+      // Auto print when requested (useful for per-person receipts in split mode)
+      if (autoPrintOnSuccess) {
+        try {
+          await handlePrintReceipt('auto', orderData);
+        } catch (e) {
+          console.warn('Auto print failed:', e);
+        }
+      }
+
+      // Notify parent callback
+      try { onProcessed && onProcessed(orderData); } catch {}
+
+      // Close or post actions
+      if (!suppressPostActions) {
+        // Close modal and go back to Table Selection
+        try { clearSelectedTable && clearSelectedTable(); } catch {}
+        handleClose();
+        // Notify dashboard to switch to Tables tab
+        try { window.dispatchEvent(new Event('pos:navigateToTables')); } catch {}
+      } else {
+        // Just close the modal; keep table selection and avoid navigation
+        handleClose();
+      }
       
     } catch (error) {
       console.error('Payment processing error:', error);
@@ -399,8 +438,9 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     }
   };
 
-  const handlePrintReceipt = async (printType = 'auto') => {
-    if (!orderCreated) {
+  const handlePrintReceipt = async (printType = 'auto', orderOverride = null) => {
+    const printable = orderOverride || orderCreated;
+    if (!printable) {
       toast.error('No order available for printing');
       return;
     }
@@ -408,7 +448,7 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
     try {
       // Prepare order data for receipt
       const orderData = {
-        order: orderCreated,
+        order: printable,
         paymentDetails: {
           method: paymentData.method,
           amountReceived: paymentData.method === 'cash' ? parseFloat(paymentData.amountReceived) : orderTotal,
@@ -423,13 +463,13 @@ const PaymentModal = ({ isOpen, toggle, cartItems, customerInfo, selectedTable, 
       };
 
       const restaurantInfo = {
-        name: orderCreated?.brandName || orderCreated?.restaurantName || 'Restaurant',
-        brandName: orderCreated?.brandName || undefined,
-        logo: orderCreated?.logo || undefined,
-        address: orderCreated?.branchAddress || 'Address',
-        phone: orderCreated?.branchPhone || 'Phone',
+        name: printable?.brandName || printable?.restaurantName || 'Restaurant',
+        brandName: printable?.brandName || undefined,
+        logo: printable?.logo || undefined,
+        address: printable?.branchAddress || 'Address',
+        phone: printable?.branchPhone || 'Phone',
         email: '',
-        gst: orderCreated?.gstNumber || ''
+        gst: printable?.gstNumber || ''
       };
 
       let result;

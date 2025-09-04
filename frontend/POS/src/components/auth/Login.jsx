@@ -99,7 +99,7 @@ const Login = () => {
               <CardBody className="p-5">
                 <div className="text-center mb-4">
                   <div className="login-icon mb-3">
-                    <FaCashRegister size={60} className="text-primary" />
+                    <FaCashRegister size={60} className="text-white" />
                   </div>
                   <h2 className="login-title">POS System</h2>
                   <p className="text-muted">Sign in to your account</p>
