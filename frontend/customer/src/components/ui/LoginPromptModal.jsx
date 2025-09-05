@@ -74,7 +74,7 @@ const LoginPromptModal = ({ isOpen, onClose, onLogin }) => {
                   className="material-icons"
                   style={{
                     fontSize: window.innerWidth <= 480 ? "28px" : "32px", // Smaller icon on very small screens
-                    color: theme.colors.primary,
+                    color: 'white',
                   }}
                 >
                   favorite

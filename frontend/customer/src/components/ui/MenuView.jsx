@@ -197,18 +197,19 @@ const MenuView = () => {
   return (
     <div style={{ paddingBottom: '80px' }}>
       {/* Restaurant and Branch Information */}
-      <div style={{
+      <div className='' style={{
         backgroundColor: theme.colors.card,
         padding: '20px',
         marginBottom: '16px',
         position: 'relative',
         backgroundImage: restaurant?.coverImageUrl ? `url(${restaurant.coverImageUrl})` : 'none',
-        backgroundSize: 'cover',
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
         backgroundPosition: 'center',
         color: restaurant?.coverImageUrl ? 'white' : theme.colors.text.primary
       }}>
         {restaurant?.coverImageUrl && (
-          <div style={{
+          <div className='row' style={{
             position: 'absolute',
             top: 0,
             left: 0,
@@ -288,7 +289,14 @@ const MenuView = () => {
       {/* Menu Items Grid */}
       <div style={{ padding: '0 0px' }}>
         {filteredItems.length > 0 ? (
-          <ProductGrid products={filteredItems} />
+          <ProductGrid 
+            products={filteredItems} 
+            selectedCategoryName={(() => {
+              if (selectedCategory === 'all') return 'All';
+              const found = categories.find(cat => (cat.id || cat._id) === selectedCategory);
+              return found?.name || 'Other Items';
+            })()} 
+          />
         ) : (
           <div style={{
             textAlign: 'center',

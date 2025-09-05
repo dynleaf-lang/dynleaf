@@ -4,7 +4,7 @@ import { theme } from "../../data/theme";
 import { useResponsive } from "../../context/ResponsiveContext";
 import { useRestaurant } from "../../context/RestaurantContext";
 
-const ProductGrid = ({ products, onAdd }) => {
+const ProductGrid = ({ products, onAdd, selectedCategoryName }) => {
   const { isDesktop, isTablet, isMobile } = useResponsive();
   const { categories } = useRestaurant();
  
@@ -38,7 +38,7 @@ const ProductGrid = ({ products, onAdd }) => {
       return subCatId === categoryId;
     });
     
-    const categoryKey = subcategory ? subcategory.name : 'Other Items';
+  const categoryKey = subcategory ? subcategory.name : (selectedCategoryName || 'Other Items');
     
     if (!acc[categoryKey]) {
       acc[categoryKey] = {
@@ -236,7 +236,7 @@ const ProductGrid = ({ products, onAdd }) => {
   }
 
   return (
-    <section aria-label="Menu items">
+    <section aria-label="Menu items" style={{ textTransform: "capitalize" }}>
       {renderLayout()}
     </section>
   );

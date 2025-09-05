@@ -965,7 +965,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
           flexDirection: "column",
           userSelect: "none",
           cursor: "default",
-          minWidth: isMobileCompact ? "150px" : isTablet ? "auto" : "180px",
+          // minWidth: isMobileCompact ? "150px" : isTablet ? "auto" : "180px",
           maxWidth: "100%",
           transition: `all ${theme.transitions.medium}`,
           border: `1px solid ${theme.colors.border}`,

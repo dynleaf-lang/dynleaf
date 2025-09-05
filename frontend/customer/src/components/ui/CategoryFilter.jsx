@@ -514,7 +514,8 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
                           maxWidth: isMobile ? "62px" : "80px",
                           whiteSpace: "nowrap",
                           overflow: "hidden",
-                          textOverflow: "ellipsis"
+                          textOverflow: "ellipsis",
+                           textTransform: 'capitalize'
                         }}
                       >
                         {category.name}

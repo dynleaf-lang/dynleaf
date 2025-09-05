@@ -187,7 +187,17 @@ const OrderEaseApp = () => {
       {/* Main Application */}
       {shouldShowMainApp() && (
         isMobile ? (
-          <motion.main
+          <>
+           <Header
+              profileSrc="https://randomuser.me/api/portraits/women/79.jpg"
+              isDesktop={false}
+              restaurantName={restaurant?.name}
+              branchName={branch?.name}
+              tableNumber={branch?.tableNumber || "12"}
+              openLoginModal={handleOpenLoginModal}
+              onNavigateToProfile={handleNavigateToProfile}
+            />
+            <motion.main
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="container-fluid"
@@ -199,15 +209,7 @@ const OrderEaseApp = () => {
             }}
             aria-label="OrderEase food ordering app"
           >
-            <Header
-              profileSrc="https://randomuser.me/api/portraits/women/79.jpg"
-              isDesktop={false}
-              restaurantName={restaurant?.name}
-              branchName={branch?.name}
-              tableNumber={branch?.tableNumber || "12"}
-              openLoginModal={handleOpenLoginModal}
-              onNavigateToProfile={handleNavigateToProfile}
-            />
+           
             
             {/* Main Content Area - This would change based on active tab */}
             <div className="row">
@@ -295,6 +297,7 @@ const OrderEaseApp = () => {
               onSignupModalOpen={handleOpenSignupModal}
             />
           </motion.main>
+          </>
         ) : (
           // For tablet and desktop devices, use our new DesktopLayout
           <DesktopLayout
