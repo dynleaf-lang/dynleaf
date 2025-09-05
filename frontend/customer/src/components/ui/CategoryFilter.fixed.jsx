@@ -39,8 +39,7 @@ const CategoryFilter = ({ categories, selectedCategory, onSelectCategory, isTabl
       // Only keep active parent categories
       return !isInactive && !isSubcategory;
     });
-    
-    console.log('Categories after filtering:', result.map(cat => cat.name));
+     
     
     // Add "All" category if it doesn't exist
     if (!hasAllCategory) {
