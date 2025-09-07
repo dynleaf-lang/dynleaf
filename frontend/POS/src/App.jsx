@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster } from './utils/notify';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
@@ -17,7 +17,6 @@ import Login from './components/auth/Login';
 import POSDashboard from './components/dashboard/POSDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import SessionManager from './components/auth/SessionManager';
-import GlobalToast from './components/ui/GlobalToast';
 
 function App() {
   return (
@@ -30,7 +29,6 @@ function App() {
                 <OrderProvider>
                 <div className="App">
                   <SessionManager />
-                  <GlobalToast />
                   <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route 
@@ -43,16 +41,7 @@ function App() {
                     />
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
-                  <Toaster 
-                    position="top-right"
-                    toastOptions={{
-                      duration: 4000,
-                      style: {
-                        background: '#363636',
-                        color: '#fff',
-                      },
-                    }}
-                  />
+                  <Toaster />
                 </div>
                 </OrderProvider>
               </CartProvider>

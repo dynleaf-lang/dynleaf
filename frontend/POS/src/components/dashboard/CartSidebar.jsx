@@ -45,7 +45,8 @@ import { usePOS } from '../../context/POSContext';
 import { useOrder } from '../../context/OrderContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
+import playPosSound from '../../utils/sound';
 import './CartSidebar.css';
 import axios from 'axios';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
@@ -1014,14 +1015,12 @@ const CartSidebar = () => {
       replaceCart([], { ...customerInfo });
 
       setKotSent(true);
-      const message = withPrint
-        ? `KOT sent and printed (Order #${createdOrder.orderNumber || orderNumber})`
-        : `KOT sent (Order #${createdOrder.orderNumber || orderNumber})`;
-      toast.success(message);
+  // Sound feedback only; no visual toasts
+  playPosSound('success');
       
     } catch (error) {
       console.error('KOT Error:', error);
-      toast.error('Failed to send KOT. Please try again.');
+  playPosSound('error');
     } finally {
       setIsProcessing(false);
       setProcessingAction('');
@@ -1702,7 +1701,7 @@ const CartSidebar = () => {
           
             {/* Action Buttons Grid */}
             <div className="action-buttons-grid">
-              <div className="row g-2 mb-2">
+              <div className="row g-2 mb-2 d-none">
                 <div className="col-4">
                   <Button
                     color="danger"
@@ -1747,28 +1746,7 @@ const CartSidebar = () => {
                     )}
                   </Button>
                 </div>
-                <div className="col-4">
-                  <Button
-                    color="success"
-                    size="sm"
-                    onClick={handleSettleTable}
-                    disabled={isProcessing || batchCount === 0}
-                    className="w-100 pos-action-btn"
-                    title={batchCount === 0 ? 'No batches to settle' : 'Settle all table batches and free table'}
-                  >
-                    {isProcessing && processingAction === 'settle' ? (
-                      <>
-                        <Spinner size="sm" className="me-1" />
-                        Settling...
-                      </>
-                    ) : (
-                      <>
-                        <FaCreditCard className="me-1" />
-                        Settle Table
-                      </>
-                    )}
-                  </Button>
-                </div>
+                
               </div>
               <div className="row g-2">
                 <div className="col-4">
@@ -1816,6 +1794,28 @@ const CartSidebar = () => {
                   </Button>
                 </div>
                 <div className="col-4">
+                  <Button
+                    color="success"
+                    size="sm"
+                    onClick={handleSettleTable}
+                    disabled={isProcessing || batchCount === 0}
+                    className="w-100 pos-action-btn"
+                    title={batchCount === 0 ? 'No batches to settle' : 'Settle all table batches and free table'}
+                  >
+                    {isProcessing && processingAction === 'settle' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Settling...
+                      </>
+                    ) : (
+                      <>
+                        <FaCreditCard className="me-1" />
+                        Settle Table
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <div className="col-4 d-none">
                   <Button
                     color="outline-secondary"
                     size="sm"

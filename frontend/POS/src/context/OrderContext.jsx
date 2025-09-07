@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
-import toast from 'react-hot-toast';
+import toast from '../utils/notify';
 
 const OrderContext = createContext();
 

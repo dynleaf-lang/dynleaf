@@ -34,7 +34,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOrder } from '../../context/OrderContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import axios from 'axios';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 
 const DailySummaryReport = () => {

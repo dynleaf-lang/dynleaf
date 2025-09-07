@@ -37,7 +37,7 @@ import { useSocket } from '../../context/SocketContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import ReceiptPreview from '../receipt/ReceiptPreview';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 

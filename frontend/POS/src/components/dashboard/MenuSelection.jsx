@@ -39,7 +39,7 @@ import { usePOS } from '../../context/POSContext';
 import { useCart } from '../../context/CartContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import CartSidebar from './CartSidebar';
-import toast from 'react-hot-toast';
+import playPosSound from '../../utils/sound';
 import './MenuSelection.css';
 
 const MenuSelection = () => {
@@ -292,7 +292,7 @@ const MenuSelection = () => {
       specialInstructions: ''
     };
     addToCart(item, 1, defaultCustomizations);
-    toast.success(`${item.name} added to cart!`);
+  playPosSound('success');
   };
 
   const resetItemModal = () => {

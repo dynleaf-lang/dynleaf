@@ -47,7 +47,7 @@ import {
 } from 'react-icons/fa';
 import { useOrder } from '../../context/OrderContext';
 import { format } from 'date-fns';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 import './OrderManagement.css';
 
 const OrderManagement = () => {
@@ -391,8 +391,7 @@ const OrderManagement = () => {
         return <FaUtensils />;
       case 'delivery':
         return <FaTruck />;
-      case 'takeaway':
-      case 'takeaway':
+  case 'takeaway':
         return <FaShoppingBag />;
       case 'online':
         return <FaGlobe />;
@@ -408,8 +407,7 @@ const OrderManagement = () => {
         return 'primary';
       case 'delivery':
         return 'info';
-      case 'takeaway':
-      case 'takeaway':
+  case 'takeaway':
         return 'warning';
       case 'online':
         return 'success';

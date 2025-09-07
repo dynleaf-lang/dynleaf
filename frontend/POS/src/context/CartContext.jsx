@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import playPosSound from '../utils/sound';
 
 const CartContext = createContext();
 
@@ -215,15 +215,14 @@ export const CartProvider = ({ children }) => {
       }
     });
 
-    toast.success(`${menuItem.name} added to cart`);
+  playPosSound('success');
   };
 
   const removeFromCart = (cartItemId) => {
     setCartItems(prevItems => {
-      const item = prevItems.find(item => item.cartItemId === cartItemId);
-      if (item) {
-        toast.success(`${item.name} removed from cart`);
-      }
+  // play a subtle sound on remove
+  const item = prevItems.find(item => item.cartItemId === cartItemId);
+  if (item) playPosSound('info');
       return prevItems.filter(item => item.cartItemId !== cartItemId);
     });
   };
@@ -254,7 +253,7 @@ export const CartProvider = ({ children }) => {
     });
     localStorage.removeItem('pos_cart');
     localStorage.removeItem('pos_customer');
-    toast.success('Cart cleared');
+  playPosSound('info');
   };
 
   const updateCustomerInfo = (info) => {
@@ -297,7 +296,7 @@ export const CartProvider = ({ children }) => {
   // Save current order for later
   const saveOrder = (orderName) => {
     if (cartItems.length === 0) {
-      toast.error('Cannot save empty cart');
+      playPosSound('error');
       return;
     }
 
@@ -313,7 +312,7 @@ export const CartProvider = ({ children }) => {
 
     setSavedOrders(prev => [...prev, savedOrder]);
     clearCart();
-    toast.success(`Order saved as "${savedOrder.name}"`);
+  playPosSound('success');
   };
 
   // Load a saved order
@@ -322,14 +321,14 @@ export const CartProvider = ({ children }) => {
     if (savedOrder) {
       setCartItems(savedOrder.items);
       setCustomerInfo(savedOrder.customerInfo);
-      toast.success(`Loaded order "${savedOrder.name}"`);
+  playPosSound('success');
     }
   };
 
   // Delete a saved order
   const deleteSavedOrder = (orderId) => {
     setSavedOrders(prev => prev.filter(order => order.id !== orderId));
-    toast.success('Saved order deleted');
+  playPosSound('info');
   };
 
   // Update item customizations

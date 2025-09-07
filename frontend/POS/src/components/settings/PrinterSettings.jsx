@@ -26,7 +26,7 @@ import {
   FaTestTube
 } from 'react-icons/fa';
 import { PRINTER_CONFIGS, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 
 const PrinterSettings = ({ onSettingsChange }) => {
   const [printerConfig, setPrinterConfig] = useState(() => {

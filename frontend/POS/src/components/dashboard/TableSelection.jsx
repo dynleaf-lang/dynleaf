@@ -50,7 +50,7 @@ import { useOrder } from '../../context/OrderContext';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 import './TableSelection.css';
 import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
 import axios from 'axios';

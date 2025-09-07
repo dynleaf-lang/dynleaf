@@ -20,7 +20,7 @@ import {
   FaDownload
 } from 'react-icons/fa';
 import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
-import toast from 'react-hot-toast';
+import toast from '../../utils/notify';
 
 const ReceiptPreview = ({ 
   isOpen, 
