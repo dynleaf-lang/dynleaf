@@ -440,6 +440,10 @@ const CartSidebar = () => {
   // When true, display per-person totals as equal shares of the total amount,
   // regardless of the quantity allocations table.
   const [splitEqualMode, setSplitEqualMode] = useState(false);
+  // Billing-time split: use table batches instead of cart
+  const [billingSplitMode, setBillingSplitMode] = useState(false);
+  const [splitSourceItems, setSplitSourceItems] = useState([]);
+  const [billingPaidCents, setBillingPaidCents] = useState(0);
 
   // Compute equal allocations using a global round-robin across items.
   // This ensures single-qty items get distributed between people (item1->P1, item2->P2, ...).
@@ -456,6 +460,68 @@ const CartSidebar = () => {
       allocations[item.cartItemId] = arr;
     }
     return allocations;
+  };
+
+  // Build synthetic items list from table batches (merged similar lines)
+  const buildItemsFromBatches = () => {
+    const list = [];
+    const map = new Map();
+    try {
+      const batches = tableBatches?.batches || [];
+      for (const b of batches) {
+        for (const it of (b.items || [])) {
+          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || '';
+          const key = JSON.stringify({ n: it.name || '', p: Number(it.price)||0, v: variant });
+          const prev = map.get(key) || { name: it.name, price: Number(it.price)||0, quantity: 0, customizations: { selectedVariant: variant }, cartItemId: key };
+          prev.quantity += Number(it.quantity)||0;
+          map.set(key, prev);
+        }
+      }
+      map.forEach(v => list.push(v));
+    } catch {}
+    return list;
+  };
+
+  const personTotal = (items, allocations, idx) => {
+    return items.reduce((sum, it) => {
+      const arr = allocations[it.cartItemId] || [];
+      const qty = Number(arr[idx]) || 0;
+      return sum + qty * (Number(it.price)||0);
+    }, 0);
+  };
+
+  const settleExistingBatchesLocal = async (method = 'cash') => {
+    try {
+      if (!selectedTable?._id) return;
+      const batches = tableBatches?.batches?.filter(b => b.orderId) || [];
+      if (!batches.length) return;
+      const results = await Promise.allSettled(
+        batches.map(b => updatePaymentStatus(b.orderId, 'paid', method))
+      );
+      const failures = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success));
+      if (failures.length) throw new Error('Some orders failed to mark as paid');
+      // Clear batches and carts
+      try {
+        const batchesKey = 'pos_table_batches';
+        const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+        delete all[selectedTable._id];
+        localStorage.setItem(batchesKey, JSON.stringify(all));
+      } catch {}
+      try {
+        const cartsKey = 'pos_table_carts';
+        const allc = JSON.parse(localStorage.getItem(cartsKey) || '{}');
+        delete allc[selectedTable._id];
+        localStorage.setItem(cartsKey, JSON.stringify(allc));
+      } catch {}
+      try { await updateTableStatus(selectedTable._id, 'available'); } catch {}
+      replaceCart([], { orderType: 'dine-in' });
+      toast.success('Table settled');
+      // notify UI
+      try { window.dispatchEvent(new Event('batchesUpdated')); } catch {}
+    } catch (e) {
+      console.warn('Settlement error:', e);
+      toast.error('Failed to settle table');
+    }
   };
 
   // Inline quantity edit drafts
@@ -818,25 +884,26 @@ const CartSidebar = () => {
     if (offerType === 'bogo') {
       toast.success('BOGO offer applied to cart');
     } else if (offerType === 'split') {
-      // Initialize split allocations and open split modal
-      if (cartItems.length === 0) {
-        toast.error('Add items to cart before splitting');
+      const defaultCount = Math.max(2, splitCount || 2);
+      let items = cartItems;
+      let billingMode = false;
+      if (items.length === 0 && batchCount > 0) {
+        // Billing-time split from batches
+        items = buildItemsFromBatches();
+        billingMode = true;
+      }
+      if (items.length === 0) {
+        toast.error('Nothing to split');
         return;
       }
-      // default split into two with even quantities where possible
-      const defaultCount = Math.max(2, splitCount || 2);
-      const initial = {};
-      for (const item of cartItems) {
-        const arr = new Array(defaultCount).fill(0);
-        const q = Math.max(1, Number(item.quantity) || 1);
-        // simple round-robin distribution
-        for (let i = 0; i < q; i++) arr[i % defaultCount] += 1;
-        initial[item.cartItemId] = arr;
-      }
+      setBillingSplitMode(billingMode);
+      setSplitSourceItems(items);
+      const initial = computeEqualAllocations(items, defaultCount);
       setSplitCount(defaultCount);
       setSplitAllocations(initial);
+      setSplitEqualMode(true);
       setShowSplitModal(true);
-      toast.info('Split bill mode activated');
+      toast.info(billingMode ? 'Split bill for existing orders' : 'Split bill mode activated');
     }
   };
 
@@ -2184,7 +2251,7 @@ const CartSidebar = () => {
         orderTotal={getTotal()}
       />
 
-      {/* Split Bill Modal */}
+  {/* Split Bill Modal */}
       <Modal isOpen={showSplitModal} toggle={() => setShowSplitModal(false)} size="lg" centered scrollable>
         <ModalHeader toggle={() => setShowSplitModal(false)}>Split Bill</ModalHeader>
         <ModalBody>
@@ -2200,7 +2267,8 @@ const CartSidebar = () => {
                 const next = Math.min(8, Math.max(2, parseInt(e.target.value || '2', 10)));
                 setSplitCount(next);
                 setSplitEqualMode(false);
-                setSplitAllocations(computeEqualAllocations(cartItems, next));
+        const items = splitSourceItems.length ? splitSourceItems : cartItems;
+        setSplitAllocations(computeEqualAllocations(items, next));
                 setSplitSelectedIndex(0);
               }}
               style={{ width: 120 }}
@@ -2210,7 +2278,8 @@ const CartSidebar = () => {
               color="secondary"
               outline
               onClick={() => {
-                setSplitAllocations(computeEqualAllocations(cartItems, splitCount));
+        const items = splitSourceItems.length ? splitSourceItems : cartItems;
+        setSplitAllocations(computeEqualAllocations(items, splitCount));
                 setSplitEqualMode(true);
               }}
             >Split equally</Button>
@@ -2229,7 +2298,7 @@ const CartSidebar = () => {
                 </tr>
               </thead>
               <tbody>
-                {cartItems.map((item) => {
+        {(splitSourceItems.length ? splitSourceItems : cartItems).map((item) => {
                   const arr = splitAllocations[item.cartItemId] || new Array(splitCount).fill(0);
                   const totalQty = Math.max(1, Number(item.quantity)||1);
                   const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
@@ -2300,7 +2369,8 @@ const CartSidebar = () => {
             <div className="d-flex flex-wrap gap-2">
               {(() => {
                 if (splitEqualMode) {
-                  const grandTotal = cartItems.reduce((s,it)=> s + (Number(it.price)||0)*(Number(it.quantity)||0), 0);
+                  const src = splitSourceItems.length ? splitSourceItems : cartItems;
+                  const grandTotal = src.reduce((s,it)=> s + (Number(it.price)||0)*(Number(it.quantity)||0), 0);
                   const cents = Math.round(grandTotal * 100);
                   const base = Math.floor(cents / splitCount);
                   const remainder = cents - base * splitCount;
@@ -2309,8 +2379,9 @@ const CartSidebar = () => {
                     <Badge key={i} color="info" className="me-1">P{i+1}: {formatPrice(amt)}</Badge>
                   ));
                 }
+                const src = splitSourceItems.length ? splitSourceItems : cartItems;
                 return [...Array(splitCount)].map((_, i) => {
-                  const total = cartItems.reduce((sum,item) => {
+                  const total = src.reduce((sum,item) => {
                     const arr = splitAllocations[item.cartItemId] || new Array(splitCount).fill(0);
                     const qty = Number(arr[i])||0;
                     return sum + qty * (Number(item.price)||0);
@@ -2341,7 +2412,8 @@ const CartSidebar = () => {
               outline
               onClick={() => {
                 // Validate each row sums to original qty
-                for (const item of cartItems) {
+                const src = splitSourceItems.length ? splitSourceItems : cartItems;
+                for (const item of src) {
                   const arr = splitAllocations[item.cartItemId] || [];
                   const totalQty = Math.max(1, Number(item.quantity)||1);
                   const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
@@ -2351,7 +2423,7 @@ const CartSidebar = () => {
                   }
                 }
                 // Ensure selected person has items
-                const hasItems = cartItems.some(it => ((splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0) > 0);
+                const hasItems = (splitSourceItems.length ? splitSourceItems : cartItems).some(it => ((splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0) > 0);
                 if (!hasItems) {
                   toast.error('Selected person has no items assigned');
                   return;
@@ -2360,10 +2432,14 @@ const CartSidebar = () => {
                 setShowSplitModal(false);
                 setSplitSingleMode(true);
                 setSplitPayerIndex(splitSelectedIndex);
-                const slice = cartItems
-                  .map((it)=> ({ ...it, quantity: (splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0 }))
-                  .filter(it=>it.quantity>0);
-                setCurrentSplitCart(slice);
+                if (!billingSplitMode) {
+                  const slice = cartItems
+                    .map((it)=> ({ ...it, quantity: (splitAllocations[it.cartItemId] || [])[splitSelectedIndex] || 0 }))
+                    .filter(it=>it.quantity>0);
+                  setCurrentSplitCart(slice);
+                } else {
+                  setCurrentSplitCart([]);
+                }
               }}
             >Pay Selected</Button>
           </div>
@@ -2372,7 +2448,8 @@ const CartSidebar = () => {
             color="primary"
             onClick={() => {
               // Validate each row sums to original qty
-              for (const item of cartItems) {
+              const src = splitSourceItems.length ? splitSourceItems : cartItems;
+              for (const item of src) {
                 const arr = splitAllocations[item.cartItemId] || [];
                 const totalQty = Math.max(1, Number(item.quantity)||1);
                 const sum = arr.reduce((a,b)=>a+(Number(b)||0),0);
@@ -2385,10 +2462,14 @@ const CartSidebar = () => {
               setShowSplitModal(false);
               setSplitPayerIndex(0);
               setSplitSingleMode(false);
-              const slice = cartItems
-                .map((it)=> ({ ...it, quantity: (splitAllocations[it.cartItemId] || [])[0] || 0 }))
-                .filter(it=>it.quantity>0);
-              setCurrentSplitCart(slice);
+              if (!billingSplitMode) {
+                const slice = cartItems
+                  .map((it)=> ({ ...it, quantity: (splitAllocations[it.cartItemId] || [])[0] || 0 }))
+                  .filter(it=>it.quantity>0);
+                setCurrentSplitCart(slice);
+              } else {
+                setCurrentSplitCart([]);
+              }
             }}
           >Proceed to Payment</Button>
         </ModalFooter>
@@ -2406,25 +2487,43 @@ const CartSidebar = () => {
           cartItems={currentSplitCart}
           customerInfo={customerInfo}
           selectedTable={selectedTable}
-          orderTotal={currentSplitCart.reduce((s,i)=>s + (Number(i.price)||0)*(Number(i.quantity)||0), 0)}
+          orderTotal={billingSplitMode ? personTotal((splitSourceItems.length?splitSourceItems:cartItems), splitAllocations, splitPayerIndex) : currentSplitCart.reduce((s,i)=>s + (Number(i.price)||0)*(Number(i.quantity)||0), 0)}
+          isPartialSettlement={billingSplitMode}
+          partialAmount={billingSplitMode ? personTotal((splitSourceItems.length?splitSourceItems:cartItems), splitAllocations, splitPayerIndex) : 0}
           disableTableSettlement={true}
           suppressPostActions={true}
-          onProcessed={() => {
+          onProcessed={(result) => {
             // subtract this payer's quantities from the main cart so remaining items stay
             const payerIdx = splitPayerIndex;
-            const nextItems = [];
-            for (const it of cartItems) {
-              const paid = (splitAllocations[it.cartItemId] || [])[payerIdx] || 0;
-              const newQty = Math.max(0, (Number(it.quantity)||0) - paid);
-              if (newQty > 0) nextItems.push({ ...it, quantity: newQty });
+            if (!billingSplitMode) {
+              const nextItems = [];
+              for (const it of cartItems) {
+                const paid = (splitAllocations[it.cartItemId] || [])[payerIdx] || 0;
+                const newQty = Math.max(0, (Number(it.quantity)||0) - paid);
+                if (newQty > 0) nextItems.push({ ...it, quantity: newQty });
+              }
+              replaceCart(nextItems, { ...customerInfo });
+            } else {
+              const amount = result?.amount ?? personTotal((splitSourceItems.length?splitSourceItems:cartItems), splitAllocations, payerIdx);
+              setBillingPaidCents((c) => c + Math.round((amount||0)*100));
             }
-            replaceCart(nextItems, { ...customerInfo });
 
             if (splitSingleMode) {
               // stop after single payment
               setSplitPayerIndex(null);
               setCurrentSplitCart([]);
-              toast.success('Split paid. Remaining items kept in cart');
+              if (!billingSplitMode) {
+                toast.success('Split paid. Remaining items kept in cart');
+              } else {
+                const totalCents = Math.round((batchesTotal || 0) * 100);
+                if (billingPaidCents + Math.round((result?.amount||0)*100) >= totalCents) {
+                  // fully paid, settle
+                  settleExistingBatchesLocal(result?.method || 'cash');
+                } else {
+                  const remaining = (totalCents - (billingPaidCents + Math.round((result?.amount||0)*100)))/100;
+                  toast.success(`Collected. Remaining: ${formatPrice(remaining)}`);
+                }
+              }
               return;
             }
             // advance to next payer (sequential all)
@@ -2433,16 +2532,31 @@ const CartSidebar = () => {
               // finished all
               setSplitPayerIndex(null);
               setCurrentSplitCart([]);
-              toast.success('All splits paid');
-              // cart already reduced progressively; ensure empty if all covered
+              if (!billingSplitMode) {
+                toast.success('All splits paid');
+                // cart already reduced progressively; ensure empty if all covered
+              } else {
+                const totalCents = Math.round((batchesTotal || 0) * 100);
+                const collected = billingPaidCents + Math.round((result?.amount||0)*100);
+                if (collected >= totalCents) {
+                  settleExistingBatchesLocal(result?.method || 'cash');
+                } else {
+                  const remaining = (totalCents - collected)/100;
+                  toast.success(`Collected. Remaining: ${formatPrice(remaining)}`);
+                }
+              }
               return;
             }
             setSplitPayerIndex(nextIdx);
-            const slice = cartItems.map((it)=>({
-              ...it,
-              quantity: (splitAllocations[it.cartItemId] || [])[nextIdx] || 0
-            })).filter(it=>it.quantity>0);
-            setCurrentSplitCart(slice);
+            if (!billingSplitMode) {
+              const slice = cartItems.map((it)=>({
+                ...it,
+                quantity: (splitAllocations[it.cartItemId] || [])[nextIdx] || 0
+              })).filter(it=>it.quantity>0);
+              setCurrentSplitCart(slice);
+            } else {
+              setCurrentSplitCart([]);
+            }
           }}
         />
       )}

@@ -53,7 +53,10 @@ const PaymentModal = ({
   suppressPostActions = false,    // when true, don't clear selected table or navigate after success
   onProcessed,                  // optional callback when payment succeeds; gets created order
   autoPrintOnSuccess = false,   // when true, automatically prints after creating an order (useful for splits)
-  splitMeta = null              // optional { payerIndex, splitCount, label }
+  splitMeta = null,             // optional { payerIndex, splitCount, label }
+  // Partial settlement mode: collect a portion of the bill without creating orders or settling batches
+  isPartialSettlement = false,
+  partialAmount = 0
 }) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [paymentData, setPaymentData] = useState({
@@ -98,7 +101,9 @@ const PaymentModal = ({
   const tableBatches = disableTableSettlement ? null : getCurrentTableBatches();
   const batchCount = tableBatches?.batches?.length || 0;
   const batchesTotal = tableBatches?.batches?.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0) || 0;
-  const totalAmount = orderTotal + (disableTableSettlement ? 0 : batchesTotal);
+  const totalAmount = isPartialSettlement
+    ? (partialAmount || 0)
+    : orderTotal + (disableTableSettlement ? 0 : batchesTotal);
 
   // Payment method options
   const paymentMethods = [
@@ -247,6 +252,20 @@ const PaymentModal = ({
     setInsufficiencyMessage('');
     
     try {
+      // In partial settlement mode, only collect payment UI-wise and bubble up; skip order creation and settlement
+      if (isPartialSettlement) {
+        // Simulate processing delay minimal; then callback
+        const result = {
+          mode: 'partial',
+          amount: totalAmount,
+          method: paymentData.method,
+        };
+        try { onProcessed && onProcessed(result); } catch {}
+        toast.success('Partial payment recorded');
+        handleClose();
+        return;
+      }
+
       let orderData = null;
       // Ensure customer is resolved/created before creating order
       let resolvedCustomerId = null;
@@ -404,7 +423,7 @@ const PaymentModal = ({
       }
       
       // Auto print when requested (useful for per-person receipts in split mode)
-      if (autoPrintOnSuccess) {
+  if (autoPrintOnSuccess) {
         try {
           await handlePrintReceipt('auto', orderData);
         } catch (e) {
