@@ -115,6 +115,13 @@ const PaymentModal = ({
   // Quick tender buttons for cash payments
   const tenderButtons = [100, 200, 500];
 
+  // Money helpers: avoid FP artifacts and keep to 2 decimals
+  const toMoney = (n) => {
+    const num = typeof n === 'string' ? parseFloat(n) : n;
+    if (!Number.isFinite(num)) return 0;
+    return Math.round((num + Number.EPSILON) * 100) / 100;
+  };
+
   const formatPrice = (price) => {
     if (currencyReady && formatCurrencyDynamic) {
       return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
@@ -126,9 +133,9 @@ const PaymentModal = ({
     }).format(price || 0);
   };
 
-  const parseReceived = () => parseFloat(paymentData.amountReceived) || 0;
-  const calculateChange = () => Math.max(0, parseReceived() - totalAmount);
-  const remainingBalance = () => Math.max(0, totalAmount - parseReceived());
+  const parseReceived = () => toMoney(paymentData.amountReceived);
+  const calculateChange = () => Math.max(0, toMoney(parseReceived() - totalAmount));
+  const remainingBalance = () => Math.max(0, toMoney(totalAmount - parseReceived()));
 
   const handlePaymentMethodChange = (method) => {
     setSelectedPaymentMethod(method);
@@ -137,20 +144,20 @@ const PaymentModal = ({
     
     // Set default amount for non-cash payments
     if (method !== 'cash') {
-      setPaymentData(prev => ({ ...prev, amountReceived: totalAmount.toString() }));
+      setPaymentData(prev => ({ ...prev, amountReceived: toMoney(totalAmount).toFixed(2) }));
     }
   };
 
   const handleQuickAmount = (amount) => {
     // Set absolute amount (used for Exact)
-    setPaymentData(prev => ({ ...prev, amountReceived: amount.toString() }));
+  setPaymentData(prev => ({ ...prev, amountReceived: toMoney(amount).toFixed(2) }));
     setErrors(prev => ({ ...prev, amountReceived: null }));
   };
 
   const handleAddAmount = (delta) => {
-    const current = parseReceived();
-    const next = current + delta;
-    setPaymentData(prev => ({ ...prev, amountReceived: next.toString() }));
+  const current = parseReceived();
+  const next = toMoney(current + delta);
+  setPaymentData(prev => ({ ...prev, amountReceived: next.toFixed(2) }));
     setErrors(prev => ({ ...prev, amountReceived: null }));
   };
 
@@ -466,12 +473,12 @@ const PaymentModal = ({
 
     try {
       // Prepare order data for receipt
-      const orderData = {
+    const orderData = {
         order: printable,
         paymentDetails: {
           method: paymentData.method,
-          amountReceived: paymentData.method === 'cash' ? parseFloat(paymentData.amountReceived) : orderTotal,
-          change: paymentData.method === 'cash' ? calculateChange() : 0,
+      amountReceived: paymentData.method === 'cash' ? parseReceived() : orderTotal,
+      change: paymentData.method === 'cash' ? calculateChange() : 0,
           cardNumber: paymentData.method === 'card' ? paymentData.cardNumber : null,
           cardHolder: paymentData.method === 'card' ? paymentData.cardHolder : null,
           upiId: paymentData.method === 'upi' ? paymentData.upiId : null,
@@ -551,7 +558,7 @@ const PaymentModal = ({
   // Set default amount when modal opens
   useEffect(() => {
     if (isOpen && selectedPaymentMethod === 'cash') {
-      setPaymentData(prev => ({ ...prev, amountReceived: totalAmount.toString() }));
+  setPaymentData(prev => ({ ...prev, amountReceived: toMoney(totalAmount).toFixed(2) }));
     }
   }, [isOpen, totalAmount, selectedPaymentMethod]);
 
@@ -636,7 +643,7 @@ const PaymentModal = ({
                   {batchCount > 0 && (
                     <div className="mb-1">
                       <small className="text-muted">Existing Batches:</small>
-                      <div className="fw-bold">{formatPrice(batchesTotal)}</div>
+                      <div className="fw-bold d-inline-block ms-2">{formatPrice(batchesTotal)}</div>
                     </div>
                   )}
                   <hr className="my-2" />
@@ -683,6 +690,10 @@ const PaymentModal = ({
                       onChange={(e) => {
                         setPaymentData(prev => ({ ...prev, amountReceived: e.target.value }));
                         setErrors(prev => ({ ...prev, amountReceived: null }));
+                      }}
+                      onBlur={() => {
+                        const normalized = toMoney(paymentData.amountReceived);
+                        setPaymentData(prev => ({ ...prev, amountReceived: normalized ? normalized.toFixed(2) : '' }));
                       }}
                       invalid={!!errors.amountReceived}
                       disabled={loading}

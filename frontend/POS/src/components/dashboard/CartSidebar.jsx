@@ -1687,18 +1687,7 @@ const CartSidebar = () => {
                 >
                   Split
                 </Button>
-                <div className="d-flex align-items-center">
-                  <Input
-                    type="checkbox"
-                    id="complimentary"
-                    checked={orderStatus.isComplimentary}
-                    onChange={handleComplimentaryToggle}
-                    className="me-2"
-                  />
-                  <Label for="complimentary" className="mb-0 small">
-                    Complimentary
-                  </Label>
-                </div>
+                
                 <div className="total-display">
                   <div className="d-flex justify-content-between fw-bold">
                     <span>Total:</span>
@@ -1708,65 +1697,9 @@ const CartSidebar = () => {
               </div>
             </div>
 
-            {/* Payment Method Selection */}
-            <div className="payment-methods mb-2">
-              <div className="d-flex gap-1">
-                {['cash', 'card', 'due', 'other', 'part'].map(method => (
-                  <Button
-                    key={method}
-                    color={selectedPaymentMethod === method ? 'dark' : 'outline-secondary'}
-                    size="sm"
-                    onClick={() => handlePaymentMethodChange(method)}
-                    className="flex-fill text-capitalize"
-                  >
-                    {method}
-                  </Button>
-                ))}
-              </div>
-            </div>
+         
 
-            {/* Status Checkboxes */}
-            <div className="status-checkboxes mb-2">
-              <div className="d-flex gap-3 justify-content-center">
-                <div className="d-flex align-items-center">
-                  <Input
-                    type="checkbox"
-                    id="isPaid"
-                    checked={orderStatus.isPaid}
-                    onChange={() => handleStatusToggle('isPaid')}
-                    className="me-1"
-                  />
-                  <Label for="isPaid" className="mb-0 small">
-                    It's Paid
-                  </Label>
-                </div>
-                <div className="d-flex align-items-center">
-                  <Input
-                    type="checkbox"
-                    id="isLoyalty"
-                    checked={orderStatus.isLoyalty}
-                    onChange={() => handleStatusToggle('isLoyalty')}
-                    className="me-1"
-                  />
-                  <Label for="isLoyalty" className="mb-0 small">
-                    Loyalty
-                  </Label>
-                </div>
-                <div className="d-flex align-items-center">
-                  <Input
-                    type="checkbox"
-                    id="sendFeedbackSMS"
-                    checked={orderStatus.sendFeedbackSMS}
-                    onChange={() => handleStatusToggle('sendFeedbackSMS')}
-                    className="me-1"
-                  />
-                  <Label for="sendFeedbackSMS" className="mb-0 small">
-                    Send Feedback SMS
-                  </Label>
-                </div>
-              </div>
-            </div>
-
+          
             {/* Action Buttons Grid */}
             <div className="action-buttons-grid">
               <div className="row g-2 mb-2">
