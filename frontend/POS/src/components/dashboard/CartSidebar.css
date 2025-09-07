@@ -921,3 +921,21 @@
   font-weight: 600;
   display: none; /* Will be shown via JS when needed */
 }
+
+/* Split Bill table alignment */
+.split-table th, .split-table td {
+  vertical-align: middle;
+}
+.split-table .qty-col {
+  width: 70px;
+}
+.split-table .payer-col {
+  width: 50px;
+}
+.split-table input[type="number"] {
+  height: 32px;
+  padding: 2px 6px;
+}
+.split-table .fw-medium {
+  text-transform: capitalize;
+}
