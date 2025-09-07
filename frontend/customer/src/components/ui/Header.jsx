@@ -74,8 +74,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-
-  console.log(restaurantCtx, 'Restaurant Context');
+ 
 
   // Restaurant data - prefer context, fallback to props
   const restaurant = {

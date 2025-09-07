@@ -239,8 +239,7 @@ const SignupModal = ({ isOpen, onClose }) => {
     setError("");
     
     // Check if restaurant and branch data is available
-    if (!restaurant || !branch) {
-      console.error('Restaurant context:', { restaurant, branch });
+    if (!restaurant || !branch) { 
       setError("Restaurant information not available. Please try again.");
       setLoading(false);
       return;
