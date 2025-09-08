@@ -22,31 +22,42 @@ const durations = {
 };
 
 const api = {
+  // Allow only the specific session-closed error to be shown; suppress all others
+  _isAllowed(type, message) {
+    const msg = String(message || '').toLowerCase();
+    if (type === 'error' && msg.includes('register is closed')) return true;
+    return false;
+  },
   success: (message) => {
+    if (!api._isAllowed('success', message)) return null;
     const id = makeId();
     playPosSound('success');
     notify({ type: 'add', toast: { id, type: 'success', message, createdAt: Date.now() } });
     return id;
   },
   error: (message) => {
+    if (!api._isAllowed('error', message)) return null;
     const id = makeId();
     playPosSound('error');
     notify({ type: 'add', toast: { id, type: 'error', message, createdAt: Date.now() } });
     return id;
   },
   info: (message) => {
+    if (!api._isAllowed('info', message)) return null;
     const id = makeId();
     playPosSound('info');
     notify({ type: 'add', toast: { id, type: 'info', message, createdAt: Date.now() } });
     return id;
   },
   warning: (message) => {
+    if (!api._isAllowed('warning', message)) return null;
     const id = makeId();
     playPosSound('warning');
     notify({ type: 'add', toast: { id, type: 'warning', message, createdAt: Date.now() } });
     return id;
   },
   loading: (message = 'Loading...') => {
+    if (!api._isAllowed('loading', message)) return null;
     const id = makeId();
     playPosSound('info');
     notify({ type: 'add', toast: { id, type: 'loading', message, createdAt: Date.now() } });

@@ -420,8 +420,8 @@ const MenuSelection = () => {
   // Handle smart card click - add to cart or open modal
   const handleSmartCardClick = (item) => {
     if (!isOpen) {
-      // Consistent UX: toast notification
-      toast.error('Register is closed. Please open a session to start selling.');
+  // Consistent UX: toast notification (only allowed toast)
+  toast.error('Register is closed. Please open a session to start selling.');
       // Attempt a quick refresh in case session exists but wasn’t loaded yet
       try { refresh(); } catch (_) {}
       return;
