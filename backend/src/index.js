@@ -114,6 +114,7 @@ const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const floorRoutes = require('./routes/floorRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
+const posSessionRoutes = require('./routes/posSessionRoutes');
 
 // Import public routes for customer application
 const publicTableRoutes = require('./routes/publicTableRoutes');
@@ -161,6 +162,7 @@ app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/floors', floorRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/pos/sessions', posSessionRoutes);
 
 // Debug request logging middleware for public routes
 app.use('/api/public', (req, res, next) => {

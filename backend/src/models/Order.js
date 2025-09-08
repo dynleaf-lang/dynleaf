@@ -11,6 +11,13 @@ const orderSchema = new mongoose.Schema({
         ref: 'Branch',
         required: true,
     },
+    // Link order to a POS session (cashier shift) when created from POS
+    sessionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'PosSession',
+        required: false,
+        index: true,
+    },
     orderId: {
         type: String,
         unique: true,

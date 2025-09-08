@@ -130,6 +130,8 @@ router.post('/', async (req, res) => {
             taxDetails,
             subtotal,
             total,
+            // when created from POS, attach the current pos session
+            sessionId,
             // stock control flags (optional)
             enforceStock,
             allowInsufficientOverride,
@@ -400,6 +402,7 @@ router.post('/', async (req, res) => {
             restaurantId,
             branchId,
             tableId,
+            sessionId: sessionId && mongoose.Types.ObjectId.isValid(sessionId) ? sessionId : undefined,
             items: items.map(item => ({
                 menuItemId: item.menuItemId,
                 name: String(item.name).trim(),

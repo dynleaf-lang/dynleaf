@@ -26,10 +26,13 @@ import {
 } from 'react-icons/fa';
 import { format } from 'date-fns';
 import { usePOS } from '../../context/POSContext';
+import { useShift } from '../../context/ShiftContext';
+import ShiftControls from './ShiftControls';
 
 const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleSidebar, onNavigateToTables }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const { restaurant } = usePOS();
+  const { currentSession } = useShift();
 
   
   useEffect(() => {
@@ -134,6 +137,19 @@ const Header = ({ user, connected, selectedTable, activeTab, onLogout, onToggleS
       )}
 
       <Nav className="ms-auto d-flex align-items-center" navbar>
+        {/* Register/Session Status + Controls */}
+        <div className="d-flex align-items-center me-3">
+          <div className="d-flex align-items-center bg-light px-3 py-2 rounded me-2">
+            <FaCashRegister className={currentSession ? 'text-success me-2' : 'text-secondary me-2'} />
+            <div>
+              <small className="text-muted d-block">Register</small>
+              <strong className={currentSession ? 'text-success' : 'text-secondary'}>
+                {currentSession ? 'Open' : 'Closed'}
+              </strong>
+            </div>
+          </div>
+          <ShiftControls />
+        </div>
         {/* Fullscreen Toggle Button */}
         <Button
           color="light"

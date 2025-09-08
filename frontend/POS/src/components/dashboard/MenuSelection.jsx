@@ -39,6 +39,9 @@ import { usePOS } from '../../context/POSContext';
 import { useCart } from '../../context/CartContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import CartSidebar from './CartSidebar';
+import ShiftControls from './ShiftControls';
+import { useShift } from '../../context/ShiftContext';
+import toast from '../../utils/notify';
 import playPosSound from '../../utils/sound';
 import './MenuSelection.css';
 
@@ -51,6 +54,7 @@ const MenuSelection = () => {
     searchMenuItems,
     loading 
   } = usePOS();
+  const { currentSession, isOpen, refresh } = useShift();
  
   
   
@@ -415,6 +419,13 @@ const MenuSelection = () => {
 
   // Handle smart card click - add to cart or open modal
   const handleSmartCardClick = (item) => {
+    if (!isOpen) {
+      // Consistent UX: toast notification
+      toast.error('Register is closed. Please open a session to start selling.');
+      // Attempt a quick refresh in case session exists but wasn’t loaded yet
+      try { refresh(); } catch (_) {}
+      return;
+    }
     if (hasVariantsOrSizes(item)) {
       // Item has variants/sizes, open modal for customization
       handleItemClick(item);
@@ -595,8 +606,10 @@ const MenuSelection = () => {
                 )}
               </div>
               
-              {/* Search */}
-              <InputGroup style={{ width: '280px' }}>
+              {/* Shift + Search */}
+              <div className="d-flex align-items-center gap-3">
+                <ShiftControls />
+                <InputGroup style={{ width: '280px' }}>
                 <Input
                   type="text"
                   placeholder="Search menu items..."
@@ -608,7 +621,8 @@ const MenuSelection = () => {
                 <Button color="outline-secondary" size="sm">
                   <FaSearch />
                 </Button>
-              </InputGroup>
+                </InputGroup>
+              </div>
             </div>
           </div>
 
@@ -858,6 +872,7 @@ const MenuSelection = () => {
           <Button 
             color="primary" 
             onClick={() => handleAddToCart(selectedItem, itemQuantity, itemCustomizations)}
+            disabled={!isOpen}
           >
             <FaPlus className="me-2" />
             Save & Add to Cart

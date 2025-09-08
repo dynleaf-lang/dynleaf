@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
 import toast from '../utils/notify';
+// Lazy access to ShiftContext without direct import to avoid cycles
+import { useShift } from './ShiftContext';
 
 const OrderContext = createContext();
 
@@ -17,6 +19,7 @@ export const useOrder = () => {
 export const OrderProvider = ({ children }) => {
   const { user } = useAuth();
   const { emitNewOrder, emitOrderStatusUpdate, emitPaymentStatusUpdate } = useSocket();
+  const { currentSession } = useShift();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -195,6 +198,7 @@ export const OrderProvider = ({ children }) => {
         ...orderData,
         branchId: user.branchId,
         restaurantId: user.restaurantId,
+        sessionId: currentSession?._id,
         createdBy: user._id,
         createdByName: user.name,
         source: 'pos',

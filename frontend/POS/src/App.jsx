@@ -9,6 +9,7 @@ import { AuthProvider } from './context/AuthContext';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { SocketProvider } from './context/SocketContext';
 import { POSProvider } from './context/POSContext';
+import { ShiftProvider } from './context/ShiftContext';
 import { CartProvider } from './context/CartContext';
 import { OrderProvider } from './context/OrderContext';
 
@@ -25,6 +26,7 @@ function App() {
         <CurrencyProvider>
           <SocketProvider>
             <POSProvider>
+              <ShiftProvider>
               <CartProvider>
                 <OrderProvider>
                 <div className="App">
@@ -45,6 +47,7 @@ function App() {
                 </div>
                 </OrderProvider>
               </CartProvider>
+              </ShiftProvider>
             </POSProvider>
           </SocketProvider>
         </CurrencyProvider>
