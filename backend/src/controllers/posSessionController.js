@@ -50,58 +50,97 @@ exports.open = async (req, res) => {
 exports.close = async (req, res) => {
   try {
     const { id } = req.params;
-    const { closingCash = 0, expectedCash = 0, totals = {}, notes = '' } = req.body || {};
+  const { closingCash = 0, expectedCash = 0, totals = {}, notes = '' } = req.body || {};
     const session = await PosSession.findById(id);
     if (!session || session.status !== 'open') {
       return res.status(404).json({ message: 'Open session not found' });
     }
 
-    // Aggregate orders linked to this session
-    let orders = [];
+    // Aggregate orders linked to this session using a robust pipeline
+    const now = new Date();
+    let match = {};
     try {
-      orders = await Order.find({ sessionId: session._id }).lean();
-      // Fallback: if no orders have sessionId (older orders), approximate by branch/time window
-      if ((!orders || orders.length === 0) && session.openAt) {
-        orders = await Order.find({
+      const hasTagged = await Order.exists({ sessionId: session._id });
+      if (hasTagged) {
+        match = { sessionId: session._id };
+      } else {
+        match = {
           branchId: session.branchId,
-          createdAt: { $gte: session.openAt },
-        }).lean();
+          createdAt: { $gte: session.openAt || session.createdAt || new Date(0), $lte: now }
+        };
+        if (session.restaurantId) match.restaurantId = session.restaurantId;
+      }
+    } catch (_) {
+      match = { branchId: session.branchId, createdAt: { $gte: session.openAt || new Date(0), $lte: now } };
+    }
+
+    let agg = { ordersCount: 0, grossSales: 0, byPayment: { cash: 0, card: 0, online: 0 }, discounts: 0, refunds: 0 };
+    try {
+      const res = await Order.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            ordersCount: { $sum: 1 },
+            grossSales: { $sum: { $ifNull: ['$totalAmount', 0] } },
+            cash: {
+              $sum: {
+                $cond: [
+                  { $and: [ { $eq: [ { $toLower: '$paymentStatus' }, 'paid' ] }, { $eq: [ { $toLower: '$paymentMethod' }, 'cash' ] } ] },
+                  { $ifNull: ['$totalAmount', 0] },
+                  0
+                ]
+              }
+            },
+            card: {
+              $sum: {
+                $cond: [
+                  { $and: [ { $eq: [ { $toLower: '$paymentStatus' }, 'paid' ] }, { $eq: [ { $toLower: '$paymentMethod' }, 'card' ] } ] },
+                  { $ifNull: ['$totalAmount', 0] },
+                  0
+                ]
+              }
+            },
+            online: {
+              $sum: {
+                $cond: [
+                  { $and: [ { $eq: [ { $toLower: '$paymentStatus' }, 'paid' ] }, { $or: [ { $eq: [ { $toLower: '$paymentMethod' }, 'online' ] }, { $eq: [ { $toLower: '$paymentMethod' }, 'other' ] } ] } ] },
+                  { $ifNull: ['$totalAmount', 0] },
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]);
+      if (res && res[0]) {
+        agg = {
+          ordersCount: res[0].ordersCount || 0,
+          grossSales: res[0].grossSales || 0,
+          byPayment: { cash: res[0].cash || 0, card: res[0].card || 0, online: res[0].online || 0 },
+          discounts: 0,
+          refunds: 0
+        };
       }
     } catch (_) {}
-
-    const agg = orders.reduce((acc, o) => {
-      acc.ordersCount += 1;
-      const total = Number(o.totalAmount) || 0;
-      acc.grossSales += total;
-      // simple payment breakdown based on paymentMethod when paid
-      const method = String(o.paymentMethod || '').toLowerCase();
-      const isPaid = String(o.paymentStatus || '').toLowerCase() === 'paid';
-      if (isPaid) {
-        if (method === 'cash') acc.byPayment.cash += total;
-        else if (method === 'card') acc.byPayment.card += total;
-        else acc.byPayment.online += total;
-      }
-      return acc;
-    }, { ordersCount: 0, grossSales: 0, netSales: 0, discounts: 0, refunds: 0, byPayment: { cash: 0, card: 0, online: 0 } });
 
     session.status = 'closed';
     session.closeAt = new Date();
     session.closingCash = Number(closingCash) || 0;
     session.expectedCash = Number(expectedCash) || 0;
     session.cashVariance = session.closingCash - session.expectedCash;
-    // Prefer computed agg, allow client-provided totals as overrides if provided
-    const byPayment = {
-      cash: Number((totals.byPayment?.cash ?? agg.byPayment.cash) || 0),
-      card: Number((totals.byPayment?.card ?? agg.byPayment.card) || 0),
-      online: Number((totals.byPayment?.online ?? agg.byPayment.online) || 0)
-    };
+    // Use server-computed aggregates to avoid client zeros masking real values
     session.totals = {
-      ordersCount: Number((totals.ordersCount ?? agg.ordersCount) || 0),
-      grossSales: Number((totals.grossSales ?? agg.grossSales) || 0),
-      netSales: Number((totals.netSales ?? agg.grossSales) || 0),
-      discounts: Number((totals.discounts ?? agg.discounts) || 0),
-      refunds: Number((totals.refunds ?? agg.refunds) || 0),
-      byPayment
+      ordersCount: Number(agg.ordersCount || 0),
+      grossSales: Number(agg.grossSales || 0),
+      netSales: Number(agg.grossSales || 0),
+      discounts: Number(agg.discounts || 0),
+      refunds: Number(agg.refunds || 0),
+      byPayment: {
+        cash: Number(agg.byPayment.cash || 0),
+        card: Number(agg.byPayment.card || 0),
+        online: Number(agg.byPayment.online || 0)
+      }
     };
     session.notes = notes;
     await session.save();
