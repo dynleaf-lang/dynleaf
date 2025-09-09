@@ -17,6 +17,7 @@ export const ShiftProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastSummary, setLastSummary] = useState(null);
+  const [closeDetails, setCloseDetails] = useState(null);
 
   const API_BASE = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
@@ -107,13 +108,15 @@ export const ShiftProvider = ({ children }) => {
       });
       setCurrentSession(null);
       if (data?.summary) setLastSummary(data.summary);
+  setCloseDetails(null);
   try { localStorage.removeItem('pos_current_session'); } catch (_) {}
       try { window.dispatchEvent(new CustomEvent('pos:sessionChanged', { detail: { session: null, summary: data?.summary } })); } catch (_) {}
       toast.success('Session closed');
       return data.session;
     } catch (e) {
-      const msg = e?.response?.data?.message || 'Failed to close session';
+  const msg = e?.response?.data?.message || 'Failed to close session';
       setError(msg);
+  setCloseDetails(e?.response?.data?.details || null);
       toast.error(msg);
       return null;
     } finally {
@@ -124,7 +127,7 @@ export const ShiftProvider = ({ children }) => {
   const isOpen = !!(currentSession && currentSession.status !== 'closed');
 
   return (
-    <ShiftContext.Provider value={{ currentSession, isOpen, loading, error, refresh, openSession, closeSession, lastSummary }}>
+    <ShiftContext.Provider value={{ currentSession, isOpen, loading, error, refresh, openSession, closeSession, lastSummary, closeDetails }}>
       {children}
     </ShiftContext.Provider>
   );

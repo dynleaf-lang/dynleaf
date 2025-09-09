@@ -1,5 +1,6 @@
 const PosSession = require('../models/PosSession');
 const Order = require('../models/Order');
+const DiningTable = require('../models/DiningTables');
 
 // Get current open session for branch (and optionally cashier)
 exports.getCurrent = async (req, res) => {
@@ -54,6 +55,84 @@ exports.close = async (req, res) => {
     const session = await PosSession.findById(id);
     if (!session || session.status !== 'open') {
       return res.status(404).json({ message: 'Open session not found' });
+    }
+
+    // Prevent closing if there are any in-progress/pending orders or occupied tables
+    try {
+      const activeStatuses = ['pending', 'confirmed', 'preparing']; // "ready" can be treated as ready-to-serve, not blocking
+      const activePayments = ['unpaid', 'pending', 'partial'];
+      const branchFilter = { branchId: session.branchId };
+      if (session.restaurantId) branchFilter.restaurantId = session.restaurantId;
+      const windowFilter = {
+        createdAt: { $gte: session.openAt || session.createdAt || new Date(0), $lte: new Date() }
+      };
+
+      // Prefer matching orders by sessionId when available, fallback to time window
+      const hasTaggedOrders = await Order.exists({ sessionId: session._id });
+      const orderGuardFilter = hasTaggedOrders ?
+        {
+          ...branchFilter,
+          sessionId: session._id,
+          $and: [
+            { status: { $nin: ['cancelled', 'delivered'] } },
+            { $or: [ { status: { $in: activeStatuses } }, { paymentStatus: { $in: activePayments } } ] }
+          ]
+        } :
+        {
+          ...branchFilter,
+          ...windowFilter,
+          $and: [
+            { status: { $nin: ['cancelled', 'delivered'] } },
+            { $or: [ { status: { $in: activeStatuses } }, { paymentStatus: { $in: activePayments } } ] }
+          ]
+        };
+
+      const activeOrdersCount = await Order.countDocuments(orderGuardFilter);
+
+      // Compute occupied tables as: (flagged occupied) UNION (currentOrder points to an active order in-session)
+      const timeLowerBound = session.openAt || session.createdAt || new Date(0);
+      const flaggedTables = await DiningTable.find({
+        ...branchFilter,
+        updatedAt: { $gte: timeLowerBound },
+        $and: [ { status: 'occupied' }, { isOccupied: true } ]
+      }).select('_id').lean();
+
+      const tablesWithOrder = await DiningTable.find({
+        ...branchFilter,
+        updatedAt: { $gte: timeLowerBound },
+        currentOrder: { $ne: null }
+      }).select('_id currentOrder').lean();
+
+      const currentOrderIds = [...new Set(tablesWithOrder.map(t => String(t.currentOrder)).filter(Boolean))];
+      let activeOrderIdSet = new Set();
+      if (currentOrderIds.length > 0) {
+        const activeOrders = await Order.find({
+          _id: { $in: currentOrderIds },
+          ...branchFilter,
+          $and: [
+            { status: { $nin: ['cancelled', 'delivered'] } },
+            { $or: [ { status: { $in: ['pending', 'confirmed', 'preparing'] } }, { paymentStatus: { $in: ['unpaid', 'pending', 'partial'] } } ] }
+          ],
+          createdAt: { $gte: timeLowerBound, $lte: new Date() }
+        }).select('_id').lean();
+        activeOrderIdSet = new Set(activeOrders.map(o => String(o._id)));
+      }
+
+      const occupiedTableIdSet = new Set([
+        ...flaggedTables.map(t => String(t._id)),
+        ...tablesWithOrder.filter(t => activeOrderIdSet.has(String(t.currentOrder))).map(t => String(t._id))
+      ]);
+
+      const occupiedTablesCount = occupiedTableIdSet.size;
+
+      if (activeOrdersCount > 0 || occupiedTablesCount > 0) {
+        return res.status(409).json({
+          message: 'Cannot close register while orders are in progress or tables are occupied. Please complete or cancel all orders and free tables before closing.',
+          details: { activeOrdersCount, occupiedTablesCount }
+        });
+      }
+    } catch (guardErr) {
+      console.warn('close session guard check failed, proceeding with caution:', guardErr?.message);
     }
 
     // Aggregate orders linked to this session using a robust pipeline
@@ -148,5 +227,50 @@ exports.close = async (req, res) => {
   } catch (err) {
     console.error('close session error:', err);
     return res.status(500).json({ message: 'Failed to close session' });
+  }
+};
+
+// Get the last closed session for a branch (and optionally cashier)
+exports.getLastClosed = async (req, res) => {
+  try {
+    let { branchId, cashierId } = req.query;
+    if (!branchId && req.user?.branchId) branchId = req.user.branchId;
+    if (!branchId) return res.status(400).json({ message: 'branchId is required' });
+    const query = { status: 'closed', branchId };
+    if (cashierId) query.cashierId = cashierId;
+    const session = await PosSession.findOne(query).sort({ closeAt: -1, updatedAt: -1 });
+    return res.json({ session });
+  } catch (err) {
+    console.error('getLastClosed session error:', err);
+    return res.status(500).json({ message: 'Failed to fetch last closed session' });
+  }
+};
+
+// Resolve stale table occupancy for a branch (safe cleanup: only tables without currentOrder)
+exports.resolveOccupancy = async (req, res) => {
+  try {
+    let { branchId } = req.body || req.query || {};
+    if (!branchId && req.user?.branchId) branchId = req.user.branchId;
+    if (!branchId) return res.status(400).json({ message: 'branchId is required' });
+
+    const filter = {
+      branchId,
+      currentOrder: null,
+      $or: [ { status: 'occupied' }, { isOccupied: true } ]
+    };
+
+    const tables = await DiningTable.find(filter);
+    let updated = 0;
+    for (const t of tables) {
+      t.status = 'available';
+      t.isOccupied = false;
+      // currentOrder is already null per filter, keep it null
+      await t.save();
+      updated++;
+    }
+    return res.json({ message: 'Resolved stale occupancy', updated });
+  } catch (err) {
+    console.error('resolveOccupancy error:', err);
+    return res.status(500).json({ message: 'Failed to resolve occupancy' });
   }
 };

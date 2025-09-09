@@ -32,6 +32,7 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { useOrder } from '../../context/OrderContext';
+import { useShift } from '../../context/ShiftContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import axios from 'axios';
 import toast from '../../utils/notify';
@@ -40,11 +41,13 @@ import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 const DailySummaryReport = () => {
   const { user } = useAuth();
   const { orders, refreshOrders } = useOrder();
+  const { currentSession } = useShift();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [reportType, setReportType] = useState('today'); // 'today', 'yesterday', 'custom'
+  const [reportScope, setReportScope] = useState('session'); // 'session' | 'date'
+  const [reportType, setReportType] = useState('today'); // used when scope === 'date': 'today' | 'yesterday' | 'custom'
 
   const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
 
@@ -55,53 +58,98 @@ const DailySummaryReport = () => {
         generateReport();
       });
     }
-  }, [user, selectedDate, reportType]);
+  }, [user, selectedDate, reportType, reportScope, currentSession?._id]);
 
   const generateReport = async () => {
     setLoading(true);
     try {
-      let startDate, endDate;
-      
-      if (reportType === 'today') {
-        startDate = startOfDay(new Date());
-        endDate = endOfDay(new Date());
-      } else if (reportType === 'yesterday') {
-        const yesterday = subDays(new Date(), 1);
-        startDate = startOfDay(yesterday);
-        endDate = endOfDay(yesterday);
+      if (reportScope === 'session') {
+        if (currentSession) {
+          // Build report for currently open session
+          const openAt = new Date(currentSession.openAt || currentSession.createdAt || new Date());
+          const startDate = openAt;
+          const endDate = new Date();
+          const sessionOrders = orders.filter(o => {
+            if (o.sessionId && currentSession._id) return String(o.sessionId) === String(currentSession._id);
+            const ts = new Date(o.createdAt);
+            return ts >= startDate && ts <= endDate && String(o.branchId) === String(user.branchId);
+          });
+          const summary = calculateSummary(sessionOrders);
+          setReportData({
+            ...summary,
+            scope: 'session',
+            date: format(startDate, 'yyyy-MM-dd'),
+            dateRange: { start: startDate, end: endDate },
+            ordersUsed: sessionOrders.length,
+            sessionMeta: { isLast: false }
+          });
+        } else {
+          // No open session: show the last closed session report
+          const sesRes = await axios.get(`${API_BASE_URL}/pos/sessions/last-closed`, {
+            params: { branchId: user.branchId }
+          });
+          const lastSession = sesRes.data?.session;
+          if (!lastSession) {
+            setReportData(null);
+            setLoading(false);
+            return;
+          }
+          const startDate = new Date(lastSession.openAt || lastSession.createdAt || new Date());
+          const endDate = new Date(lastSession.closeAt || lastSession.updatedAt || new Date());
+          // Fetch orders for that session window (ensure we include older orders)
+          const resp = await axios.get(
+            `${API_BASE_URL}/public/orders`,
+            { params: { branchId: user.branchId, startDate: startDate.toISOString(), endDate: endDate.toISOString(), limit: 1000 } }
+          );
+          const fetched = resp.data?.orders || [];
+          const sessionOrders = fetched.filter(o => {
+            if (o.sessionId && lastSession._id) return String(o.sessionId) === String(lastSession._id);
+            const ts = new Date(o.createdAt);
+            return ts >= startDate && ts <= endDate && String(o.branchId) === String(user.branchId);
+          });
+          const summary = calculateSummary(sessionOrders);
+          setReportData({
+            ...summary,
+            scope: 'session',
+            date: format(startDate, 'yyyy-MM-dd'),
+            dateRange: { start: startDate, end: endDate },
+            ordersUsed: sessionOrders.length,
+            sessionMeta: { isLast: true }
+          });
+        }
       } else {
-        startDate = startOfDay(new Date(selectedDate));
-        endDate = endOfDay(new Date(selectedDate));
+        let startDate, endDate;
+        if (reportType === 'today') {
+          startDate = startOfDay(new Date());
+          endDate = endOfDay(new Date());
+        } else if (reportType === 'yesterday') {
+          const yesterday = subDays(new Date(), 1);
+          startDate = startOfDay(yesterday);
+          endDate = endOfDay(yesterday);
+        } else {
+          startDate = startOfDay(new Date(selectedDate));
+          endDate = endOfDay(new Date(selectedDate));
+        }
+        // Fetch orders for the selected date range
+        const response = await axios.get(
+          `${API_BASE_URL}/public/orders?branchId=${user.branchId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&limit=1000&sort=-createdAt`
+        );
+        const dayOrders = response.data.orders || [];
+        // Also check orders from context for comparison
+        const contextOrders = orders.filter(order => {
+          const orderDate = new Date(order.createdAt);
+          return orderDate >= startDate && orderDate <= endDate;
+        });
+        const ordersToUse = dayOrders.length >= contextOrders.length ? dayOrders : contextOrders;
+        const summary = calculateSummary(ordersToUse);
+        setReportData({
+          ...summary,
+          scope: 'date',
+          date: format(startDate, 'yyyy-MM-dd'),
+          dateRange: { start: startDate, end: endDate },
+          ordersUsed: ordersToUse.length
+        });
       }
- 
-
-      // Fetch orders for the selected date range
-      const response = await axios.get(
-        `${API_BASE_URL}/public/orders?branchId=${user.branchId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&limit=1000&sort=-createdAt`
-      );
-
-      const dayOrders = response.data.orders || []; 
-      
-      // Also check orders from context for comparison
-      const contextOrders = orders.filter(order => {
-        const orderDate = new Date(order.createdAt);
-        return orderDate >= startDate && orderDate <= endDate;
-      }); 
-      // Use the larger dataset (API or context)
-      const ordersToUse = dayOrders.length >= contextOrders.length ? dayOrders : contextOrders;
-      
-      
-      const summary = calculateSummary(ordersToUse);
-      
-      setReportData({
-        ...summary,
-        date: format(startDate, 'yyyy-MM-dd'),
-        dateRange: {
-          start: startDate,
-          end: endDate
-        },
-        ordersUsed: ordersToUse.length
-      });
 
     } catch (error) { 
       toast.error('Failed to generate daily summary report');
@@ -283,6 +331,10 @@ const DailySummaryReport = () => {
     }
   };
 
+  const handleScopeChange = (scope) => {
+    setReportScope(scope);
+  };
+
   const handlePrintReport = () => {
     window.print();
     toast.success('Report sent to printer');
@@ -327,8 +379,10 @@ const DailySummaryReport = () => {
       </head>
       <body>
         <div class="header">
-          <h1>Daily Summary Report</h1>
-          <h2>${format(new Date(reportData.date), 'MMMM dd, yyyy')}</h2>
+          <h1>${reportScope === 'session' ? 'Session Summary Report' : 'Daily Summary Report'}</h1>
+          ${reportScope === 'session'
+            ? `<h2>Session from ${format(new Date(reportData.dateRange.start), 'MMMM dd, yyyy HH:mm')} to ${format(new Date(reportData.dateRange.end), 'HH:mm:ss')}</h2>`
+            : `<h2>${format(new Date(reportData.date), 'MMMM dd, yyyy')}</h2>`}
           <p>Generated on: ${format(new Date(), 'MMMM dd, yyyy HH:mm:ss')}</p>
         </div>
         
@@ -402,8 +456,25 @@ const DailySummaryReport = () => {
           </div>
         </CardHeader>
         <CardBody>
-          {/* Date Selection */}
+          {/* Scope + Date Selection */}
           <Row className="mb-3">
+            <Col md={6} className="mb-2">
+              <ButtonGroup>
+                <Button
+                  color={reportScope === 'session' ? 'primary' : 'outline-primary'}
+                  onClick={() => handleScopeChange('session')}
+                >
+                  This Session
+                </Button>
+                <Button
+                  color={reportScope === 'date' ? 'primary' : 'outline-primary'}
+                  onClick={() => handleScopeChange('date')}
+                >
+                  By Date
+                </Button>
+              </ButtonGroup>
+            </Col>
+            {reportScope === 'date' && (
             <Col md={6}>
               <ButtonGroup>
                 <Button
@@ -426,7 +497,8 @@ const DailySummaryReport = () => {
                 </Button>
               </ButtonGroup>
             </Col>
-            {reportType === 'custom' && (
+            )}
+            {reportScope === 'date' && reportType === 'custom' && (
               <Col md={6}>
                 <Form inline>
                   <FormGroup>
@@ -446,7 +518,17 @@ const DailySummaryReport = () => {
 
           {reportData && (
             <Alert color="info" fade={false}>
-              <strong>Report Date:</strong> {format(new Date(reportData.date), 'MMMM dd, yyyy')} | 
+        {reportScope === 'session' ? (
+                <>
+          <strong>Scope:</strong> {reportData?.sessionMeta?.isLast ? 'Last Session' : 'This Session'} |
+          <strong> Session Opened:</strong> {format(new Date(reportData.dateRange.start), 'MMMM dd, yyyy HH:mm')} |
+          <strong>{reportData?.sessionMeta?.isLast ? 'Closed:' : 'As of:'}</strong> {format(new Date(reportData.dateRange.end), 'HH:mm:ss')}
+                </>
+              ) : (
+                <>
+                  <strong>Report Date:</strong> {format(new Date(reportData.date), 'MMMM dd, yyyy')}
+                </>
+              )} |
               <strong className="ms-2">Generated:</strong> {format(new Date(), 'HH:mm:ss')}
             </Alert>
           )}
