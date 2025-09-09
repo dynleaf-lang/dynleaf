@@ -19,7 +19,7 @@ export const useOrder = () => {
 export const OrderProvider = ({ children }) => {
   const { user } = useAuth();
   const { emitNewOrder, emitOrderStatusUpdate, emitPaymentStatusUpdate } = useSocket();
-  const { currentSession } = useShift();
+  const { currentSession, isOpen, refresh: refreshSession } = useShift();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -191,6 +191,12 @@ export const OrderProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
+      // Guard: prevent creating orders when register is closed
+      if (!isOpen) {
+        toast.error('Register is closed. Please open a session to start selling.');
+        try { await refreshSession(); } catch (_) {}
+        return { success: false, error: 'Register is closed' };
+      }
       
       const { enforceStock = true, allowInsufficientOverride = false } = options;
 
@@ -198,7 +204,7 @@ export const OrderProvider = ({ children }) => {
         ...orderData,
         branchId: user.branchId,
         restaurantId: user.restaurantId,
-        sessionId: currentSession?._id,
+  sessionId: currentSession?._id,
         createdBy: user._id,
         createdByName: user.name,
         source: 'pos',

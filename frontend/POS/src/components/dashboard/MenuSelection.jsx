@@ -193,10 +193,26 @@ const MenuSelection = () => {
   }, [menuItems, selectedCategory, searchTerm, getMenuItemsByCategory, searchMenuItems, isItemFeatured]);
 
   // Stable handlers to avoid recreations in memoized grids
-  // Stable click handler reference so item grid doesn't re-render on unrelated state changes
+  // Make the smart-click handler aware of current register state
+  const handleSmartCardClick = useCallback((item) => {
+    if (!isOpen) {
+      // Consistent UX: toast notification (only allowed toast)
+      toast.error('Register is closed. Please open a session to start selling.');
+      // Attempt a quick refresh in case session exists but wasn’t loaded yet
+      try { refresh(); } catch (_) {}
+      return;
+    }
+    if (hasVariantsOrSizes(item)) {
+      handleItemClick(item);
+    } else {
+      handleDirectAddToCart(item);
+    }
+  }, [isOpen, refresh]);
+
+  // Stable click handler reference so item grid doesn't re-render unnecessarily
   const onSmartCardClick = useCallback((item) => {
     handleSmartCardClick(item);
-  }, []);
+  }, [handleSmartCardClick]);
   
   // Memoized wrapper to prevent re-renders when parent re-renders without props changes
   // Defined before first usage in itemsGrid to avoid temporal dead zone errors
@@ -284,6 +300,11 @@ const MenuSelection = () => {
   };
 
   const handleAddToCart = (item, quantity = 1, customizations = {}) => {
+    if (!isOpen) {
+      toast.error('Register is closed. Please open a session to start selling.');
+      try { refresh(); } catch (_) {}
+      return;
+    }
     addToCart(item, quantity, customizations);
     setShowItemModal(false);
     resetItemModal();
@@ -291,6 +312,11 @@ const MenuSelection = () => {
 
   // Direct add to cart function for Add button (no modal)
   const handleDirectAddToCart = (item) => {
+    if (!isOpen) {
+      toast.error('Register is closed. Please open a session to start selling.');
+      try { refresh(); } catch (_) {}
+      return;
+    }
     const defaultCustomizations = {
       spiceLevel: 'medium',
       specialInstructions: ''
@@ -417,23 +443,7 @@ const MenuSelection = () => {
     return false;
   };
 
-  // Handle smart card click - add to cart or open modal
-  const handleSmartCardClick = (item) => {
-    if (!isOpen) {
-  // Consistent UX: toast notification (only allowed toast)
-  toast.error('Register is closed. Please open a session to start selling.');
-      // Attempt a quick refresh in case session exists but wasn’t loaded yet
-      try { refresh(); } catch (_) {}
-      return;
-    }
-    if (hasVariantsOrSizes(item)) {
-      // Item has variants/sizes, open modal for customization
-      handleItemClick(item);
-    } else {
-      // Simple item, add directly to cart
-      handleDirectAddToCart(item);
-    }
-  };
+  // Handle smart card click - add to cart or open modal (memoized above)
 
   // Tiny badge component that subscribes to cart context; only this re-renders on cart changes
   const ItemCountBadge = React.memo(({ itemId }) => {

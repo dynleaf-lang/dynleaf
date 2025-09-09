@@ -40,7 +40,13 @@ export const ShiftProvider = ({ children }) => {
         params: { branchId: user.branchId, cashierId: user._id || user.id }
       });
       const ses = data.session || null;
-      setCurrentSession(ses);
+      setCurrentSession((prev) => {
+        const changed = (!!prev?._id) !== (!!ses?._id) || (prev?._id !== ses?._id) || (prev?.status !== ses?.status);
+        if (changed) {
+          try { window.dispatchEvent(new CustomEvent('pos:sessionChanged', { detail: { session: ses } })); } catch (_) {}
+        }
+        return ses;
+      });
       try {
         if (ses) localStorage.setItem('pos_current_session', JSON.stringify(ses));
         else localStorage.removeItem('pos_current_session');
@@ -64,7 +70,7 @@ export const ShiftProvider = ({ children }) => {
     }
     try {
       setLoading(true);
-      const { data } = await axios.post(`${API_BASE}/pos/sessions/open`, {
+    const { data } = await axios.post(`${API_BASE}/pos/sessions/open`, {
         branchId: user.branchId,
         restaurantId: user.restaurantId,
         cashierId: user._id || user.id,
@@ -73,6 +79,7 @@ export const ShiftProvider = ({ children }) => {
       });
   setCurrentSession(data.session);
   try { localStorage.setItem('pos_current_session', JSON.stringify(data.session)); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('pos:sessionChanged', { detail: { session: data.session } })); } catch (_) {}
       toast.success('Session opened');
       return data.session;
     } catch (e) {
@@ -101,6 +108,7 @@ export const ShiftProvider = ({ children }) => {
       setCurrentSession(null);
       if (data?.summary) setLastSummary(data.summary);
   try { localStorage.removeItem('pos_current_session'); } catch (_) {}
+      try { window.dispatchEvent(new CustomEvent('pos:sessionChanged', { detail: { session: null, summary: data?.summary } })); } catch (_) {}
       toast.success('Session closed');
       return data.session;
     } catch (e) {

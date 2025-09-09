@@ -76,7 +76,7 @@ exports.close = async (req, res) => {
 
     let agg = { ordersCount: 0, grossSales: 0, byPayment: { cash: 0, card: 0, online: 0 }, discounts: 0, refunds: 0 };
     try {
-      const res = await Order.aggregate([
+      const aggRes = await Order.aggregate([
         { $match: match },
         {
           $group: {
@@ -113,11 +113,11 @@ exports.close = async (req, res) => {
           }
         }
       ]);
-      if (res && res[0]) {
+      if (aggRes && aggRes[0]) {
         agg = {
-          ordersCount: res[0].ordersCount || 0,
-          grossSales: res[0].grossSales || 0,
-          byPayment: { cash: res[0].cash || 0, card: res[0].card || 0, online: res[0].online || 0 },
+          ordersCount: aggRes[0].ordersCount || 0,
+          grossSales: aggRes[0].grossSales || 0,
+          byPayment: { cash: aggRes[0].cash || 0, card: aggRes[0].card || 0, online: aggRes[0].online || 0 },
           discounts: 0,
           refunds: 0
         };

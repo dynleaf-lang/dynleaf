@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import toast from '../utils/notify';
+import { useShift } from './ShiftContext';
 import playPosSound from '../utils/sound';
 
 const CartContext = createContext();
@@ -12,6 +14,7 @@ export const useCart = () => {
 };
 
 export const CartProvider = ({ children }) => {
+  const { isOpen, refresh: refreshSession } = useShift();
   const [cartItems, setCartItems] = useState([]);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
@@ -118,6 +121,11 @@ export const CartProvider = ({ children }) => {
   const stableStringify = (obj) => JSON.stringify(normalizeForIdentity(obj));
 
   const addToCart = (menuItem, quantity = 1, customizations = {}) => {
+    if (!isOpen) {
+      toast.error('Register is closed. Please open a session to start selling.');
+      try { refreshSession(); } catch { /* noop */ }
+      return;
+    }
     const normalizedCustom = normalizeCustomizations(customizations, menuItem?.price);
     const identityString = stableStringify(normalizedCustom);
     const cartItemId = `${menuItem._id}_${identityString}`;
@@ -232,14 +240,20 @@ export const CartProvider = ({ children }) => {
       removeFromCart(cartItemId);
       return;
     }
-
-    setCartItems(prevItems =>
-      prevItems.map(item =>
-        item.cartItemId === cartItemId
-          ? { ...item, quantity: newQuantity }
-          : item
-      )
-    );
+    setCartItems(prevItems => {
+      const existing = prevItems.find(i => i.cartItemId === cartItemId);
+      if (!existing) return prevItems;
+      // Prevent increasing quantity when register is closed; allow decreases/removals
+      const currentQty = Number(existing.quantity) || 0;
+      if (!isOpen && newQuantity > currentQty) {
+        toast.error('Register is closed. Please open a session to start selling.');
+        try { refreshSession(); } catch { /* noop */ }
+        return prevItems;
+      }
+      return prevItems.map(item =>
+        item.cartItemId === cartItemId ? { ...item, quantity: newQuantity } : item
+      );
+    });
   };
 
   const clearCart = () => {
