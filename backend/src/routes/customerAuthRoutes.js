@@ -14,6 +14,12 @@ router.post('/verify-otp', customerAuthController.verifyOTP);
 // Login with identifier and OTP
 router.post('/login', customerAuthController.login);
 
+// Verify magic link/token (WhatsApp/direct)
+router.post('/verify-magic', customerAuthController.verifyMagic);
+
+// Debug: decode/verify magic token server-side
+router.get('/debug-verify-magic', customerAuthController.debugVerifyMagic);
+
 // Register new customer
 router.post('/register', customerAuthController.register);
 

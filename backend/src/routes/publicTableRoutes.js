@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Table = require('../models/DiningTables.js');
 const { publicAccess } = require('../middleware/authMiddleware');
 
@@ -29,23 +30,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Get a single table by ID
-router.get('/:id', async (req, res) => {
-    try {
-        const table = await Table.findById(req.params.id);
-        
-        if (!table) {
-            return res.status(404).json({ message: 'Table not found' });
-        }
-        
-        res.json(table);
-    } catch (error) {
-        console.error('Error fetching table by ID:', error);
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// Get tables for a specific branch
+// Get tables for a specific branch (place before '/:id' to avoid route shadowing)
 router.get('/branch/:branchId', async (req, res) => {
     try {
         const { branchId } = req.params;
@@ -59,6 +44,37 @@ router.get('/branch/:branchId', async (req, res) => {
     } catch (error) {
         console.error('Error fetching tables for branch:', error);
         res.status(500).json({ message: error.message });
+    }
+});
+
+// Get a single table by ID or by human-readable code (e.g., T4722)
+router.get('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { branchId } = req.query || {};
+
+        let table = null;
+        // Try ObjectId lookup first when valid
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            table = await Table.findById(id);
+        }
+        // Fallback to code-based lookup (tableId string), optionally scoping by branchId
+        if (!table) {
+            const filter = { tableId: id };
+            if (branchId && mongoose.Types.ObjectId.isValid(branchId)) {
+                filter.branchId = branchId;
+            }
+            table = await Table.findOne(filter);
+        }
+
+        if (!table) {
+            return res.status(404).json({ message: 'Table not found' });
+        }
+
+        return res.json(table);
+    } catch (error) {
+        console.error('Error fetching table:', error);
+        return res.status(500).json({ message: error.message || 'Failed to fetch table' });
     }
 });
 

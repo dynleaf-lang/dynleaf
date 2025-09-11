@@ -55,6 +55,7 @@ import './TableSelection.css';
 import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
 import axios from 'axios';
 import QRCode from 'react-qr-code';
+import TableQRBatchPOS from './TableQRBatchPOS';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -107,6 +108,11 @@ const TableSelection = () => {
   // Server-side reservations cache: { [tableId]: Array<reservation> }
   const [reservationsByTable, setReservationsByTable] = useState({});
   const [showContactlessModal, setShowContactlessModal] = useState(false);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrMode, setQrMode] = useState(() => localStorage.getItem('pos_qrMode') || 'whatsapp');
+  const [qrWaNumber, setQrWaNumber] = useState(() => localStorage.getItem('pos_waNumber') || '');
+  useEffect(() => { localStorage.setItem('pos_qrMode', qrMode); }, [qrMode]);
+  useEffect(() => { localStorage.setItem('pos_waNumber', qrWaNumber); }, [qrWaNumber]);
   // Contactless state
   const [contactlessBaseUrl, setContactlessBaseUrl] = useState('');
   const [contactlessTableId, setContactlessTableId] = useState('');
@@ -1441,6 +1447,10 @@ const TableSelection = () => {
                 <FaPhone className="me-1" />
                 Contactless
               </Button>
+              <Button color="secondary" onClick={() => setQrModalOpen(true)} title="Print Table QRs">
+                <FaPrint className="me-1" />
+                Print QRs
+              </Button>
             </ButtonGroup>
           </div>
         </div>
@@ -1658,6 +1668,23 @@ const TableSelection = () => {
               Select This Table
             </Button>
           )}
+        </ModalFooter>
+      </Modal>
+
+      {/* QR Batch Modal */}
+      <Modal isOpen={qrModalOpen} toggle={() => setQrModalOpen(!qrModalOpen)} size="xl">
+        <ModalHeader toggle={() => setQrModalOpen(!qrModalOpen)}>Table QR Codes</ModalHeader>
+        <ModalBody>
+          <TableQRBatchPOS 
+            tables={tables}
+            waNumber={qrWaNumber}
+            setWaNumber={setQrWaNumber}
+            mode={qrMode}
+            setMode={setQrMode}
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setQrModalOpen(false)}>Close</Button>
         </ModalFooter>
       </Modal>
 

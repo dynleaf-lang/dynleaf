@@ -115,6 +115,8 @@ const floorRoutes = require('./routes/floorRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const favoritesRoutes = require('./routes/favoritesRoutes');
 const posSessionRoutes = require('./routes/posSessionRoutes');
+const whatsappRoutes = require('./routes/whatsappRoutes');
+const { redirectShortLink } = require('./controllers/whatsappController');
 
 // Import public routes for customer application
 const publicTableRoutes = require('./routes/publicTableRoutes');
@@ -184,6 +186,10 @@ app.use('/api/public/inventory', require('./routes/publicInventoryRoutes'));
 app.use('/api/public/suppliers', require('./routes/publicSupplierRoutes'));
 app.use('/api/public/purchases', require('./routes/publicPurchaseRoutes'));
 app.use('/api/public/recipes', require('./routes/publicRecipeRoutes'));
+// WhatsApp integration routes
+app.use('/api/integrations/whatsapp', whatsappRoutes);
+// Top-level short redirect for magic links: /r/:code -> long portal URL
+app.get('/r/:code', redirectShortLink);
 // Register diagnostic routes (only available in development mode)
 if (process.env.NODE_ENV !== 'production') {
     app.use('/api/diagnostics', diagnosticRoutes);

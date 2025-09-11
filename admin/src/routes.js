@@ -11,6 +11,7 @@ import UserManagement from "features/user-management/user.js";
 import TableManagement from "features/table-management/table.js";
 import TableQRCode from "features/table-management/TableQRCode.js";
 import TableDetail from "features/table-management/TableDetail.js";
+import TableQRBatch from "features/table-management/TableQRBatch.js";
 import FloorManagement from "features/table-management/FloorManagement.js";
 import TaxManagement from "features/tax-management/TaxManagement.js";
 import CustomerManagement from "features/customer-management/CustomerManagement.js";
@@ -152,6 +153,14 @@ var routes = [
     component: <TableManagement />,
     layout: "/admin",
     roles: ["admin", "Super_Admin", "Branch_Manager"], // Only admin, Super_Admin, or branch_manager can see this route
+  },
+  {
+    path: "/tables-qr",
+    name: "Table QR (Batch)",
+    icon: "ni ni-collection text-info",
+    component: <TableQRBatch />,
+    layout: "/admin",
+    roles: ["admin", "Super_Admin", "Branch_Manager"],
   },
   {
     path: "/tax-management",

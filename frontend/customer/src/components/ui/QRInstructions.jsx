@@ -111,7 +111,7 @@ const QRInstructions = () => {
       default:
         return {
           emoji: '📱',
-          title: 'Welcome to OrderEase',
+          title: 'Welcome to DynLeaf',
           message: 'Please scan the QR code on your table to view the restaurant menu and place your order.',
           showRetry: false,
           isError: false
