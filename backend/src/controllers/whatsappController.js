@@ -9,6 +9,8 @@ const { createMagicToken } = require('../utils/tokenUtils');
 const WA_PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID; // e.g., 1234567890
 const WA_VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN; // webhook verification token
 const CUSTOMER_PORTAL_BASE_URL = process.env.CUSTOMER_PORTAL_BASE_URL || 'http://localhost:5173';
+const SHORTLINK_TTL_MINUTES = parseInt(process.env.SHORTLINK_TTL_MINUTES || '60', 10);
+const SHORTLINK_ONE_TIME = /^(1|true|yes)$/i.test(process.env.SHORTLINK_ONE_TIME || 'false');
 
 // In-memory short link store: code -> { token, restaurantId, branchId, tableId, createdAt }
 // Note: For production, use Redis with expiry. This keeps existing logic while offering a nicer link.
@@ -65,6 +67,12 @@ async function sendWhatsAppText(to, body) {
   return res.data;
 }
 
+function isExpired(entry) {
+  if (!entry?.createdAt) return true;
+  const ageMs = Date.now() - entry.createdAt;
+  return ageMs > SHORTLINK_TTL_MINUTES * 60 * 1000;
+}
+
 // Redirect handler for short codes -> customer portal long link
 exports.redirectShortLink = async (req, res) => {
   try {
@@ -73,10 +81,15 @@ exports.redirectShortLink = async (req, res) => {
     if (!entry) {
       return res.status(404).send('Link expired or not found');
     }
+    if (isExpired(entry)) {
+      shortLinkStore.delete(code);
+      return res.status(410).send('Link expired');
+    }
     const { token, restaurantId, branchId, tableId } = entry;
     const longUrl = buildPortalLink(token, { restaurantId, branchId, tableId });
-    // Optional: 1-time use. Comment out to allow multi-use within expiry window.
-    // shortLinkStore.delete(code);
+    if (SHORTLINK_ONE_TIME) {
+      shortLinkStore.delete(code);
+    }
     return res.redirect(302, longUrl);
   } catch (e) {
     return res.status(500).send('Redirect error');
@@ -193,8 +206,9 @@ exports.webhook = async (req, res) => {
     if (/^help$/i.test(text)) {
       const helpLines = [];
       helpLines.push(`*${brand} Support*`);
-      helpLines.push('• Send the QR text "JOIN" to get your ordering link.');
-      helpLines.push('• If the link expires, just send JOIN again.');
+  helpLines.push('• Send the QR text "Order Now" to get your ordering link.');
+  helpLines.push('• Include your table code: T: <code> (e.g., T: T4722).');
+  helpLines.push('• If the link expires, just send Order Now again.');
       const supportPhone = process.env.SUPPORT_PHONE || '';
       if (supportPhone) helpLines.push(`• Call: ${supportPhone}`);
       const helpMsg = helpLines.join('\n');
@@ -202,17 +216,45 @@ exports.webhook = async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Expected text patterns: "JOIN T=<tableId> B=<branchId> R=<restaurantId>"
+    // Expected text patterns: "Order Now" or legacy "JOIN" headers
     // Accept variations like T:XYZ and common aliases
     const findVal = (labels) => {
       const re = new RegExp(`(?:${labels})\\s*[:=]\\s*([A-Za-z0-9_-]+)`, 'i');
       const m = text.match(re);
       return m ? m[1] : null;
     };
-    const tableId = findVal('T|TABLE|TABLEID');
-    const branchId = findVal('B|BRANCH|BRANCHID');
-    const restaurantId = findVal('R|REST|RESTAURANT|RESTAURANTID');
+    // If user sent Order Now without a code, prompt for T: <code>
+    if (/^order\s*now$/i.test(text)) {
+      const promptLines = [];
+      const brand = process.env.BRAND_NAME || 'DynLeaf';
+      promptLines.push(`*${brand}*`);
+      promptLines.push('Please reply with your table code:');
+      promptLines.push('T: <code>  (e.g., T: T4722)');
+      const promptMsg = promptLines.join('\n');
+      try { await sendWhatsAppText(from, promptMsg); } catch (_) {}
+      return res.sendStatus(200);
+    }
+    let tableId = findVal('T|TABLE|TABLEID');
+    let branchId = findVal('B|BRANCH|BRANCHID');
+    let restaurantId = findVal('R|REST|RESTAURANT|RESTAURANTID');
     console.log('[WhatsApp webhook][POST] parsed ids:', { tableId, branchId, restaurantId });
+
+    // If only a human table code is provided (common for customer-friendly QR), look up table
+    if (tableId && !mongoose.Types.ObjectId.isValid(tableId)) {
+      try {
+        // Try scoped by branch if provided; otherwise any branch
+        const tFilter = { tableId };
+        if (branchId && mongoose.Types.ObjectId.isValid(branchId)) tFilter.branchId = branchId;
+        const tDoc = await DiningTable.findOne(tFilter).select('_id branchId restaurantId tableId');
+        if (tDoc) {
+          if (!branchId) branchId = String(tDoc.branchId);
+          if (!restaurantId) restaurantId = String(tDoc.restaurantId);
+          // Replace tableId with the actual _id to be consistent downstream
+          tableId = String(tDoc._id);
+          console.log('[WhatsApp webhook] resolved table code to IDs:', { tableId, branchId, restaurantId });
+        }
+      } catch (_) {}
+    }
 
   // Build magic token regardless; you may enforce validations later
   const token = createMagicToken({ phone: from, tableId, branchId, restaurantId }, '60m');

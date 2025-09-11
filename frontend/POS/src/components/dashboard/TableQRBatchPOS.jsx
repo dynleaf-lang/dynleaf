@@ -10,17 +10,17 @@ const TableQRBatchPOS = ({ tables = [], waNumber, setWaNumber, mode, setMode }) 
 
   const buildQRValue = (t) => {
     if (!t) return '';
-    const restaurantId = t.restaurantId;
-    const branchId = t.branchId;
-    const tableId = t._id;
+  const restaurantId = t.restaurantId;
+  const branchId = t.branchId;
+  const tableCode = t.tableId || t.TableCode || t.TableName || t._id;
     if (mode === 'whatsapp') {
       const number = (waNumber || '').replace(/\D/g, '');
-      const text = `JOIN\nT: ${tableId}\nB: ${branchId}\nR: ${restaurantId}`;
+  const text = `Order Now\nT: ${tableCode}`;
       return number
         ? `https://wa.me/${number}?text=${encodeURIComponent(text)}`
         : `https://wa.me/?text=${encodeURIComponent(text)}`;
     }
-    return `${basePortalUrl}/menu?tableId=${tableId}&restaurantId=${restaurantId}&branchId=${branchId}`;
+    return `${basePortalUrl}/menu?tableId=${encodeURIComponent(tableCode)}&restaurantId=${restaurantId}&branchId=${branchId}`;
   };
 
   const handlePrint = () => window.print();
