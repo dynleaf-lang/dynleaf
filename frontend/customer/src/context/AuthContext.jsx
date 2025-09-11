@@ -223,6 +223,25 @@ export const AuthProvider = ({ children }) => {
     }));
   };
 
+  // Login via magic token (WhatsApp/direct). Accepts either a signed magic token or URL param.
+  const loginWithMagicToken = async (token) => {
+    try {
+      setAuthError(null);
+      if (!token) return { success: false, error: 'Missing token' };
+
+      const response = await api.post('/api/customers/auth/verify-magic', { token });
+      const magicUser = { ...response.data, isVerified: true };
+      setUser(magicUser);
+      setIsAuthenticated(true);
+      localStorage.setItem('user', JSON.stringify(magicUser));
+      return { success: true, user: magicUser };
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Magic link verification failed';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
   // Check if user session is still valid
   const checkSession = async () => {
     try {
@@ -263,7 +282,8 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     checkSession,
-    requestNewOTP
+  requestNewOTP,
+  loginWithMagicToken
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

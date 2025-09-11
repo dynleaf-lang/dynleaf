@@ -5,7 +5,7 @@ import CartProvider from "./context/CartContext";
 import ResponsiveProvider from "./context/ResponsiveContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { TaxProvider } from "./context/TaxContext";
-import AuthProvider from "./context/AuthContext";
+import AuthProvider, { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { FavoritesProvider } from "./context/FavoritesContext";
@@ -16,6 +16,39 @@ import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager"; //
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
 import './App.css';
+
+// Bootstrap component to auto-consume magic token from URL and clean it up
+const MagicTokenBootstrap = () => {
+	const { loginWithMagicToken } = useAuth();
+
+	useEffect(() => {
+		try {
+			const url = new URL(window.location.href);
+			const token = url.searchParams.get('token');
+			if (token) {
+				// Attempt login; do not block UI
+				console.log('[MagicTokenBootstrap] Found token param; attempting magic login');
+				loginWithMagicToken(token)
+					.then((res) => {
+						console.log('[MagicTokenBootstrap] Magic login result:', res);
+						// On success, remove token param from URL without reloading
+						try {
+							url.searchParams.delete('token');
+							window.history.replaceState({}, document.title, url.pathname + (url.search ? `?${url.searchParams.toString()}` : '') + url.hash);
+						} catch (_) {}
+					})
+					.catch((err) => {
+						console.error('[MagicTokenBootstrap] Magic login failed:', err);
+						// Keep token in URL for troubleshooting
+					});
+			}
+		} catch (e) {
+			// no-op
+		}
+	}, [loginWithMagicToken]);
+
+	return null;
+};
 
 const App = () => {
 	// Handle session expiration globally
@@ -81,13 +114,16 @@ const App = () => {
 								<FavoritesProvider>
 									<SocketProvider>
 										<NotificationProvider>
-												<CartProvider>							<ServerStatusCheck />
-											<ConnectionStatusModal />
-											<NetworkErrorHandler />
-											<SessionTimeoutManager />
-											<OrderEaseApp />
-											<CartAnimationEffect />
-											<NotificationToast />
+											<CartProvider>
+												<ServerStatusCheck />
+												{/* Consume WhatsApp/direct magic token on load */}
+												<MagicTokenBootstrap />
+												<ConnectionStatusModal />
+												<NetworkErrorHandler />
+												<SessionTimeoutManager />
+												<OrderEaseApp />
+												<CartAnimationEffect />
+												<NotificationToast />
 											</CartProvider>
 										</NotificationProvider>
 									</SocketProvider>

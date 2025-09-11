@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const otpGenerator = require('otp-generator');
+const { verifyToken } = require('../utils/tokenUtils');
 
 // Store OTPs in memory for development (should use Redis or another cache in production)
 const otpStore = new Map();
@@ -435,5 +436,99 @@ exports.verifySession = async (req, res) => {
       isActive: false,
       message: 'Server error during session verification' 
     });
+  }
+};
+
+// @desc    Verify a magic token (e.g., from WhatsApp) and mint a customer session
+// @route   POST /api/customers/auth/verify-magic
+// @access  Public
+exports.verifyMagic = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ message: 'Magic token is required' });
+    }
+
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (e) {
+      return res.status(401).json({ message: 'Invalid or expired magic token' });
+    }
+
+    // Build a lightweight guest identity without OTP
+    // If customer exists by phone, attach it; otherwise, return guest profile
+    const { phone, restaurantId, branchId, tableId, name } = decoded;
+
+    let customer = null;
+    if (phone) {
+      customer = await Customer.findOne({ phone, restaurantId: restaurantId || { $exists: true } });
+    }
+
+    if (!customer) {
+      // Guest session (no DB create). Client can still place public orders with phone captured.
+      const guestPayload = {
+        id: `guest_${phone || 'anon'}_${Date.now()}`,
+        type: 'customer',
+        isGuest: true,
+        phone: phone || null,
+        restaurantId: restaurantId || null,
+        branchId: branchId || null,
+        tableId: tableId || null,
+      };
+      const jwt = require('jsonwebtoken');
+      const tokenOut = jwt.sign(guestPayload, process.env.JWT_SECRET || 'devsecretshouldbereplaced', { expiresIn: '2h' });
+      return res.status(200).json({
+        _id: guestPayload.id,
+        name: name || 'Guest',
+        phone: guestPayload.phone,
+        restaurantId: guestPayload.restaurantId,
+        branchId: guestPayload.branchId,
+        tableId: guestPayload.tableId,
+        isGuest: true,
+        token: tokenOut,
+      });
+    }
+
+    // Existing customer: issue normal customer token
+    const realToken = jwt.sign(
+      { id: customer._id, type: 'customer', restaurantId, branchId, tableId, phone },
+      process.env.JWT_SECRET || 'devsecretshouldbereplaced',
+      { expiresIn: '30d' }
+    );
+
+    return res.status(200).json({
+      _id: customer._id,
+      customerId: customer.customerId,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      restaurantId: customer.restaurantId,
+      branchId: customer.branchId,
+      tableId: tableId || null,
+      isGuest: false,
+      token: realToken,
+    });
+  } catch (error) {
+    console.error('Magic verify error:', error);
+    return res.status(500).json({ message: 'Server error during magic verification' });
+  }
+};
+
+// @desc    Debug: verify/decode a magic token using server JWT settings
+// @route   GET /api/customers/auth/debug-verify-magic?token=...
+// @access  Public (use only for local debugging)
+exports.debugVerifyMagic = async (req, res) => {
+  try {
+    const token = req.query.token;
+    if (!token) return res.status(400).json({ ok: false, message: 'token query param required' });
+    try {
+      const decoded = verifyToken(token);
+      return res.status(200).json({ ok: true, decoded });
+    } catch (e) {
+      return res.status(200).json({ ok: false, error: e.message, name: e.name });
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: 'debug verify failed' });
   }
 };
