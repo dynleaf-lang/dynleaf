@@ -42,6 +42,30 @@ exports.open = async (req, res) => {
       openingFloat: Number(openingFloat) || 0,
       notes
     });
+    // Backfill any orders created while the register was closed into this new session
+    try {
+      const now = new Date();
+      // Find the last closed session to determine the window start
+      const lastClosed = await PosSession.findOne({ branchId, status: 'closed' })
+        .sort({ closeAt: -1, updatedAt: -1 })
+        .lean();
+      const startTs = (lastClosed && lastClosed.closeAt) ? new Date(lastClosed.closeAt) : new Date(0);
+
+      const match = {
+        branchId,
+        createdAt: { $gte: startTs, $lte: now },
+        $or: [ { sessionId: { $exists: false } }, { sessionId: null } ]
+      };
+      if (restaurantId) match.restaurantId = restaurantId;
+
+      const result = await Order.updateMany(match, { $set: { sessionId: session._id } });
+      if (result?.modifiedCount) {
+        console.log(`Attached ${result.modifiedCount} orders to new session ${session._id} (from ${startTs.toISOString()} to ${now.toISOString()})`);
+      }
+    } catch (attachErr) {
+      console.warn('Failed to backfill orders into new session:', attachErr?.message);
+    }
+
     return res.status(201).json({ session });
   } catch (err) {
     console.error('open session error:', err);

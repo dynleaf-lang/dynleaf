@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
+const PosSession = require('../models/PosSession');
 const DiningTable = require('../models/DiningTables');
 const Recipe = require('../models/Recipe');
 const InventoryItem = require('../models/InventoryItem');
@@ -161,6 +162,19 @@ router.post('/', async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(branchId)) {
             console.log('[PUBLIC ORDER CREATE] Invalid branchId format:', branchId);
             return res.status(400).json({ message: 'Invalid branch ID format' });
+        }
+
+        // If register is closed for this branch, block ordering
+        try {
+            const hasOpenSession = await PosSession.exists({ branchId, status: 'open' });
+            if (!hasOpenSession) {
+                return res.status(423).json({
+                    message: 'We are not accepting orders at the moment. Please try again shortly.',
+                    code: 'register_closed'
+                });
+            }
+        } catch (sessionErr) {
+            console.warn('[PUBLIC ORDER CREATE] Session check failed, proceeding cautiously:', sessionErr?.message);
         }
 
         // Validate items

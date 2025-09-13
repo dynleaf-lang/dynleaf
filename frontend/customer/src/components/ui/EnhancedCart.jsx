@@ -980,6 +980,11 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
               // Rate limiting / duplicate request
               errorMessage = responseData?.message || 'This order was just submitted. Please wait before trying again.';
               canRetry = false;
+            } else if (statusCode === 423) {
+              // Register closed
+              errorMessage = responseData?.message || 'Orders are not being accepted at the moment. Please try again later.';
+              canRetry = true;
+              isTemporary = true;
             } else if (statusCode === 400) {
               // Bad request - validation errors
               errorMessage = responseData?.message || 'Order information is invalid. Please check your details and try again.';
