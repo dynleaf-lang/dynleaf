@@ -2,15 +2,17 @@ const PosSession = require('../models/PosSession');
 const Order = require('../models/Order');
 const DiningTable = require('../models/DiningTables');
 
-// Get current open session for branch (and optionally cashier)
+// Get current open session for BRANCH (optionally filter by cashier if explicitly provided)
 exports.getCurrent = async (req, res) => {
   try {
   let { branchId, cashierId } = req.query;
+  // Branch is required; fallback from auth context if not provided
   if (!branchId && req.user?.branchId) branchId = req.user.branchId;
-  if (!cashierId && (req.user?._id || req.user?.id)) cashierId = req.user._id || req.user.id;
   if (!branchId) return res.status(400).json({ message: 'branchId is required' });
-    const query = { status: 'open', branchId };
-    if (cashierId) query.cashierId = cashierId;
+
+  // By default, do NOT filter by cashier. Apply cashier filter only if explicitly provided in query.
+  const query = { status: 'open', branchId };
+  if (cashierId) query.cashierId = cashierId;
     const session = await PosSession.findOne(query).sort({ openAt: -1 });
     return res.json({ session });
   } catch (err) {

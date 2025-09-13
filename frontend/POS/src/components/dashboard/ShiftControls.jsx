@@ -50,9 +50,13 @@ export default function ShiftControls() {
   }, [closeModal, expectedCashSuggestion]);
 
   const doOpen = async () => {
-    await openSession({ openingFloat: Number(openingFloat || 0), notes });
-    setOpenModal(false);
-    setOpeningFloat(''); setNotes('');
+    const res = await openSession({ openingFloat: Number(openingFloat || 0), notes });
+    if (res) {
+      setOpenModal(false);
+      setOpeningFloat('');
+      setNotes('');
+    }
+    // If failed, leave modal open so error is visible
   };
 
   const doClose = async () => {
