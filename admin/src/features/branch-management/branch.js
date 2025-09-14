@@ -49,6 +49,7 @@ const BranchManagement = () => {
   // Filter state
   const [selectedRestaurantId, setSelectedRestaurantId] = useState(restaurantId || '');
   const [filteredBranches, setFilteredBranches] = useState([]);
+  const [localLoading, setLocalLoading] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -73,11 +74,21 @@ const BranchManagement = () => {
   useEffect(() => {
     const loadBranches = async () => {
       if (restaurantId) {
-        await fetchBranchesByRestaurant(restaurantId);
-        // Find the restaurant name for display
-        const restaurant = restaurants.find(r => r._id === restaurantId);
-        if (restaurant) {
-          setCurrentRestaurantName(restaurant.name);
+        setLocalLoading(true);
+        try {
+          const data = await fetchBranchesByRestaurant(restaurantId);
+          setFilteredBranches(Array.isArray(data) ? data : []);
+          // Find the restaurant name for display (fallback to lookup after ensuring restaurants loaded)
+          let restaurant = restaurants.find(r => r._id === restaurantId);
+          if (!restaurant && restaurants.length === 0) {
+            await fetchRestaurants();
+            restaurant = restaurants.find(r => r._id === restaurantId);
+          }
+          if (restaurant) {
+            setCurrentRestaurantName(restaurant.name);
+          }
+        } finally {
+          setLocalLoading(false);
         }
       } else {
         fetchBranches();
@@ -322,7 +333,7 @@ const BranchManagement = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {loading ? (
+                  { (loading || (restaurantId && localLoading)) ? (
                     <tr>
                       <td colSpan="7" className="text-center py-4">
                         <p className="font-italic text-muted mb-0">Loading branches...</p>
@@ -336,7 +347,7 @@ const BranchManagement = () => {
                     </tr>
                   ) : restaurantId ? (
                     // When viewing branches for a specific restaurant from URL param
-                    branches.length > 0 ? branches.map((branch) => (
+                    filteredBranches.length > 0 ? filteredBranches.map((branch) => (
                       <tr key={branch._id}>
                         <td>
                           <span className="mb-0 text-sm font-weight-bold">
@@ -470,7 +481,7 @@ const BranchManagement = () => {
                   )}
                 </tbody>
                 </Table>
-                {(restaurantId ? branches.length > 0 : (selectedRestaurantId ? filteredBranches : branches).length > 0) && (
+                {(restaurantId ? filteredBranches.length > 0 : (selectedRestaurantId ? filteredBranches : branches).length > 0) && (
                 <CardFooter className="py-4">
                   <nav aria-label="...">
                     <Pagination
