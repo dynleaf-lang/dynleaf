@@ -219,6 +219,29 @@ export const BranchProvider = ({ children }) => {
         }
     };
 
+    // Update branch settings (e.g., whatsappUpdatesEnabled)
+    const updateBranchSettings = async (id, settings) => {
+        setError(null);
+        try {
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                }
+            };
+            const response = await axios.patch(`/api/branches/${id}/settings`, { settings }, config);
+            const updated = response.data?.branch || response.data;
+            if (updated && updated._id) {
+                setBranches(prev => prev.map(b => (b._id === updated._id ? updated : b)));
+            }
+            return updated;
+        } catch (err) {
+            console.error('Error updating branch settings:', err);
+            setError(err.response?.data?.message || 'Failed to update branch settings');
+            throw err;
+        }
+    };
+
     // Load branches when the component mounts
     useEffect(() => {
         if (token) {
@@ -239,6 +262,7 @@ export const BranchProvider = ({ children }) => {
             createBranch,
             updateBranch,
             deleteBranch
+            ,updateBranchSettings
         }}>
             {children}
         </BranchContext.Provider>

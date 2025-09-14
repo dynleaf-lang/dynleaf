@@ -24,6 +24,7 @@ import SuppliersManagement from "features/supplier-management/SuppliersManagemen
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 import BrandingSettings from "views/settings/BrandingSettings.js";
+import BranchSettings from "features/branch-management/BranchSettings.js";
 
 var routes = [
   {
@@ -40,6 +41,14 @@ var routes = [
     component: <BrandingSettings />,
     layout: "/admin",
   roles: ["Super_Admin", "Branch_Manager"],
+  },
+  {
+    path: "/settings/branch",
+    name: "Branch Settings",
+    icon: "ni ni-settings-gear-65 text-green",
+    component: <BranchSettings />,
+    layout: "/admin",
+    roles: ["Super_Admin", "Branch_Manager"],
   },
   {
     path: "/inventory",

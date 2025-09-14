@@ -43,6 +43,10 @@ const branchSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    // Settings
+    settings: {
+        whatsappUpdatesEnabled: { type: Boolean, default: false },
+    },
 });
 
 module.exports = mongoose.model('Branch', branchSchema);

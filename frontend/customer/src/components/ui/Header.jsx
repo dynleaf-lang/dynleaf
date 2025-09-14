@@ -385,6 +385,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                   <div style={{
                     maxHeight: "400px",
                     overflowY: "auto",
+                    textAlign: "left",
                   }}>
                     {notifications.length > 0 ? (
                       notifications.slice(0, 10).map((notification) => {
@@ -488,7 +489,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                                     color: theme.colors.text.primary,
                                     lineHeight: 1.3,
                                   }}>
-                                    {notification.title}
+                                    {notification.message}
                                   </h4>
                                   <span style={{
                                     fontSize: theme.typography.sizes.xs,
@@ -505,7 +506,7 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
                                   color: theme.colors.text.secondary,
                                   lineHeight: 1.4,
                                 }}>
-                                  {notification.message}
+                                  {notification.title}
                                 </p>
                                 
                                 {/* Additional metadata for order notifications */}
@@ -700,7 +701,8 @@ const Header = ({ profileSrc, isDesktop, restaurantName, branchName, tableNumber
           {[
             { icon: "star", label: "Featured", onClick: () => {} },
             { icon: "receipt_long", label: "Orders", onClick: () => {} },
-            { icon: "favorite", label: "Favorites", onClick: () => {} }
+            { icon: "favorite", label: "Favorites", onClick: () => {} }, 
+
           ].map((item, index) => (
             <motion.button 
               key={item.label}

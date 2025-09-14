@@ -7,12 +7,16 @@ import { useTax } from '../../context/TaxContext';
 import { theme } from '../../data/theme';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import TaxInfo from './TaxInfo';
+import { useNotifications } from '../../context/NotificationContext';
+import api from '../../utils/apiClient';
+import { useRestaurant } from '../../context/RestaurantContext';
 
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
   const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
   const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
+  const { branch } = useRestaurant();
   const { taxRate, taxName, formattedTaxRate, calculateTax } = useTax();
   
   // Form state - only needed for non-authenticated users
@@ -29,6 +33,8 @@ const CheckoutForm = memo(() => {
   const [formTouched, setFormTouched] = useState({});
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [registerClosed, setRegisterClosed] = useState(false);
+  const { addNotification } = useNotifications();
   
   // For authenticated users, use their account info
   const effectiveCustomerInfo = isAuthenticated && user ? {
@@ -48,11 +54,56 @@ const CheckoutForm = memo(() => {
     }
   }, [orderType]);
 
+  // On mount: check register status once to initialize disabled state
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (branch?._id) {
+          const status = await api.public.orders.getRegisterStatus(branch._id);
+          if (!cancelled && status && status.open === false) {
+            setRegisterClosed(true);
+            addNotification?.({
+              type: 'system',
+              title: 'Ordering Paused',
+              message: 'We are not accepting orders right now. Please try again shortly.',
+              icon: 'pause_circle',
+              priority: 'high'
+            });
+          }
+        }
+      } catch (_) {}
+    })();
+    return () => { cancelled = true; };
+  }, [branch?._id]);
+
   // Listen for order placement results from parent component
   useEffect(() => {
     const handleOrderError = (event) => {
       console.log('[CHECKOUT FORM] Order error received:', event.detail);
-      setErrorMessage(event.detail.message || 'There was an error processing your order. You can try again or continue with a temporary order.');
+      const { message, isRegisterClosed } = event.detail || {};
+      // For register-closed, don't show the inline error banner; we use toast + disabled button
+      const msg = message || '';
+      const looksClosed = /not accepting orders|register closed|423/i.test(msg);
+      if (!isRegisterClosed && !looksClosed) {
+        setErrorMessage(msg || 'There was an error processing your order. You can try again or continue with a temporary order.');
+      } else {
+        setErrorMessage('');
+      }
+      if (isRegisterClosed || looksClosed) {
+        setRegisterClosed(true);
+        try {
+          if (typeof addNotification === 'function') {
+            addNotification({
+              type: 'system',
+              title: 'Ordering Paused',
+              message: message || 'We are not accepting orders right now. Please try again shortly.',
+              icon: 'pause_circle',
+              priority: 'high'
+            });
+          }
+        } catch (_) {}
+      }
       setIsSubmitting(false);
     };
 
@@ -60,6 +111,7 @@ const CheckoutForm = memo(() => {
       console.log('[CHECKOUT FORM] Order success received:', event.detail);
       setShowSuccessMessage(true);
       setIsSubmitting(false);
+  setRegisterClosed(false);
       
       // Reset form after successful submission
       setTimeout(() => {
@@ -75,6 +127,31 @@ const CheckoutForm = memo(() => {
       document.removeEventListener('orderSuccess', handleOrderSuccess);
     };
   }, []);
+
+  // When registerClosed, poll backend every 30s to re-enable button once register opens
+  useEffect(() => {
+    if (!registerClosed || !branch?._id) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const status = await api.public.orders.getRegisterStatus(branch._id);
+        if (!cancelled && status?.open) {
+          setRegisterClosed(false);
+          addNotification?.({
+            type: 'system',
+            title: 'Ordering Resumed',
+            message: 'Register is now open. You can place your order.',
+            icon: 'play_circle',
+            priority: 'medium'
+          });
+        }
+      } catch (_) {}
+    };
+    // immediate check + interval
+    check();
+    const t = setInterval(check, 30000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [registerClosed, branch?._id]);
   
   // Handle input changes and validation on blur
   const handleInputChange = (e) => {
@@ -202,11 +279,12 @@ const CheckoutForm = memo(() => {
     return isValid;
   };
   // Handle form submission
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Reset error messages
-    setErrorMessage('');
+  // Reset error messages
+  setErrorMessage('');
+  setShowSuccessMessage(false);
     
     console.log('[CHECKOUT FORM] Starting form submission...');
     console.log('[CHECKOUT FORM] Cart items:', cartItems);
@@ -231,7 +309,41 @@ const CheckoutForm = memo(() => {
     
     console.log('[CHECKOUT FORM] Form validation passed');
     
-    // Set loading state
+    // Preflight: if register might be closed, check status before setting submitting state to avoid spinner UX
+    try {
+      if (branch?._id) {
+        const status = await api.public.orders.getRegisterStatus(branch._id);
+        if (!status?.open) {
+          setRegisterClosed(true);
+          if (typeof addNotification === 'function') {
+            addNotification({
+              type: 'system',
+              title: 'Ordering Paused',
+              message: 'We are not accepting orders right now. Please try again shortly.',
+              icon: 'pause_circle',
+              priority: 'high'
+            });
+          }
+          return; // Don't proceed or show spinner
+        }
+      }
+    } catch (_) {
+      // If the status check fails, fall through; backend will still guard and we handle the event
+    }
+    
+    // Set loading state; if register is closed (set by an earlier event), keep disabled and show toast
+    if (registerClosed) {
+      if (typeof addNotification === 'function') {
+        addNotification({
+          type: 'system',
+          title: 'Ordering Paused',
+          message: 'We are not accepting orders right now. Please try again shortly.',
+          icon: 'pause_circle',
+          priority: 'high'
+        });
+      }
+      return;
+    }
     setIsSubmitting(true);
     
     // Prepare order data
@@ -297,7 +409,7 @@ const CheckoutForm = memo(() => {
               type="button"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              onClick={() => setErrorMessage('')}
+              onClick={() => { setErrorMessage(''); setRegisterClosed(false); }}
               style={{
                 padding: `${theme.spacing.xs} ${theme.spacing.md}`,
                 backgroundColor: 'transparent',
@@ -871,19 +983,19 @@ const CheckoutForm = memo(() => {
           {/* Enhanced submit button with loading state */}
           <motion.button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || registerClosed}
             whileHover={!isSubmitting ? { scale: 1.01 } : {}}
             whileTap={!isSubmitting ? { scale: 0.98 } : {}}
             style={{
               flex: 1,
-              backgroundColor: isSubmitting ? theme.colors.primary + 'aa' : theme.colors.primary,
+              backgroundColor: (isSubmitting || registerClosed) ? theme.colors.primary + 'aa' : theme.colors.primary,
               color: theme.colors.text.light,
               border: 'none',
               borderRadius: theme.borderRadius.md,
               padding: theme.spacing.lg,
               fontSize: theme.typography.sizes.md,
               fontWeight: theme.typography.fontWeights.semibold,
-              cursor: isSubmitting ? 'not-allowed' : 'pointer',
+              cursor: (isSubmitting || registerClosed) ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -895,19 +1007,31 @@ const CheckoutForm = memo(() => {
           >
             {isSubmitting ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                <div style={{ 
-                  width: '20px', 
-                  height: '20px', 
-                  borderRadius: '50%',
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  borderTopColor: 'white',
-                  animation: 'spin 1s linear infinite',
-                }} />
-                Processing Order...
+                <>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    borderRadius: '50%',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: 'white',
+                    animation: 'spin 1s linear infinite',
+                  }} />
+                  Processing Order...
+                </>
               </div>
-            ) : (              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                <span className="material-icons">shopping_cart_checkout</span>
-                {`Place Order • `}<CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                {registerClosed ? (
+                  <>
+                    <span className="material-icons">pause_circle</span>
+                    Ordering paused
+                  </>
+                ) : (
+                  <>
+                    <span className="material-icons">shopping_cart_checkout</span>
+                    {`Place Order • `}<CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} />
+                  </>
+                )}
               </div>
             )}
           </motion.button>

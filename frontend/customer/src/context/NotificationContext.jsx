@@ -475,8 +475,8 @@ export const NotificationProvider = ({ children }) => {
 
     return configs[status] || {
       title: 'Updated',
-      message: `Your order status has been updated to ${status}.`,
-      icon: 'info',
+      message: `Your order has been ${status}.`,
+      icon: 'check_circle',
       priority: 'medium'
     };
   };

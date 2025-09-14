@@ -724,6 +724,18 @@ export const api = {
           throw error;
         }
       },
+
+      // Check if register is open for a branch
+      getRegisterStatus: async (branchId) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/orders/register-status`, { params: { branchId } });
+          return response.data;
+        } catch (error) {
+          console.error('Error fetching register status:', error);
+          // Treat unknown as closed to keep UX safe
+          return { open: false };
+        }
+      },
       
       // Get order details
       getById: async (orderId) => {
