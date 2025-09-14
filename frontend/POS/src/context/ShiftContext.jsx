@@ -32,13 +32,24 @@ export const ShiftProvider = ({ children }) => {
     } catch (_) {}
   }, []);
 
+  const getBranchId = useCallback(() => {
+    try {
+      return user?.branchId || localStorage.getItem('pos_branch_id') || null;
+    } catch (_) {
+      return user?.branchId || null;
+    }
+  }, [user?.branchId]);
+
   const refresh = useCallback(async () => {
-    if (!user?.branchId) return;
+    const branchId = getBranchId();
+    if (!branchId) return;
     try {
       setLoading(true);
       setError('');
+      // Fetch current session at BRANCH scope (do not filter by cashier)
+      // This avoids the UI showing "No Session" when another cashier opened the register.
       const { data } = await axios.get(`${API_BASE}/pos/sessions/current`, {
-        params: { branchId: user.branchId, cashierId: user._id || user.id }
+        params: { branchId }
       });
       const ses = data.session || null;
       setCurrentSession((prev) => {
@@ -58,21 +69,33 @@ export const ShiftProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [user, API_BASE]);
+  }, [getBranchId, API_BASE]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
+  // Periodic refresh to keep session status in sync and recover from races
+  useEffect(() => {
+    if (!user?.branchId) return;
+    const id = setInterval(() => {
+      refresh();
+    }, 15000);
+    return () => clearInterval(id);
+  }, [user?.branchId, refresh]);
+
   const openSession = async ({ openingFloat = 0, notes = '' } = {}) => {
-    if (!user?.branchId) {
-      toast.error('Branch not found for user');
+    const branchId = getBranchId();
+    if (!branchId) {
+      const msg = 'Branch not found for user. Please ensure your account has a branch assigned.';
+      setError(msg);
+      toast.error(msg);
       return null;
     }
     try {
       setLoading(true);
     const { data } = await axios.post(`${API_BASE}/pos/sessions/open`, {
-        branchId: user.branchId,
+        branchId,
         restaurantId: user.restaurantId,
         cashierId: user._id || user.id,
         openingFloat,
@@ -82,6 +105,8 @@ export const ShiftProvider = ({ children }) => {
   try { localStorage.setItem('pos_current_session', JSON.stringify(data.session)); } catch (_) {}
     try { window.dispatchEvent(new CustomEvent('pos:sessionChanged', { detail: { session: data.session } })); } catch (_) {}
       toast.success('Session opened');
+      // Force refresh to avoid any cache/state race
+  try { await refresh(); } catch (_) {}
       return data.session;
     } catch (e) {
       const msg = e?.response?.data?.message || 'Failed to open session';

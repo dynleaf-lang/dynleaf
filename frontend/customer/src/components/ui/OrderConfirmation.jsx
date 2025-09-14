@@ -584,7 +584,7 @@ Generated on: ${new Date().toLocaleString()}
             color: theme.colors.text.secondary,
             margin: `${theme.spacing.sm} 0 ${theme.spacing.lg} 0`
           }}>
-            Your order #{getFormattedOrderId()} has been received
+            ✅ Your order #{getFormattedOrderId()} has been placed successfully! Our team will review it shortly and get it confirmed. 🎉
           </p>
         </motion.div>
       </motion.div>

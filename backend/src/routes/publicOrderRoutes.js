@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/Order');
+const PosSession = require('../models/PosSession');
 const DiningTable = require('../models/DiningTables');
 const Recipe = require('../models/Recipe');
 const InventoryItem = require('../models/InventoryItem');
@@ -30,6 +31,20 @@ router.use((req, res, next) => {
 
 // Make all routes in this file public
 router.use(publicAccess);
+// Lightweight endpoint to check if register is open for a branch
+router.get('/register-status', async (req, res) => {
+    try {
+        const { branchId } = req.query;
+        if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+            return res.status(400).json({ message: 'Valid branchId is required' });
+        }
+        const hasOpenSession = await PosSession.exists({ branchId, status: 'open' });
+        return res.json({ open: !!hasOpenSession });
+    } catch (err) {
+        console.warn('[PUBLIC ORDERS] register-status check error:', err?.message);
+        return res.json({ open: false });
+    }
+});
 
 // Get all orders with filtering capability for admin dashboard
 router.get('/', async (req, res) => {
@@ -132,6 +147,8 @@ router.post('/', async (req, res) => {
             total,
             // when created from POS, attach the current pos session
             sessionId,
+            // notifications
+            notifyWhatsApp,
             // stock control flags (optional)
             enforceStock,
             allowInsufficientOverride,
@@ -161,6 +178,19 @@ router.post('/', async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(branchId)) {
             console.log('[PUBLIC ORDER CREATE] Invalid branchId format:', branchId);
             return res.status(400).json({ message: 'Invalid branch ID format' });
+        }
+
+        // If register is closed for this branch, block ordering
+        try {
+            const hasOpenSession = await PosSession.exists({ branchId, status: 'open' });
+            if (!hasOpenSession) {
+                return res.status(423).json({
+                    message: 'We are not accepting orders at the moment. Please try again shortly.',
+                    code: 'register_closed'
+                });
+            }
+        } catch (sessionErr) {
+            console.warn('[PUBLIC ORDER CREATE] Session check failed, proceeding cautiously:', sessionErr?.message);
         }
 
         // Validate items
@@ -421,7 +451,8 @@ router.post('/', async (req, res) => {
             taxAmount: Number(taxAmount) || 0,
             taxDetails: taxDetails || {},
             subtotal: Number(subtotal) || items.reduce((total, item) => total + (Number(item.price) * Number(item.quantity)), 0),
-            totalAmount: Number(total) || (Number(subtotal) || items.reduce((total, item) => total + (Number(item.price) * Number(item.quantity)), 0)) + (Number(taxAmount) || 0)
+            totalAmount: Number(total) || (Number(subtotal) || items.reduce((total, item) => total + (Number(item.price) * Number(item.quantity)), 0)) + (Number(taxAmount) || 0),
+            notifyWhatsApp: (typeof notifyWhatsApp === 'boolean') ? notifyWhatsApp : true
         });
 
         console.log('[PUBLIC ORDER CREATE] Creating order:', JSON.stringify(order.toObject(), null, 2));
@@ -530,6 +561,16 @@ router.post('/', async (req, res) => {
         } catch (socketError) {
             console.error('[PUBLIC ORDER CREATE] Error emitting new order notification:', socketError);
             // Don't fail the order creation if socket emission fails
+        }
+
+        // Non-blocking WhatsApp confirmation for placed order
+        try {
+            const { notifyOrderPlacedWhatsApp } = require('../services/whatsappNotify');
+            Promise.resolve(notifyOrderPlacedWhatsApp(savedOrder))
+                .then((r) => { if (r?.skipped) console.log('[WA Notify] placed skipped:', r?.reason); })
+                .catch((e) => console.warn('[WA Notify] placed error:', e?.message));
+        } catch (e) {
+            console.warn('[WA Notify] placed init error:', e?.message);
         }
 
         // include warnings meta if any
@@ -907,6 +948,17 @@ router.patch('/:id/status', async (req, res) => {
         } catch (socketError) {
             console.error('Error emitting status update notification:', socketError);
             // Don't fail the status update if socket emission fails
+        }
+
+        // Fire-and-forget WhatsApp notification (non-blocking)
+        try {
+            const { notifyOrderStatusWhatsApp } = require('../services/whatsappNotify');
+            // Do not block the response; log errors only
+            Promise.resolve(notifyOrderStatusWhatsApp(order, { prevStatus: oldModern }))
+                .then((r) => { if (r?.skipped) console.log('[WA Notify] skipped:', r?.reason); })
+                .catch((e) => console.warn('[WA Notify] error:', e?.message));
+        } catch (e) {
+            console.warn('[WA Notify] init error:', e?.message);
         }
 
         res.status(200).json({

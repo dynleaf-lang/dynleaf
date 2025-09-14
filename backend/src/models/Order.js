@@ -205,6 +205,14 @@ const orderSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Notifications preferences per order (opt-out)
+orderSchema.add({
+    notifyWhatsApp: {
+        type: Boolean,
+        default: true,
+    }
+});
+
 // Pre-save middleware to generate orderId
 orderSchema.pre('save', function(next) {
     if (!this.orderId) {

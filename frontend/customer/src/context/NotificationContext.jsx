@@ -18,7 +18,7 @@ export const NotificationProvider = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const { socket, isConnected } = useSocket();
   const { isAuthenticated, user } = useAuth();
-  const { table, branch } = useRestaurant();
+  const { table, branch, restaurant } = useRestaurant();
   const nextIdRef = useRef(1);
   const customerOrdersRef = useRef(new Set()); // Track customer's orders
   const lastNotificationRef = useRef({}); // Track last notification per order to prevent rapid duplicates
@@ -151,7 +151,7 @@ export const NotificationProvider = ({ children }) => {
         addNotification({
           type: 'order_confirmation',
           title: 'Order Confirmed!',
-          message: `Your order #${orderNumber} has been confirmed and is being prepared.`,
+          message: `👍 Great news! Your order #${orderNumber} has been confirmed. We’ll start preparing your meal right away. 🍴`,
           icon: 'check_circle',
           priority: 'high',
           orderId: order?.id || order?._id,
@@ -437,19 +437,19 @@ export const NotificationProvider = ({ children }) => {
     const configs = {
       'Pending': {
         title: 'Received',
-        message: 'We\'ve received your order and it\'s being reviewed.',
+        message: '✅ We\'ve received your order and will confirm it shortly. 🎉',
         icon: 'schedule',
         priority: 'medium'
       },
       'Processing': {
         title: 'Being Prepared',
-        message: 'Great news! Your order is now being prepared by our kitchen.',
+        message: '👨‍🍳 Your order is now being prepared by our chefs. It’ll be ready to serve soon. ⏳',
         icon: 'restaurant',
         priority: 'high'
       },
       'Ready': {
         title: 'Ready for Pickup',
-        message: 'Your order is ready! Please come to the counter for pickup.',
+        message: '🔥 Your order is ready! You can pick it up at the counter or wait to be served at your table. 🍽️',
         icon: 'check_circle',
         priority: 'high'
       },
@@ -461,7 +461,7 @@ export const NotificationProvider = ({ children }) => {
       },
       'Delivered': {
         title: 'Delivered',
-        message: 'Your order has been delivered successfully. Enjoy your meal!',
+        message: `🥳 Your order has been delivered. Enjoy your delicious meal, and thank you for dining with ${(restaurant?.name || 'our restaurant')}${branch?.name ? ` – ${branch.name}` : ''}! 💚 We’d love to hear your feedback after your meal. 🙏`,
         icon: 'delivery_dining',
         priority: 'high'
       },
@@ -475,8 +475,8 @@ export const NotificationProvider = ({ children }) => {
 
     return configs[status] || {
       title: 'Updated',
-      message: `Your order status has been updated to ${status}.`,
-      icon: 'info',
+      message: `Your order has been ${status}.`,
+      icon: 'check_circle',
       priority: 'medium'
     };
   };

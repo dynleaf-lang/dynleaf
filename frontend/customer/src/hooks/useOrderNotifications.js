@@ -28,7 +28,7 @@ export const useOrderNotifications = () => {
       addNotification({
         type: 'order_confirmation',
         title: 'Order Placed Successfully!',
-        message: `Your order #${order.orderId || order.orderNumber || orderId} has been received and is being processed.`,
+        message: `✅ Your order #${order.orderId || order.orderNumber || orderId} has been placed successfully! Our team will review it shortly and get it confirmed. 🎉`,
         icon: 'check_circle',
         priority: 'high',
         orderId: orderId,

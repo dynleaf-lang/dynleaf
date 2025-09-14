@@ -5,6 +5,7 @@ import { useRestaurant } from '../../context/RestaurantContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrderNotifications } from '../../hooks/useOrderNotifications';
+import { useNotifications } from '../../context/NotificationContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 
@@ -784,6 +785,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
   
   // Notification tracking hook
   const { trackOrderWithNotification } = useOrderNotifications();
+  const { addNotification } = useNotifications();
   
   // Payment loading state and status tracking
   const [isLoading, setIsLoading] = useState(false);
@@ -944,7 +946,34 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             if (orderError) {
               // There's a specific error message from the context
               console.error('[ENHANCED CART] Order creation failed with error:', orderError);
-              throw new Error(orderError);
+              const msg = typeof orderError === 'string' ? orderError : (orderError.message || 'There was an error processing your order.');
+              const closed = /not accepting orders|register closed|423/i.test(msg);
+              if (closed) {
+                // Treat as register closed: no inline banner, toast + disable via event
+                setError(null);
+                if (typeof addNotification === 'function') {
+                  addNotification({
+                    type: 'system',
+                    title: 'Ordering Paused',
+                    message: msg,
+                    icon: 'pause_circle',
+                    priority: 'high'
+                  });
+                }
+                document.dispatchEvent(
+                  new CustomEvent('orderError', {
+                    detail: {
+                      message: msg,
+                      canRetry: true,
+                      isTemporary: true,
+                      isRegisterClosed: true
+                    }
+                  })
+                );
+                setIsLoading(false);
+                return;
+              }
+              throw new Error(msg);
             } else {
               // No error message but null response - likely a prevented duplicate or validation issue
               // This is not necessarily an error, just log and return without throwing
@@ -971,6 +1000,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
           let errorMessage = 'There was an error processing your order. Please try again.';
           let canRetry = true;
           let isTemporary = false;
+          let isRegisterClosed = false;
           
           if (error.response) {
             const statusCode = error.response.status;
@@ -980,6 +1010,12 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
               // Rate limiting / duplicate request
               errorMessage = responseData?.message || 'This order was just submitted. Please wait before trying again.';
               canRetry = false;
+            } else if (statusCode === 423) {
+              // Register closed
+              errorMessage = responseData?.message || 'Orders are not being accepted at the moment. Please try again later.';
+              canRetry = true;
+              isTemporary = true;
+              isRegisterClosed = true;
             } else if (statusCode === 400) {
               // Bad request - validation errors
               errorMessage = responseData?.message || 'Order information is invalid. Please check your details and try again.';
@@ -1022,16 +1058,33 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             errorMessage += ' This is usually temporary.';
           }
           
-          setError(errorMessage);
+          // For register-closed errors, avoid showing the big error banner; rely on toast + disabled button
+          if (!isRegisterClosed) {
+            setError(errorMessage);
+          } else {
+            setError(null);
+          }
+
+          // If register is closed, surface a toast notification for better UX
+          if (isRegisterClosed && typeof addNotification === 'function') {
+            addNotification({
+              type: 'system',
+              title: 'Ordering Paused',
+              message: errorMessage || 'We are not accepting orders right now. Please try again shortly.',
+              icon: 'pause_circle',
+              priority: 'high'
+            });
+          }
           
           // Notify CheckoutForm of error with additional context
-          document.dispatchEvent(
+      document.dispatchEvent(
             new CustomEvent('orderError', {
               detail: { 
                 message: errorMessage, 
                 error,
                 canRetry,
-                isTemporary
+        isTemporary,
+        isRegisterClosed
               }
             })
           );

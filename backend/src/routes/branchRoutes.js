@@ -185,3 +185,43 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
 });
 
 module.exports = router;
+
+// Settings: toggle WhatsApp updates per branch
+router.patch('/:id/settings', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid branch ID format' });
+        }
+
+        const branch = await Branch.findById(id);
+        if (!branch) return res.status(404).json({ message: 'Branch not found' });
+
+        // Permission: must match restaurant unless Super_Admin
+        const userRestaurantIdStr = req.user.restaurantId ? String(req.user.restaurantId) : '';
+        const branchRestaurantIdStr = branch.restaurantId ? String(branch.restaurantId) : '';
+        if (req.user.role !== 'Super_Admin' && userRestaurantIdStr && userRestaurantIdStr !== branchRestaurantIdStr) {
+            return res.status(403).json({ message: 'Access denied to modify this branch' });
+        }
+
+        const { settings } = req.body || {};
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ message: 'settings object is required' });
+        }
+
+        // Only allow known keys for now
+        const allowed = ['whatsappUpdatesEnabled'];
+        branch.settings = branch.settings || {};
+        for (const key of allowed) {
+            if (Object.prototype.hasOwnProperty.call(settings, key)) {
+                branch.settings[key] = Boolean(settings[key]);
+            }
+        }
+
+        const updated = await branch.save();
+        return res.json({ message: 'Settings updated', branch: updated });
+    } catch (error) {
+        console.error('Error updating branch settings:', error);
+        return res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});

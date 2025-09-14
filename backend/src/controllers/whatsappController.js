@@ -282,15 +282,19 @@ exports.webhook = async (req, res) => {
   } catch (_) {}
 
   const title = (restaurantName && branchName)
-    ? `${restaurantName} - ${branchName}`
+    ? `${restaurantName} – ${branchName}` // en dash for professional look
     : (restaurantName || branchName || brand);
 
-  // Professional, short template (keeps logic intact). Avoid exposing internal IDs.
+  // Professional, customer-friendly magic link message
+  const mins = SHORTLINK_TTL_MINUTES;
   const lines = [];
-  lines.push(`*Welcome to ${title}* 🍽️`);
-  lines.push(`Order now: ${shortLink}`);
-  lines.push('Reply HELP for assistance');
-  lines.push('Link valid for 60 min');
+  lines.push(`👋 Welcome to *${title}*!`);
+  lines.push('');
+  lines.push('� Ready to enjoy your favorite meals?');
+  lines.push(`👉 Order your meal in just a click: ${shortLink}`);
+  lines.push('');
+  lines.push('ℹ️ Need help? Just reply *HELP* anytime.');
+  lines.push(`⏳ This link is valid for the next ${mins} minutes.`);
   const message = lines.join('\n');
     try {
       const sendRes = await sendWhatsAppText(from, message);
