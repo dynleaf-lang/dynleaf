@@ -40,7 +40,7 @@ var routes = [
     icon: "ni ni-atom text-indigo",
     component: <BrandingSettings />,
     layout: "/admin",
-  roles: ["Super_Admin", "Branch_Manager"],
+  roles: ["Branch_Manager"],
   },
   {
     path: "/settings/branch",
@@ -48,7 +48,7 @@ var routes = [
     icon: "ni ni-settings-gear-65 text-green",
     component: <BranchSettings />,
     layout: "/admin",
-    roles: ["Super_Admin", "Branch_Manager"],
+    roles: ["Branch_Manager"],
   },
   {
     path: "/inventory",
@@ -56,7 +56,7 @@ var routes = [
     icon: "ni ni-bag-17 text-teal",
     component: <InventoryManagement />,
     layout: "/admin",
-    roles: ["admin", "Branch_Manager", "Super_Admin"],
+    roles: ["admin", "Branch_Manager"],
   },
   {
     path: "/inventory-reports",
@@ -64,7 +64,7 @@ var routes = [
     icon: "ni ni-chart-bar-32 text-teal",
     component: <InventoryReports />,
     layout: "/admin",
-    roles: ["Branch_Manager", "Super_Admin"],
+    roles: ["Branch_Manager"],
   },
   {
     path: "/suppliers",
@@ -72,7 +72,7 @@ var routes = [
     icon: "ni ni-delivery-fast text-blue",
     component: <SuppliersManagement />,
     layout: "/admin",
-    roles: ["admin", "Branch_Manager", "Super_Admin"],
+    roles: ["admin", "Branch_Manager"],
   },
   {
     path: "/users",
@@ -113,7 +113,7 @@ var routes = [
     icon: "ni ni-tag text-yellow",
     component: <Category />,
     layout: "/admin",
-    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"], 
+    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator"], 
   },
   {
     path: "/menu-items",
@@ -121,7 +121,7 @@ var routes = [
     icon: "ni ni-box-2 text-green",
     component: <MenuItem />,
     layout: "/admin",
-    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"], 
+    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator"], 
   },
   {
     path: "/order-management",
@@ -129,7 +129,7 @@ var routes = [
     icon: "ni ni-cart text-orange",
     component: <OrderManagement />,
     layout: "/admin",
-    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator", "Super_Admin"],
+    roles: ["Branch_Manager", "Kitchen", "Delivery", "POS_Operator"],
   },
   {
     path: "/reports",
@@ -137,7 +137,7 @@ var routes = [
     icon: "ni ni-chart-bar-32 text-purple",
     component: <OrderReports />,
     layout: "/admin",
-    roles: ["Branch_Manager", "Super_Admin"],
+    roles: ["Branch_Manager"],
   },
   {
     path: "/customer-management",
@@ -145,7 +145,7 @@ var routes = [
     icon: "ni ni-single-02 text-cyan",
     component: <CustomerManagement />,
     layout: "/admin",
-    roles: ["Branch_Manager", "POS_Operator", "Super_Admin"], 
+    roles: ["Branch_Manager", "POS_Operator"], 
   },
   {
     path: "/staff-management",
@@ -161,7 +161,7 @@ var routes = [
     icon: "ni ni-ungroup text-info",
     component: <TableManagement />,
     layout: "/admin",
-    roles: ["admin", "Super_Admin", "Branch_Manager"], // Only admin, Super_Admin, or branch_manager can see this route
+    roles: ["admin", "Branch_Manager"], // Only admin, Super_Admin, or branch_manager can see this route
   },
   {
     path: "/tables-qr",
@@ -169,7 +169,7 @@ var routes = [
     icon: "ni ni-collection text-info",
     component: <TableQRBatch />,
     layout: "/admin",
-    roles: ["admin", "Super_Admin", "Branch_Manager"],
+    roles: ["admin", "Branch_Manager"],
   },
   {
     path: "/tax-management",
@@ -185,7 +185,7 @@ var routes = [
     component: <TableQRCode />,
     layout: "/admin",
     hidden: true, // Hide from sidebar
-    roles: ["admin", "Super_Admin", "Branch_Manager"], 
+    roles: ["admin", "Branch_Manager"], 
   },
   {
     path: "/tables-management/:tableId",
@@ -193,7 +193,7 @@ var routes = [
     component: <TableDetail />,
     layout: "/admin",
     hidden: true, // Hide from sidebar
-    roles: ["admin", "Super_Admin", "Branch_Manager"], 
+    roles: ["admin", "Branch_Manager"], 
   },
   
   {

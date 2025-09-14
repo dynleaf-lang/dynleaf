@@ -29,8 +29,7 @@ const WidgetsContainer = () => {
   
   // Set a loading timeout of 15 seconds
   useEffect(() => {
-    timeoutRef.current = setTimeout(() => {
-      console.warn('WidgetsContainer: Loading timeout reached, forcing display');
+    timeoutRef.current = setTimeout(() => { 
       setLoadingTimeout(true);
     }, 15000);
     
@@ -59,26 +58,7 @@ const WidgetsContainer = () => {
   // Show loading only if no essential data AND no timeout AND still actually loading
   const loading = !loadingTimeout && !hasEssentialData && 
                  (restaurantData.loading || tableData.loading || orderData.loading);
-  
-  // Debug output for development
-  useEffect(() => {
-    console.log('WidgetsContainer loading states:', loadingStates);
-    console.log('WidgetsContainer hasEssentialData:', hasEssentialData);
-    console.log('WidgetsContainer loadingTimeout:', loadingTimeout);
-    console.log('WidgetsContainer received data:', {
-      restaurantsCount: restaurantData.restaurants?.length || 0,
-      branchesCount: restaurantData.branches?.length || 0,
-      tablesCount: tableData.tables?.length || 0,
-      reservationsCount: tableData.reservations?.length || 0,
-      ordersCount: orderData.orders?.length || 0,
-      customersCount: customerData.customers?.length || 0,
-      menuItemsCount: menuData.menuItems?.length || 0,
-      categoriesCount: categoryData.categories?.length || 0,
-      role: userData.role,
-      finalLoading: loading
-    });
-  }, [restaurantData, tableData, orderData, customerData, menuData, categoryData, userData, loading, loadingStates, hasEssentialData, loadingTimeout, user?.role]);
-  
+   
   // Combine data for other widgets
   const data = {
     menuItems: menuData.menuItems || [],
@@ -102,11 +82,7 @@ const WidgetsContainer = () => {
       </div>
     );
   }
-  
-  // If timeout occurred but still loading, show warning but continue
-  if (loadingTimeout && loading) {
-    console.warn('WidgetsContainer: Loading timeout reached, displaying widgets anyway');
-  }
+   
 
   // If no data available for non-Super_Admin users, show a message
   if (data.userRole !== 'Super_Admin' && 
@@ -146,34 +122,40 @@ const WidgetsContainer = () => {
         loading={loading}
       />
       
-      {/* Menu Items Widget */}
-      <Row className="mt-4">
-        <Col className="mb-5 mb-xl-0" xl="12">
-          <MenuItemsWidget 
-            menuItems={data.menuItems}
-            categories={data.categories}
-            loading={menuData.loading}
-            userRole={data.userRole}
-            restaurantId={userData.restaurantId}
-            branchId={userData.branchId}
-          />
-        </Col>
-      </Row>
+      
+      {/* Branch_Manager-only Widgets */}
+      {data.userRole === 'Branch_Manager' && (
+        <>
+          {/* Menu Items Widget */}
+          <Row className="mt-4" >
+            <Col className="mb-5 mb-xl-0" xl="12">
+              <MenuItemsWidget 
+                menuItems={data.menuItems}
+                categories={data.categories}
+                loading={menuData.loading}
+                userRole={data.userRole}
+                restaurantId={userData.restaurantId}
+                branchId={userData.branchId}
+              />
+            </Col>
+          </Row>
 
-      {/* Customer Insights Widget */}
-      <Row className="mt-4">
-        <Col className="mb-5 mb-xl-0" xl="12">
-          <CustomerInsightsWidget 
-            customers={data.customers}
-            orders={data.orders}
-            loading={customerData.loading}
-            userRole={data.userRole}
-            restaurantId={userData.restaurantId}
-            branchId={userData.branchId}
-            countryCode={data.restaurants[0]?.country || "US"}
-          />
-        </Col>
-      </Row>
+          {/* Customer Insights Widget */}
+          <Row className="mt-4">
+            <Col className="mb-5 mb-xl-0" xl="12">
+              <CustomerInsightsWidget 
+                customers={data.customers}
+                orders={data.orders}
+                loading={customerData.loading}
+                userRole={data.userRole}
+                restaurantId={userData.restaurantId}
+                branchId={userData.branchId}
+                countryCode={data.restaurants[0]?.country || "US"}
+              />
+            </Col>
+          </Row>
+        </>
+      )}
     </>
   );
 };
