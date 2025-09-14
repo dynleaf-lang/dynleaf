@@ -16,7 +16,7 @@ import Header from "components/Headers/Header.js";
 import { BranchContext } from '../../context/BranchContext';
 import { AuthContext } from '../../context/AuthContext';
 
-const BranchSettings = () => {
+const BranchSettings = ({ embedded = false }) => {
   const { branches, fetchBranches, updateBranchSettings, error } = useContext(BranchContext);
   const { user } = useContext(AuthContext);
   const [saving, setSaving] = useState(false);
@@ -43,18 +43,13 @@ const BranchSettings = () => {
 
   if (!user) return null;
 
-  return (
-   <>
-   <Header />
-    <Container className="mt--7" fluid>
-      <Row>
-        <Col>
-          <Card className="shadow">
-            <CardHeader className="border-0">
-              <h3 className="mb-0">Branch Settings</h3>
-              {branch && <p className="text-muted mb-0">{branch.name}</p>}
-            </CardHeader>
-            <CardBody>
+  const content = (
+    <Card className="shadow">
+      <CardHeader className="border-0">
+        <h3 className="mb-0">Branch Settings</h3>
+        {branch && <p className="text-muted mb-0">{branch.name}</p>}
+      </CardHeader>
+      <CardBody>
               {error && (
                 <Alert color="warning">
                   <i className="fas fa-exclamation-triangle mr-2" /> {error}
@@ -109,12 +104,25 @@ const BranchSettings = () => {
                   </Col>
                 </Row>
               )}
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
-    </Container>
-   </>
+      </CardBody>
+    </Card>
+  );
+
+  return (
+    <>
+      {!embedded && <Header />}
+      {!embedded ? (
+        <Container className="mt--7" fluid>
+          <Row>
+            <Col>
+              {content}
+            </Col>
+          </Row>
+        </Container>
+      ) : (
+        content
+      )}
+    </>
   );
 };
 

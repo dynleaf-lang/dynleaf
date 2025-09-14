@@ -24,6 +24,7 @@ import SuppliersManagement from "features/supplier-management/SuppliersManagemen
 import Login from "views/examples/Login.js";
 import Register from "views/examples/Register.js";
 import BrandingSettings from "views/settings/BrandingSettings.js";
+import SettingsPage from "views/settings/SettingsPage.js";
 import BranchSettings from "features/branch-management/BranchSettings.js";
 
 var routes = [
@@ -33,23 +34,8 @@ var routes = [
     icon: "ni ni-tv-2 text-primary",
     component: <Index />,
     layout: "/admin",
-  },
-  {
-    path: "/settings/branding",
-    name: "Branding",
-    icon: "ni ni-atom text-indigo",
-    component: <BrandingSettings />,
-    layout: "/admin",
-  roles: ["Branch_Manager"],
-  },
-  {
-    path: "/settings/branch",
-    name: "Branch Settings",
-    icon: "ni ni-settings-gear-65 text-green",
-    component: <BranchSettings />,
-    layout: "/admin",
-    roles: ["Branch_Manager"],
-  },
+  }, 
+   
   {
     path: "/inventory",
     name: "Inventory",
@@ -186,6 +172,14 @@ var routes = [
     layout: "/admin",
     hidden: true, // Hide from sidebar
     roles: ["admin", "Branch_Manager"], 
+  },
+   {
+    path: "/settings",
+    name: "Settings",
+    icon: "ni ni-settings-gear-65 text-gray",
+    component: <SettingsPage />,
+    layout: "/admin",
+    roles: ["Branch_Manager"],
   },
   {
     path: "/tables-management/:tableId",
