@@ -4,7 +4,7 @@ const Branch = require('../models/Branches');
 
 // Env helpers
 const WA_PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID; // e.g., 1234567890
-const BRAND_NAME = process.env.BRAND_NAME || 'OrderEase';
+const BRAND_NAME = process.env.BRAND_NAME || 'DynLeaf';
 const CUSTOMER_PORTAL_BASE_URL = process.env.CUSTOMER_PORTAL_BASE_URL || 'http://localhost:5173';
 
 function truthyEnv(val, def = false) {
@@ -74,21 +74,29 @@ function buildStatusMessage(order, prevStatus) {
   const oldStatus = formatStatus(prevStatus);
   const lines = [];
   lines.push(`*${title}*`);
-  lines.push(`Order ${code}: ${oldStatus} → ${newStatus}`);
-  if (order?.status === 'ready') {
-    lines.push('Your order is ready. Please pick it up or wait to be served.');
+  // Professional, customer-friendly copy per status
+  if (order?.status === 'confirmed') {
+    lines.push(`👍 Great news! Your order ${code} has been confirmed.`);
+    lines.push(`We’ll start preparing your meal right away. 🍴`);
   } else if (order?.status === 'preparing') {
-    lines.push('We started preparing your order.');
-  } else if (order?.status === 'confirmed') {
-    lines.push('Your order has been confirmed.');
+    lines.push(`👨‍🍳 Your order ${code} is now being prepared by our chefs.`);
+    lines.push(`It’ll be ready to serve soon. ⏳`);
+  } else if (order?.status === 'ready') {
+    lines.push(`🔥 Your order ${code} is ready!`);
+    lines.push(`You can now pick it up at the counter or wait to be served at your table. 🍽️`);
   } else if (order?.status === 'delivered') {
-    lines.push('Enjoy your meal!');
+    lines.push(`🥳 Your order ${code} has been delivered.`);
+    lines.push(`Enjoy your delicious meal, and thank you for dining with ${title}! 💚`);
+    lines.push(`We’d love to hear your feedback after your meal. 🙏`);
   } else if (order?.status === 'cancelled') {
-    lines.push('This order has been cancelled.');
+    lines.push(`This order has been cancelled.`);
+  } else {
+    // Fallback status update format (keeps old->new context if we don't have a tailored message)
+    lines.push(`Order ${code}: ${oldStatus} → ${newStatus}`);
   }
   // Provide a generic portal link (no token) so the customer knows where to check
   if (CUSTOMER_PORTAL_BASE_URL) {
-    lines.push(`Track updates here: ${CUSTOMER_PORTAL_BASE_URL}`);
+    lines.push(`Track your order here: ${CUSTOMER_PORTAL_BASE_URL}`);
   }
   return lines.join('\n');
 }
@@ -147,10 +155,10 @@ module.exports = {
       const code = order?.orderId || String(order?._id || '').slice(-6);
       const lines = [];
       lines.push(`*${title}*`);
-      lines.push(`Order ${code} placed successfully.`);
-      lines.push('We will confirm and start preparing shortly.');
+      lines.push(`✅ Your order ${code} has been placed successfully!`);
+      lines.push(`Our team will review it shortly and get it confirmed. 🎉`);
       if (CUSTOMER_PORTAL_BASE_URL) {
-        lines.push(`Track updates here: ${CUSTOMER_PORTAL_BASE_URL}`);
+        lines.push(`Track your order here: ${CUSTOMER_PORTAL_BASE_URL}`);
       }
       const body = lines.join('\n');
       const result = await sendWhatsAppText(to, body);
