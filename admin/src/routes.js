@@ -156,6 +156,7 @@ var routes = [
     component: <TableQRBatch />,
     layout: "/admin",
     roles: ["admin", "Branch_Manager"],
+    hidden: true, // Hide from sidebar
   },
   {
     path: "/tax-management",

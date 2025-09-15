@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   Container, 
   Row, 
@@ -27,13 +27,15 @@ const Login = () => {
   const [errors, setErrors] = useState({});
   const { login, loading, error, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from?.pathname || '/dashboard';
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard');
+      navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, from]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -80,7 +82,7 @@ const Login = () => {
     const result = await login(formData.email, formData.password);
     
     if (result.success) {
-      navigate('/dashboard');
+      navigate(from, { replace: true });
     }
   };
 

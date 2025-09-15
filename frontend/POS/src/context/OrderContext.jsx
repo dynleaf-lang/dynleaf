@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { getApiBase } from '../utils/apiBase';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
 import toast from '../utils/notify';
@@ -25,7 +26,7 @@ export const OrderProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   // API base URL
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
+  const API_BASE_URL = getApiBase();
 
   // Fetch orders when user is authenticated
   useEffect(() => {
@@ -457,7 +458,7 @@ export const OrderProvider = ({ children }) => {
     };
   };
 
-  const value = {
+  const value = useMemo(() => ({
     // State
     orders,
     loading,
@@ -468,8 +469,8 @@ export const OrderProvider = ({ children }) => {
     createOrder,
     updateOrderStatus,
     updatePaymentStatus,
-  moveOrderToTable,
-  moveOrdersToTable,
+    moveOrderToTable,
+    moveOrdersToTable,
 
     // Helpers
     getOrderById,
@@ -482,7 +483,7 @@ export const OrderProvider = ({ children }) => {
     
     // Refresh function for manual refresh
     refreshOrders: fetchOrders
-  };
+  }), [orders, loading, error]);
 
   return (
     <OrderContext.Provider value={value}>

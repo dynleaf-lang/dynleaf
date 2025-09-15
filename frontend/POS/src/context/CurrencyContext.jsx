@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { getCurrencyConfig, formatCurrency as formatCurrencyUtil } from '../utils/currencyUtils';
 import axios from 'axios';
+import { getApiBase } from '../utils/apiBase';
 
 const CurrencyContext = createContext();
 
@@ -19,7 +20,7 @@ export const CurrencyProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api`;
+  const API_BASE_URL = getApiBase();
 
   // Fetch branch/restaurant country information
   useEffect(() => {
@@ -151,7 +152,7 @@ export const CurrencyProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     currencyConfig,
     loading,
     error,
@@ -160,12 +161,11 @@ export const CurrencyProvider = ({ children }) => {
     getCurrencyCode,
     getLocale,
     refreshCurrency,
-    
     // Additional utility functions
     isLoading: loading,
     hasError: !!error,
     isReady: !loading && !error && currencyConfig
-  };
+  }), [currencyConfig, loading, error]);
 
   return (
     <CurrencyContext.Provider value={value}>

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import { getApiBase } from '../utils/apiBase';
 import { useAuth } from './AuthContext';
 import toast from '../utils/notify';
 
@@ -26,7 +27,7 @@ export const POSProvider = ({ children }) => {
   const [restaurant, setRestaurant] = useState(null);
 
   // API base URL
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
+  const API_BASE_URL = getApiBase();
 
   // Fetch data when user is authenticated
   useEffect(() => {
@@ -246,16 +247,16 @@ export const POSProvider = ({ children }) => {
     }
   };
 
-  const selectTable = (table) => {
+  const selectTable = useCallback((table) => {
     setSelectedTable(table);
-  };
+  }, []);
 
-  const clearSelectedTable = () => {
+  const clearSelectedTable = useCallback(() => {
     setSelectedTable(null);
-  };
+  }, []);
 
   // Get menu items by category (including subcategories)
-  const getMenuItemsByCategory = (categoryId) => {
+  const getMenuItemsByCategory = useCallback((categoryId) => {
     if (!categoryId || categoryId === 'all') {
       return menuItems;
     }
@@ -275,10 +276,10 @@ export const POSProvider = ({ children }) => {
       
       return categoryIds.includes(itemCategoryId);
     });
-  };
+  }, [menuItems, categories]);
 
   // Helper function to get category and all its children IDs
-  const getCategoryWithChildren = (categoryId) => {
+  const getCategoryWithChildren = useCallback((categoryId) => {
     const categoryIds = [categoryId];
     
     // Find all child categories recursively
@@ -297,17 +298,13 @@ export const POSProvider = ({ children }) => {
     
     findChildren(categoryId);
     return categoryIds;
-  };
+  }, [categories]);
 
   // Get available tables (not occupied)
-  const getAvailableTables = () => {
-    return tables.filter(table => table.status !== 'occupied');
-  };
+  const getAvailableTables = useCallback(() => tables.filter(table => table.status !== 'occupied'), [tables]);
 
   // Get occupied tables
-  const getOccupiedTables = () => {
-    return tables.filter(table => table.status === 'occupied');
-  };
+  const getOccupiedTables = useCallback(() => tables.filter(table => table.status === 'occupied'), [tables]);
 
   // Search menu items
   const searchMenuItems = (query) => {
@@ -321,9 +318,7 @@ export const POSProvider = ({ children }) => {
   };
 
   // Get table by ID
-  const getTableById = (tableId) => {
-    return tables.find(table => table._id === tableId);
-  };
+  const getTableById = useCallback((tableId) => tables.find(table => table._id === tableId), [tables]);
 
   // Refresh all data
   const refreshData = async () => {
@@ -348,7 +343,7 @@ export const POSProvider = ({ children }) => {
     return { status, currentQty, unit: match.unit, item: match };
   };
 
-  const value = {
+  const value = useMemo(() => ({
     // State
     tables,
     categories,
@@ -389,7 +384,7 @@ export const POSProvider = ({ children }) => {
   getInventoryStatusForMenuItem,
   restaurant,
   fetchRestaurantInfo
-  };
+  }), [tables, categories, menuItems, inventoryItems, floors, selectedTable, loading, error, findCustomerByPhone, createCustomerIfNeeded, getTableReservations, createReservation, updateReservation, cancelReservation, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, updateTableStatus, selectTable, clearSelectedTable, refreshData, getMenuItemsByCategory, getCategoryWithChildren, getAvailableTables, getOccupiedTables, searchMenuItems, getTableById, getInventoryStatusForMenuItem, restaurant, fetchRestaurantInfo]);
 
   return (
     <POSContext.Provider value={value}>
