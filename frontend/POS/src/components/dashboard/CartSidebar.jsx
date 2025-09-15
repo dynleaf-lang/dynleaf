@@ -258,17 +258,14 @@ const CartSidebar = () => {
     return () => handlers.forEach(([type, fn, cap]) => el.removeEventListener(type, fn, { capture: cap }));
   }, [notesInputRef.current]);
 
-  // Dynamic currency formatting function
-  const formatPrice = (price) => {
-    if (currencyReady && formatCurrencyDynamic) {
-      return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
-    }
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0
-    }).format(price || 0);
-  };
+  // Dynamic currency formatting (memoized)
+  const nf = useMemo(() => {
+    if (!currencyReady || !formatCurrencyDynamic) return null;
+    // Wrap provided formatter in a stable shim for consistent API
+    return (v) => formatCurrencyDynamic(v, { minimumFractionDigits: 0 });
+  }, [currencyReady, formatCurrencyDynamic]);
+  const fallbackNf = useMemo(() => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }), []);
+  const formatPrice = (price) => (nf ? nf(price || 0) : fallbackNf.format(price || 0));
 
   // Get batches for the currently selected table from localStorage
   // Tries multiple identifiers to handle cases where orders are keyed by table code (e.g., "T0653")
@@ -342,7 +339,16 @@ const CartSidebar = () => {
   // Force refresh of batches when real-time events arrive (must be before useMemo uses it)
   const [batchesTick, setBatchesTick] = useState(0);
   useEffect(() => {
-    const bump = () => setBatchesTick((t) => t + 1);
+    // Throttle to one state update per animation frame
+    let rafId = null;
+    const schedule = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        setBatchesTick((t) => t + 1);
+      });
+    };
+    const bump = () => schedule();
     window.addEventListener('newOrder', bump);
     window.addEventListener('orderUpdate', bump);
     window.addEventListener('orderStatusUpdate', bump);
@@ -356,6 +362,7 @@ const CartSidebar = () => {
       window.removeEventListener('paymentStatusUpdate', bump);
       window.removeEventListener('tableStatusUpdate', bump);
       window.removeEventListener('batchesUpdated', bump);
+      if (rafId != null) window.cancelAnimationFrame(rafId);
     };
   }, []);
 

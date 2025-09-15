@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { getApiBase } from '../utils/apiBase';
 import { useAuth } from './AuthContext';
@@ -168,7 +168,7 @@ export const OrderProvider = ({ children }) => {
     };
   }, []);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -186,9 +186,9 @@ export const OrderProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_BASE_URL, user?.branchId]);
 
-  const createOrder = async (orderData, options = {}) => {
+  const createOrder = useCallback(async (orderData, options = {}) => {
     try {
       setLoading(true);
       setError(null);
@@ -240,7 +240,7 @@ export const OrderProvider = ({ children }) => {
       
       // Refresh orders to ensure persistence
       setTimeout(() => {
-        fetchOrders();
+    fetchOrders();
       }, 1000);
       
       return { success: true, order: createdOrder };
@@ -264,9 +264,9 @@ export const OrderProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_BASE_URL, isOpen, refreshSession, user?.branchId, user?.restaurantId, user?._id, user?.name, currentSession?._id, emitNewOrder, fetchOrders]);
 
-  const updateOrderStatus = async (orderId, status) => {
+  const updateOrderStatus = useCallback(async (orderId, status) => {
     try {
       const response = await axios.patch(`${API_BASE_URL}/public/orders/${orderId}/status`, { status });
       
@@ -292,9 +292,9 @@ export const OrderProvider = ({ children }) => {
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
-  };
+  }, [API_BASE_URL, emitOrderStatusUpdate, user?.name]);
 
-  const updatePaymentStatus = async (orderId, paymentStatus, paymentMethod = null) => {
+  const updatePaymentStatus = useCallback(async (orderId, paymentStatus, paymentMethod = null) => {
     const updateData = { paymentStatus };
     if (paymentMethod) updateData.paymentMethod = paymentMethod;
 
@@ -342,9 +342,9 @@ export const OrderProvider = ({ children }) => {
       toast.error(errorMessage);
       return { success: false, error: errorMessage };
     }
-  };
+  }, [API_BASE_URL, emitPaymentStatusUpdate, user?.name]);
 
-  const updateOrderInState = (orderId, updates) => {
+  const updateOrderInState = useCallback((orderId, updates) => {
     setOrders(prevOrders =>
       prevOrders.map(order =>
         order._id === orderId
@@ -352,10 +352,10 @@ export const OrderProvider = ({ children }) => {
           : order
       )
     );
-  };
+  }, []);
 
   // Move a single order (KOT/placed) to another table
-  const moveOrderToTable = async (orderId, newTableId) => {
+  const moveOrderToTable = useCallback(async (orderId, newTableId) => {
     try {
       // Try a dedicated endpoint if supported
       try {
@@ -377,10 +377,10 @@ export const OrderProvider = ({ children }) => {
       toast.error(msg);
       return { success: false, error: msg };
     }
-  };
+  }, [API_BASE_URL, updateOrderInState]);
 
   // Move multiple orders to another table
-  const moveOrdersToTable = async (orderIds = [], newTableId) => {
+  const moveOrdersToTable = useCallback(async (orderIds = [], newTableId) => {
     const results = [];
     for (const id of orderIds) {
       // eslint-disable-next-line no-await-in-loop
@@ -388,13 +388,13 @@ export const OrderProvider = ({ children }) => {
       results.push({ id, ...res });
     }
     return results;
-  };
+  }, [moveOrderToTable]);
 
-  const getOrderById = (orderId) => {
+  const getOrderById = useCallback((orderId) => {
     return orders.find(order => order._id === orderId);
-  };
+  }, [orders]);
 
-  const getOrdersByTable = (tableId) => {
+  const getOrdersByTable = useCallback((tableId) => {
     try {
       const targetId = typeof tableId === 'object' && tableId !== null
         ? (tableId._id || tableId.id || tableId.tableId || '')
@@ -418,33 +418,24 @@ export const OrderProvider = ({ children }) => {
     } catch (_) {
       return [];
     }
-  };
+  }, [orders]);
 
-  const getOrdersByStatus = (status) => {
-    return orders.filter(order => order.status === status);
-  };
+  const getOrdersByStatus = useCallback((status) => orders.filter(order => order.status === status), [orders]);
 
-  const getOrdersByPaymentStatus = (paymentStatus) => {
-    return orders.filter(order => order.paymentStatus === paymentStatus);
-  };
+  const getOrdersByPaymentStatus = useCallback((paymentStatus) => orders.filter(order => order.paymentStatus === paymentStatus), [orders]);
 
-  const getTodaysOrders = () => {
+  const todaysOrders = useMemo(() => {
     const today = new Date().toDateString();
-    return orders.filter(order => 
-      new Date(order.createdAt).toDateString() === today
-    );
-  };
+    return orders.filter(order => new Date(order.createdAt).toDateString() === today);
+  }, [orders]);
 
-  const getTodaysRevenue = () => {
-    const todaysOrders = getTodaysOrders();
+  const todaysRevenue = useMemo(() => {
     return todaysOrders
       .filter(order => order.paymentStatus === 'paid')
       .reduce((total, order) => total + (order.totalAmount || 0), 0);
-  };
+  }, [todaysOrders]);
 
-  const getOrderStats = () => {
-    const todaysOrders = getTodaysOrders();
-    
+  const orderStats = useMemo(() => {
     return {
       total: todaysOrders.length,
       pending: todaysOrders.filter(o => o.status === 'pending').length,
@@ -454,9 +445,9 @@ export const OrderProvider = ({ children }) => {
       delivered: todaysOrders.filter(o => o.status === 'delivered').length,
       paid: todaysOrders.filter(o => o.paymentStatus === 'paid').length,
       unpaid: todaysOrders.filter(o => o.paymentStatus === 'unpaid').length,
-      revenue: getTodaysRevenue()
+      revenue: todaysRevenue
     };
-  };
+  }, [todaysOrders, todaysRevenue]);
 
   const value = useMemo(() => ({
     // State
@@ -477,13 +468,18 @@ export const OrderProvider = ({ children }) => {
     getOrdersByTable,
     getOrdersByStatus,
     getOrdersByPaymentStatus,
-    getTodaysOrders,
-    getTodaysRevenue,
-    getOrderStats,
+    getTodaysOrders: () => todaysOrders,
+    getTodaysRevenue: () => todaysRevenue,
+    getOrderStats: () => orderStats,
     
     // Refresh function for manual refresh
     refreshOrders: fetchOrders
-  }), [orders, loading, error]);
+  }), [
+    orders, loading, error,
+    fetchOrders, createOrder, updateOrderStatus, updatePaymentStatus, moveOrderToTable, moveOrdersToTable,
+    getOrderById, getOrdersByTable, getOrdersByStatus, getOrdersByPaymentStatus,
+    todaysOrders, todaysRevenue, orderStats
+  ]);
 
   return (
     <OrderContext.Provider value={value}>

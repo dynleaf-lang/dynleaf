@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import toast from '../utils/notify';
 import { useShift } from './ShiftContext';
 import playPosSound from '../utils/sound';
@@ -120,7 +120,7 @@ export const CartProvider = ({ children }) => {
 
   const stableStringify = (obj) => JSON.stringify(normalizeForIdentity(obj));
 
-  const addToCart = (menuItem, quantity = 1, customizations = {}) => {
+  const addToCart = useCallback((menuItem, quantity = 1, customizations = {}) => {
     if (!isOpen) {
       toast.error('Register is closed. Please open a session to start selling.');
       try { refreshSession(); } catch { /* noop */ }
@@ -224,18 +224,18 @@ export const CartProvider = ({ children }) => {
     });
 
   playPosSound('success');
-  };
+  }, [isOpen, refreshSession]);
 
-  const removeFromCart = (cartItemId) => {
+  const removeFromCart = useCallback((cartItemId) => {
     setCartItems(prevItems => {
   // play a subtle sound on remove
   const item = prevItems.find(item => item.cartItemId === cartItemId);
   if (item) playPosSound('info');
       return prevItems.filter(item => item.cartItemId !== cartItemId);
     });
-  };
+  }, []);
 
-  const updateQuantity = (cartItemId, newQuantity) => {
+  const updateQuantity = useCallback((cartItemId, newQuantity) => {
     if (newQuantity <= 0) {
       removeFromCart(cartItemId);
       return;
@@ -254,9 +254,9 @@ export const CartProvider = ({ children }) => {
         item.cartItemId === cartItemId ? { ...item, quantity: newQuantity } : item
       );
     });
-  };
+  }, [isOpen, refreshSession, removeFromCart]);
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setCartItems([]);
     setCustomerInfo({
       name: '',
@@ -268,18 +268,18 @@ export const CartProvider = ({ children }) => {
     localStorage.removeItem('pos_cart');
     localStorage.removeItem('pos_customer');
   playPosSound('info');
-  };
+  }, []);
 
-  const updateCustomerInfo = (info) => {
+  const updateCustomerInfo = useCallback((info) => {
     setCustomerInfo(prevInfo => ({
       ...prevInfo,
       ...info
     }));
-  };
+  }, []);
 
   // Replace entire cart (used when switching tables to load per-table carts)
   // customerInfoOverride is optional; if provided, it replaces customer info; otherwise preserve existing
-  const replaceCart = (items, customerInfoOverride = null) => {
+  const replaceCart = useCallback((items, customerInfoOverride = null) => {
     try {
       setCartItems(Array.isArray(items) ? items : []);
       if (customerInfoOverride && typeof customerInfoOverride === 'object') {
@@ -288,27 +288,24 @@ export const CartProvider = ({ children }) => {
     } catch (e) {
       console.error('Error replacing cart:', e);
     }
-  };
+  }, []);
 
-  // Calculate totals
-  const getSubtotal = () => {
-    return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
-  };
+  // Calculate totals (memoized)
+  const subtotal = useMemo(() => (
+    (cartItems || []).reduce((total, item) => total + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0)
+  ), [cartItems]);
 
-  const getTax = (taxRate = 0.1) => {
-    return getSubtotal() * taxRate;
-  };
+  const itemCount = useMemo(() => (
+    (cartItems || []).reduce((total, item) => total + (Number(item.quantity) || 0), 0)
+  ), [cartItems]);
 
-  const getTotal = (taxRate = 0.1) => {
-    return getSubtotal() + getTax(taxRate);
-  };
-
-  const getItemCount = () => {
-    return cartItems.reduce((total, item) => total + item.quantity, 0);
-  };
+  const getSubtotal = useCallback(() => subtotal, [subtotal]);
+  const getTax = useCallback((taxRate = 0.1) => subtotal * taxRate, [subtotal]);
+  const getTotal = useCallback((taxRate = 0.1) => subtotal + (subtotal * taxRate), [subtotal]);
+  const getItemCount = useCallback(() => itemCount, [itemCount]);
 
   // Save current order for later
-  const saveOrder = (orderName) => {
+  const saveOrder = useCallback((orderName) => {
     if (cartItems.length === 0) {
       playPosSound('error');
       return;
@@ -327,26 +324,26 @@ export const CartProvider = ({ children }) => {
     setSavedOrders(prev => [...prev, savedOrder]);
     clearCart();
   playPosSound('success');
-  };
+  }, [cartItems, customerInfo, getSubtotal, getTotal, clearCart]);
 
   // Load a saved order
-  const loadSavedOrder = (orderId) => {
+  const loadSavedOrder = useCallback((orderId) => {
     const savedOrder = savedOrders.find(order => order.id === orderId);
     if (savedOrder) {
       setCartItems(savedOrder.items);
       setCustomerInfo(savedOrder.customerInfo);
   playPosSound('success');
     }
-  };
+  }, [savedOrders]);
 
   // Delete a saved order
-  const deleteSavedOrder = (orderId) => {
+  const deleteSavedOrder = useCallback((orderId) => {
     setSavedOrders(prev => prev.filter(order => order.id !== orderId));
-  playPosSound('info');
-  };
+    playPosSound('info');
+  }, []);
 
   // Update item customizations
-  const updateItemCustomizations = (cartItemId, customizations) => {
+  const updateItemCustomizations = useCallback((cartItemId, customizations) => {
     setCartItems(prevItems =>
       prevItems.map(item =>
         item.cartItemId === cartItemId
@@ -354,9 +351,9 @@ export const CartProvider = ({ children }) => {
           : item
       )
     );
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     // State
     cartItems,
     customerInfo,
@@ -385,7 +382,25 @@ export const CartProvider = ({ children }) => {
     // Helpers
     isEmpty: cartItems.length === 0,
     hasItems: cartItems.length > 0
-  };
+  }), [
+    cartItems,
+    customerInfo,
+    savedOrders,
+    addToCart,
+    removeFromCart,
+    updateQuantity,
+    clearCart,
+    updateCustomerInfo,
+    updateItemCustomizations,
+    replaceCart,
+    saveOrder,
+    loadSavedOrder,
+    deleteSavedOrder,
+    getSubtotal,
+    getTax,
+    getTotal,
+    getItemCount
+  ]);
 
   return (
     <CartContext.Provider value={value}>

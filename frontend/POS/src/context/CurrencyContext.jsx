@@ -84,13 +84,25 @@ export const CurrencyProvider = ({ children }) => {
     }
   };
 
+  // Memoize a default formatter for the active currency; override options build a one-off
+  const defaultFormatter = useMemo(() => {
+    if (!currencyConfig) return null;
+    try {
+      return new Intl.NumberFormat(currencyConfig.locale, {
+        style: 'currency',
+        currency: currencyConfig.currency,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      });
+    } catch (_) {
+      return null;
+    }
+  }, [currencyConfig?.locale, currencyConfig?.currency]);
+
   /**
    * Format currency amount using the current branch's currency settings
-   * @param {number} amount - Amount to format
-   * @param {Object} options - Formatting options
-   * @returns {string} Formatted currency string
    */
-  const formatCurrency = (amount, options = {}) => {
+  const formatCurrency = useCallback((amount, options = {}) => {
     if (!currencyConfig) {
       return `$${Number(amount || 0).toFixed(0)}`;
     }
@@ -106,51 +118,51 @@ export const CurrencyProvider = ({ children }) => {
         return `${currencyConfig.symbol}${Number(amount || 0).toFixed(minimumFractionDigits)}`;
       }
 
-      return new Intl.NumberFormat(currencyConfig.locale, {
+      // Use default memoized formatter when options match defaults
+      if (minimumFractionDigits === 0 && maximumFractionDigits === 2 && defaultFormatter) {
+        return defaultFormatter.format(amount || 0);
+      }
+
+      // Fallback to ad-hoc formatter when custom options are requested
+      const fmt = new Intl.NumberFormat(currencyConfig.locale, {
         style: 'currency',
         currency: currencyConfig.currency,
         minimumFractionDigits,
         maximumFractionDigits
-      }).format(amount || 0);
-
+      });
+      return fmt.format(amount || 0);
     } catch (error) {
       console.error('Error formatting currency:', error);
       return `${currencyConfig.symbol}${Number(amount || 0).toFixed(0)}`;
     }
-  };
+  }, [currencyConfig, defaultFormatter]);
 
   /**
    * Get the currency symbol for the current branch
    * @returns {string} Currency symbol
    */
-  const getCurrencySymbol = () => {
-    return currencyConfig?.symbol || '$';
-  };
+  const getCurrencySymbol = useCallback(() => currencyConfig?.symbol || '$', [currencyConfig?.symbol]);
 
   /**
    * Get the currency code for the current branch
    * @returns {string} Currency code (e.g., 'USD', 'EUR', 'INR')
    */
-  const getCurrencyCode = () => {
-    return currencyConfig?.currency || 'USD';
-  };
+  const getCurrencyCode = useCallback(() => currencyConfig?.currency || 'USD', [currencyConfig?.currency]);
 
   /**
    * Get the locale for the current branch
    * @returns {string} Locale string
    */
-  const getLocale = () => {
-    return currencyConfig?.locale || 'en-US';
-  };
+  const getLocale = useCallback(() => currencyConfig?.locale || 'en-US', [currencyConfig?.locale]);
 
   /**
    * Refresh currency configuration (useful when branch changes)
    */
-  const refreshCurrency = () => {
+  const refreshCurrency = useCallback(() => {
     if (user?.branchId || user?.restaurantId) {
       fetchBranchCountry();
     }
-  };
+  }, [user?.branchId, user?.restaurantId]);
 
   const value = useMemo(() => ({
     currencyConfig,
@@ -165,7 +177,7 @@ export const CurrencyProvider = ({ children }) => {
     isLoading: loading,
     hasError: !!error,
     isReady: !loading && !error && currencyConfig
-  }), [currencyConfig, loading, error]);
+  }), [currencyConfig, loading, error, formatCurrency, getCurrencySymbol, getCurrencyCode, getLocale, refreshCurrency]);
 
   return (
     <CurrencyContext.Provider value={value}>

@@ -29,19 +29,7 @@ export const POSProvider = ({ children }) => {
   // API base URL
   const API_BASE_URL = getApiBase();
 
-  // Fetch data when user is authenticated
-  useEffect(() => {
-    if (user?.branchId) {
-      fetchTables();
-      fetchCategories();
-      fetchMenuItems();
-      fetchFloors();
-      fetchInventory();
-    }
-    if (user?.restaurantId) {
-      fetchRestaurantInfo();
-    }
-  }, [user]);
+  // Fetch data when user is authenticated (effect moved below function declarations to avoid TDZ)
 
   // Real-time: update a single table on tableStatusUpdate socket event
   useEffect(() => {
@@ -65,7 +53,7 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('tableStatusUpdate', onTableStatus);
   }, []);
 
-  const fetchTables = async () => {
+  const fetchTables = useCallback(async () => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_BASE_URL}/public/tables/branch/${user.branchId}`);
@@ -77,10 +65,10 @@ export const POSProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_BASE_URL, user?.branchId]);
 
   // Customers API (search by phone and create)
-  const findCustomerByPhone = async (phone) => {
+  const findCustomerByPhone = useCallback(async (phone) => {
     try {
       const resp = await axios.get(`${API_BASE_URL}/customers`, { params: { search: phone } });
       const list = Array.isArray(resp.data) ? resp.data : [];
@@ -91,9 +79,9 @@ export const POSProvider = ({ children }) => {
       console.error('Error searching customer by phone:', error);
       return null;
     }
-  };
+  }, [API_BASE_URL]);
 
-  const createCustomerIfNeeded = async ({ name, phone }) => {
+  const createCustomerIfNeeded = useCallback(async ({ name, phone }) => {
     try {
       if (!name || !phone) return null;
       // ensure not existing
@@ -106,9 +94,9 @@ export const POSProvider = ({ children }) => {
       console.error('Error creating customer:', error);
       return null;
     }
-  };
+  }, [API_BASE_URL, findCustomerByPhone]);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/public/categories/restaurant/${user.restaurantId}`);
       setCategories(response.data.categories || []);
@@ -116,9 +104,9 @@ export const POSProvider = ({ children }) => {
       console.error('Error fetching categories:', error);
       toast.error('Failed to load categories');
     }
-  };
+  }, [API_BASE_URL, user?.restaurantId]);
 
-  const fetchMenuItems = async () => {
+  const fetchMenuItems = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/public/menus/restaurant/${user.restaurantId}`);
       setMenuItems(response.data.menus || []);
@@ -126,18 +114,18 @@ export const POSProvider = ({ children }) => {
       console.error('Error fetching menu items:', error);
       toast.error('Failed to load menu items');
     }
-  };
+  }, [API_BASE_URL, user?.restaurantId]);
 
-  const fetchFloors = async () => {
+  const fetchFloors = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/public/floors/restaurant/${user.restaurantId}`);
       setFloors(response.data || []);
     } catch (error) {
       console.error('Error fetching floors:', error);
     }
-  };
+  }, [API_BASE_URL, user?.restaurantId]);
 
-  const fetchInventory = async () => {
+  const fetchInventory = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       if (user?.branchId) params.append('branchId', user.branchId);
@@ -148,9 +136,11 @@ export const POSProvider = ({ children }) => {
       console.error('Error fetching inventory:', error);
       // Silent fail for POS; inventory is optional
     }
-  };
+  }, [API_BASE_URL, user?.branchId, user?.restaurantId]);
 
-  const fetchRestaurantInfo = async () => {
+  // (moved below fetchRestaurantInfo)
+
+  const fetchRestaurantInfo = useCallback(async () => {
     try {
       if (!user?.restaurantId) return;
       const resp = await axios.get(`${API_BASE_URL}/public/restaurants/${user.restaurantId}`);
@@ -159,10 +149,32 @@ export const POSProvider = ({ children }) => {
     } catch (error) {
       console.error('Error fetching restaurant info:', error);
     }
-  };
+  }, [API_BASE_URL, user?.restaurantId]);
+
+  // Fetch data when user is authenticated (placed after fetchRestaurantInfo)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (user?.branchId) {
+          await Promise.all([
+            fetchTables(),
+            fetchCategories(),
+            fetchMenuItems(),
+            fetchFloors(),
+            fetchInventory()
+          ]);
+        }
+        if (user?.restaurantId) {
+          await fetchRestaurantInfo();
+        }
+      } catch (_) {
+        // individual fetchers handle their own toasts/errors
+      }
+    })();
+  }, [user, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, fetchRestaurantInfo]);
 
   // Reservations API (secured)
-  const getTableReservations = async (tableId, params = {}) => {
+  const getTableReservations = useCallback(async (tableId, params = {}) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/tables/${tableId}/reservations`, { params });
       return response.data?.data || [];
@@ -171,9 +183,9 @@ export const POSProvider = ({ children }) => {
       toast.error('Failed to load reservations');
       throw error;
     }
-  };
+  }, [API_BASE_URL]);
 
-  const createReservation = async (tableId, payload) => {
+  const createReservation = useCallback(async (tableId, payload) => {
     try {
       const response = await axios.post(`${API_BASE_URL}/tables/${tableId}/reservations`, payload);
       // Refresh tables so UI gets updated reservations/status
@@ -186,9 +198,9 @@ export const POSProvider = ({ children }) => {
       toast.error(msg);
       throw error;
     }
-  };
+  }, [API_BASE_URL, fetchTables]);
 
-  const updateReservation = async (tableId, reservationId, payload) => {
+  const updateReservation = useCallback(async (tableId, reservationId, payload) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/tables/${tableId}/reservations/${reservationId}`, payload);
       await fetchTables();
@@ -199,9 +211,9 @@ export const POSProvider = ({ children }) => {
       toast.error(msg);
       throw error;
     }
-  };
+  }, [API_BASE_URL, fetchTables]);
 
-  const cancelReservation = async (tableId, reservationId) => {
+  const cancelReservation = useCallback(async (tableId, reservationId) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/tables/${tableId}/reservations/${reservationId}/cancel`);
       await fetchTables();
@@ -213,9 +225,9 @@ export const POSProvider = ({ children }) => {
       toast.error(msg);
       throw error;
     }
-  };
+  }, [API_BASE_URL, fetchTables]);
 
-  const updateTableStatus = async (tableId, status, orderData = null) => {
+  const updateTableStatus = useCallback(async (tableId, status, orderData = null) => {
     try {
       // Map UI statuses to backend-compatible values
       const mapForServer = (s) => {
@@ -245,7 +257,7 @@ export const POSProvider = ({ children }) => {
       toast.error('Failed to update table status');
       throw error;
     }
-  };
+  }, [API_BASE_URL]);
 
   const selectTable = useCallback((table) => {
     setSelectedTable(table);
@@ -307,7 +319,7 @@ export const POSProvider = ({ children }) => {
   const getOccupiedTables = useCallback(() => tables.filter(table => table.status === 'occupied'), [tables]);
 
   // Search menu items
-  const searchMenuItems = (query) => {
+  const searchMenuItems = useCallback((query) => {
     if (!query.trim()) return menuItems;
     
     const lowercaseQuery = query.toLowerCase();
@@ -315,13 +327,13 @@ export const POSProvider = ({ children }) => {
       item.name.toLowerCase().includes(lowercaseQuery) ||
       item.description?.toLowerCase().includes(lowercaseQuery)
     );
-  };
+  }, [menuItems]);
 
   // Get table by ID
   const getTableById = useCallback((tableId) => tables.find(table => table._id === tableId), [tables]);
 
   // Refresh all data
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     await Promise.all([
       fetchTables(),
       fetchCategories(),
@@ -329,7 +341,7 @@ export const POSProvider = ({ children }) => {
       fetchFloors(),
       fetchInventory()
     ]);
-  };
+  }, [fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory]);
 
   // Map inventory by linked menu item id for quick lookup
   const getInventoryStatusForMenuItem = (menuItemId) => {
