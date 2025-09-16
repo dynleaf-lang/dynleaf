@@ -61,17 +61,13 @@ const MenuSelection = () => {
   const { addToCart } = useCart();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
-  // Dynamic currency formatting function
-  const formatPrice = (price) => {
-    if (currencyReady && formatCurrencyDynamic) {
-      return formatCurrencyDynamic(price, { minimumFractionDigits: 0 });
-    }
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0
-    }).format(price || 0);
-  };
+  // Dynamic currency formatting (memoized)
+  const nf = useMemo(() => {
+    if (!currencyReady || !formatCurrencyDynamic) return null;
+    return (v) => formatCurrencyDynamic(v, { minimumFractionDigits: 0 });
+  }, [currencyReady, formatCurrencyDynamic]);
+  const fallbackNf = useMemo(() => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }), []);
+  const formatPrice = (price) => (nf ? nf(price || 0) : fallbackNf.format(price || 0));
   
   const [selectedCategory, setSelectedCategory] = useState('featured');
   const [searchTerm, setSearchTerm] = useState('');

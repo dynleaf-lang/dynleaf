@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import toast from '../utils/notify';
 import { useAuth } from './AuthContext';
@@ -151,8 +151,10 @@ export const ShiftProvider = ({ children }) => {
 
   const isOpen = !!(currentSession && currentSession.status !== 'closed');
 
+  const value = useMemo(() => ({ currentSession, isOpen, loading, error, refresh, openSession, closeSession, lastSummary, closeDetails }), [currentSession, isOpen, loading, error, refresh, openSession, closeSession, lastSummary, closeDetails]);
+
   return (
-    <ShiftContext.Provider value={{ currentSession, isOpen, loading, error, refresh, openSession, closeSession, lastSummary, closeDetails }}>
+    <ShiftContext.Provider value={value}>
       {children}
     </ShiftContext.Provider>
   );

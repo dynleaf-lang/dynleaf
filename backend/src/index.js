@@ -56,41 +56,64 @@ app.use(cors({
 const { seedDefaultTaxes } = require('./models/Tax');
 const ensureDefaultTax = require('./utils/ensureDefaultTax');
 
-// Connect to MongoDB with updated options
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/food-menu';
-console.log(`[DEBUG] Connecting to MongoDB: ${MONGODB_URI.replace(/:([^:@]{4}).*@/, ':****@')}`);
+// Connect to MongoDB with updated options and a development fallback
+const PRIMARY_MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/food-menu';
+const LOCAL_FALLBACK_URI = 'mongodb://127.0.0.1:27017/food-menu';
 
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s
-  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
-})
-.then(() => {
-  console.log('[DEBUG] MongoDB connected successfully');
-  
-  // Now that the database is connected, seed the tax data
-  seedDefaultTaxes().then(() => {
+const connectWithFallback = async () => {
+  const opts = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  };
+
+  const safe = (uri) => uri.replace(/:\/\/([^:@]+):([^@]+)@/, '://$1:****@');
+  console.log(`[DEBUG] Connecting to MongoDB: ${safe(PRIMARY_MONGODB_URI)}`);
+
+  try {
+    await mongoose.connect(PRIMARY_MONGODB_URI, opts);
+    console.log('[DEBUG] MongoDB connected successfully');
+  } catch (err) {
+    console.error('[DEBUG] MongoDB connection error:', err?.message || err);
+    console.error('[DEBUG] MongoDB connection error details:', {
+      name: err.name,
+      code: err.code,
+      codeName: err.codeName,
+      message: err.message,
+    });
+
+    const isDnsIssue = /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(err?.message || '') || err?.code === 'ENOTFOUND';
+    const isProd = process.env.NODE_ENV === 'production';
+
+    // In development, try local fallback for DNS issues
+    if (!isProd && isDnsIssue) {
+      console.warn(`[DEBUG] DNS issue detected. Attempting local MongoDB fallback: ${LOCAL_FALLBACK_URI}`);
+      try {
+        await mongoose.connect(LOCAL_FALLBACK_URI, opts);
+        console.log('[DEBUG] Connected to local MongoDB fallback successfully');
+      } catch (fallbackErr) {
+        console.error('[DEBUG] Local MongoDB fallback connection failed:', fallbackErr?.message || fallbackErr);
+        process.exit(1);
+      }
+    } else {
+      process.exit(1);
+    }
+  }
+
+  // After successful connection (primary or fallback), run tax initialization
+  try {
+    await seedDefaultTaxes();
     console.log('Tax seeding process completed');
-    
-    // Ensure DEFAULT tax exists
-    return ensureDefaultTax();
-  }).then(() => {
+    await ensureDefaultTax();
     console.log('DEFAULT tax verification completed');
-  }).catch(err => {
-    console.error('Error during tax initialization:', err);
-  });
-})
-.catch(err => {
-  console.error('[DEBUG] MongoDB connection error:', err);
-  console.error('[DEBUG] MongoDB connection error details:', {
-    name: err.name,
-    code: err.code,
-    codeName: err.codeName,
-    message: err.message
-  });
-  process.exit(1);
-});
+  } catch (initErr) {
+    console.error('Error during tax initialization:', initErr);
+  }
+};
+
+// Kick off DB connection (async, but we don't block server startup)
+connectWithFallback();
 
 // Configure Mongoose to use global schema registration
 mongoose.set('strictQuery', false);

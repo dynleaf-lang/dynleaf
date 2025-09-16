@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   Row, 
   Col, 
@@ -571,15 +571,23 @@ const TableSelection = () => {
     }
   };
 
+  // Precompute floors map for O(1) name lookup and stable identity
+  const floorsById = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(floors)) {
+      floors.forEach(f => map.set(f._id, f.name));
+    }
+    return map;
+  }, [floors]);
+
   // Helper function to get floor name by ObjectId
-  const getFloorName = (floorId) => {
-    if (!floorId || !floors.length) return 'Unassigned Floor';
-    const floor = floors.find(f => f._id === floorId);
-    return floor ? floor.name : 'Unassigned Floor';
-  };
+  const getFloorName = useCallback((floorId) => {
+    if (!floorId) return 'Unassigned Floor';
+    return floorsById.get(floorId) || 'Unassigned Floor';
+  }, [floorsById]);
 
   // Helpers for quick filters
-  const tableHasPrinted = (tableId) => {
+  const tableHasPrinted = useCallback((tableId) => {
     try {
   // If table is currently available, do not highlight as printed
   const t = tables.find(x => x._id === tableId);
@@ -591,64 +599,70 @@ const TableSelection = () => {
     } catch (_) {
   return !!printedTables?.[tableId];
     }
-  };
+  }, [tables, getOrdersByTable, printedTables]);
 
-  const tableHasActiveKOT = (tableId) => {
+  const tableHasActiveKOT = useCallback((tableId) => {
     try {
       const orders = getOrdersByTable(tableId) || [];
       return orders.some(o => ['pending','confirmed','preparing','ready'].includes(o?.status));
     } catch (_) {
       return false;
     }
-  };
+  }, [getOrdersByTable]);
 
   // Filter tables based on search, status, floor, and quick filters
-  const filteredTables = tables.filter(table => {
-    const tableName = table.TableName || table.name || '';
-    const floorName = getFloorName(table.location?.floor);
-    const searchLower = searchTerm.toLowerCase();
-    
-    const matchesSearch = tableName.toLowerCase().includes(searchLower) ||
-                         floorName.toLowerCase().includes(searchLower);
-    
-    const matchesStatus = statusFilter === 'all' || table.status === statusFilter;
-    
-    // For floor filtering, use actual floor ObjectId
-    const matchesFloor = selectedFloor === 'all' || table.location?.floor === selectedFloor;
+  const filteredTables = useMemo(() => {
+    const searchLower = (searchTerm || '').toLowerCase();
+    const list = Array.isArray(tables) ? tables : [];
+    return list.filter(table => {
+      const tableName = table.TableName || table.name || '';
+      const floorName = getFloorName(table.location?.floor);
 
-    // Quick filter logic
-    let matchesQuick = true;
-    if (quickFilter === 'running') {
-      matchesQuick = table.status === 'occupied' || tableHasActiveKOT(table._id);
-    } else if (quickFilter === 'printed') {
-      matchesQuick = tableHasPrinted(table._id);
-    } else if (quickFilter === 'kot') {
-      matchesQuick = tableHasActiveKOT(table._id);
-    }
-    
-    return matchesSearch && matchesStatus && matchesFloor && matchesQuick;
-  });
+      const matchesSearch = tableName.toLowerCase().includes(searchLower) ||
+                           floorName.toLowerCase().includes(searchLower);
+
+      const matchesStatus = statusFilter === 'all' || table.status === statusFilter;
+
+      // For floor filtering, use actual floor ObjectId
+      const matchesFloor = selectedFloor === 'all' || table.location?.floor === selectedFloor;
+
+      // Quick filter logic
+      let matchesQuick = true;
+      if (quickFilter === 'running') {
+        matchesQuick = table.status === 'occupied' || tableHasActiveKOT(table._id);
+      } else if (quickFilter === 'printed') {
+        matchesQuick = tableHasPrinted(table._id);
+      } else if (quickFilter === 'kot') {
+        matchesQuick = tableHasActiveKOT(table._id);
+      }
+
+      return matchesSearch && matchesStatus && matchesFloor && matchesQuick;
+    });
+  }, [tables, searchTerm, statusFilter, selectedFloor, quickFilter, getFloorName, tableHasActiveKOT, tableHasPrinted]);
 
   // Group tables by actual floor (using ObjectId reference)
-  const groupedTables = {};
-  filteredTables.forEach(table => {
-    const floorId = table.location?.floor;
-    const floorName = getFloorName(floorId);
-    
-    if (!groupedTables[floorName]) {
-      groupedTables[floorName] = [];
-    }
-    groupedTables[floorName].push(table);
-  });
+  const groupedTables = useMemo(() => {
+    const groups = {};
+    filteredTables.forEach(table => {
+      const floorId = table.location?.floor;
+      const floorName = getFloorName(floorId);
+      if (!groups[floorName]) groups[floorName] = [];
+      groups[floorName].push(table);
+    });
+    return groups;
+  }, [filteredTables, getFloorName]);
 
   // Table status counts for legend
-  const statusCounts = {
-  available: tables.filter(t => t.status === 'available').length,
-  occupied: tables.filter(t => t.status === 'occupied').length,
-  reserved: tables.filter(t => t.status === 'reserved').length,
-  cleaning: tables.filter(t => t.status === 'cleaning').length,
-  blocked: tables.filter(t => (t.status === 'blocked' || t.status === 'maintenance')).length
-  };
+  const statusCounts = useMemo(() => {
+    const list = Array.isArray(tables) ? tables : [];
+    return {
+      available: list.filter(t => t.status === 'available').length,
+      occupied: list.filter(t => t.status === 'occupied').length,
+      reserved: list.filter(t => t.status === 'reserved').length,
+      cleaning: list.filter(t => t.status === 'cleaning').length,
+      blocked: list.filter(t => (t.status === 'blocked' || t.status === 'maintenance')).length
+    };
+  }, [tables]);
 
   // Action buttons enablement and selected action table details
   const canActOnTable = Boolean(actionTableId || selectedTable?._id);
@@ -1185,14 +1199,14 @@ const TableSelection = () => {
     }
   };
 
-  const getTableOrders = (tableId) => {
+  const getTableOrders = useCallback((tableId) => {
     try {
       const orders = getOrdersByTable(tableId);
       return Array.isArray(orders) ? orders : [];
     } catch (_) {
       return [];
     }
-  };
+  }, [getOrdersByTable]);
 
   const FloorPlanTable = ({ table, index }) => {
   const tableOrders = getTableOrders(table._id);

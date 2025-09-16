@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import toast from '../utils/notify';
@@ -130,7 +130,7 @@ export const SocketProvider = ({ children }) => {
   }, [isAuthenticated, user]);
 
   // Emit order creation to kitchen
-  const emitNewOrder = (orderData) => {
+  const emitNewOrder = useCallback((orderData) => {
     if (socket && connected) {
       console.log('[SOCKET] Emitting new order to kitchen:', orderData);
       socket.emit('newOrder', {
@@ -139,10 +139,10 @@ export const SocketProvider = ({ children }) => {
         source: 'pos'
       });
     }
-  };
+  }, [socket, connected]);
 
   // Emit order status update
-  const emitOrderStatusUpdate = (orderData) => {
+  const emitOrderStatusUpdate = useCallback((orderData) => {
     if (socket && connected) {
       console.log('[SOCKET] Emitting order status update:', orderData);
       socket.emit('orderStatusUpdate', {
@@ -151,10 +151,10 @@ export const SocketProvider = ({ children }) => {
         source: 'pos'
       });
     }
-  };
+  }, [socket, connected]);
 
   // Emit payment status update
-  const emitPaymentStatusUpdate = (paymentData) => {
+  const emitPaymentStatusUpdate = useCallback((paymentData) => {
     if (socket && connected) {
       console.log('[SOCKET] Emitting payment status update:', paymentData);
       socket.emit('paymentStatusUpdate', {
@@ -163,10 +163,10 @@ export const SocketProvider = ({ children }) => {
         source: 'pos'
       });
     }
-  };
+  }, [socket, connected]);
 
   // Emit table status update
-  const emitTableStatusUpdate = (tableData) => {
+  const emitTableStatusUpdate = useCallback((tableData) => {
     if (socket && connected) {
       console.log('[SOCKET] Emitting table status update:', tableData);
       socket.emit('tableStatusUpdate', {
@@ -175,16 +175,16 @@ export const SocketProvider = ({ children }) => {
         source: 'pos'
       });
     }
-  };
+  }, [socket, connected]);
 
-  const value = {
+  const value = useMemo(() => ({
     socket,
     connected,
     emitNewOrder,
     emitOrderStatusUpdate,
     emitPaymentStatusUpdate,
     emitTableStatusUpdate
-  };
+  }), [socket, connected, emitNewOrder, emitOrderStatusUpdate, emitPaymentStatusUpdate, emitTableStatusUpdate]);
 
   return (
     <SocketContext.Provider value={value}>

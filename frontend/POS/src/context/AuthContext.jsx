@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import { getApiBase } from '../utils/apiBase';
 import toast from '../utils/notify';
 
 const AuthContext = createContext();
@@ -18,7 +19,7 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   // API base URL
-  const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
+  const API_BASE_URL = getApiBase();
 
   // Configure axios defaults
   useEffect(() => {
@@ -151,7 +152,10 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const hasRole = useCallback((role) => user?.role === role, [user?.role]);
+  const hasAnyRole = useCallback((roles) => roles.includes(user?.role), [user?.role]);
+
+  const value = useMemo(() => ({
     user,
     loading,
     error,
@@ -161,9 +165,9 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     checkAuthStatus,
     isAuthenticated: !!user,
-    hasRole: (role) => user?.role === role,
-    hasAnyRole: (roles) => roles.includes(user?.role)
-  };
+    hasRole,
+    hasAnyRole
+  }), [user, loading, error, login, logout, changePassword, updateProfile, checkAuthStatus, hasRole, hasAnyRole]);
 
   return (
     <AuthContext.Provider value={value}>

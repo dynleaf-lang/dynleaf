@@ -7,7 +7,7 @@ import ImageCropModal from '../../components/Modals/ImageCropModal';
 import imageCompression from 'browser-image-compression';
 import BrandingLogoUploader from './components/BrandingLogoUploader';
 
-const BrandingSettings = () => {
+const BrandingSettings = ({ embedded = false }) => {
   const { user } = useContext(AuthContext);
   const [restaurant, setRestaurant] = useState(null);
   const [brandName, setBrandName] = useState('');
@@ -171,64 +171,72 @@ const BrandingSettings = () => {
     }
   };
 
+  const content = (
+    <Card className="shadow">
+      <CardHeader className="border-0 d-flex justify-content-between align-items-center">
+        <h3 className="mb-0">Branding</h3>
+        <small className="text-muted">Set brand name and logo</small>
+      </CardHeader>
+      <CardBody>
+        {error && <Alert color="danger">{error}</Alert>}
+        {success && <Alert color="success">{success}</Alert>}
+
+        {!restaurant ? (
+          <div className="text-center my-4">
+            <Spinner color="primary" />
+          </div>
+        ) : (
+          <Form onSubmit={(e)=>{e.preventDefault(); if(canEdit) handleSave();}}>
+            <Row>
+              <Col md="4">
+                <FormGroup>
+                  <Label>Brand Name</Label>
+                  <Input
+                    type="text"
+                    placeholder="e.g., OrderEase Cafe"
+                    value={brandName}
+                    onChange={(e)=>setBrandName(e.target.value)}
+                    disabled={!canEdit}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="6">
+                <BrandingLogoUploader
+                  logoUrl={logoUrl}
+                  canEdit={canEdit}
+                  uploading={uploading}
+                  saving={saving}
+                  onSelectFile={handleUpload}
+                  onDelete={handleDeleteLogo}
+                />
+              </Col>
+            </Row>
+
+            <div className="mt-3">
+              <Button color="primary" type="submit" disabled={!canEdit || saving}>
+                {saving ? <Spinner size="sm" /> : 'Save Changes'}
+              </Button>
+            </div>
+          </Form>
+        )}
+      </CardBody>
+    </Card>
+  );
+
   return (
     <>
-      <Header />
-      <Container className="mt--7" fluid>
-        <Row>
-          <Col>
-            <Card className="shadow"> 
-              <CardHeader className="border-0 d-flex justify-content-between align-items-center">
-                <h3 className="mb-0">Branding</h3>
-                <small className="text-muted">Set brand name and logo</small>
-              </CardHeader>
-              <CardBody>
-                {error && <Alert color="danger">{error}</Alert>}
-                {success && <Alert color="success">{success}</Alert>}
-
-                {!restaurant ? (
-                  <div className="text-center my-4">
-                    <Spinner color="primary" />
-                  </div>
-                ) : (
-                  <Form onSubmit={(e)=>{e.preventDefault(); if(canEdit) handleSave();}}>
-                    <Row>
-                      <Col md="4">
-                        <FormGroup>
-                          <Label>Brand Name</Label>
-                          <Input
-                            type="text"
-                            placeholder="e.g., OrderEase Cafe"
-                            value={brandName}
-                            onChange={(e)=>setBrandName(e.target.value)}
-                            disabled={!canEdit}
-                          />
-                        </FormGroup>
-                      </Col>
-                      <Col md="6">
-                        <BrandingLogoUploader
-                          logoUrl={logoUrl}
-                          canEdit={canEdit}
-                          uploading={uploading}
-                          saving={saving}
-                          onSelectFile={handleUpload}
-                          onDelete={handleDeleteLogo}
-                        />
-                      </Col>
-                    </Row>
-
-                    <div className="mt-3">
-                      <Button color="primary" type="submit" disabled={!canEdit || saving}>
-                        {saving ? <Spinner size="sm" /> : 'Save Changes'}
-                      </Button>
-                    </div>
-                  </Form>
-                )}
-              </CardBody>
-            </Card>
-          </Col>
-        </Row>
-      </Container>
+      {!embedded && <Header />}
+      {!embedded ? (
+        <Container className="mt--7" fluid>
+          <Row>
+            <Col>
+              {content}
+            </Col>
+          </Row>
+        </Container>
+      ) : (
+        content
+      )}
       {/* Crop Modal */}
       <ImageCropModal
         isOpen={showCrop}

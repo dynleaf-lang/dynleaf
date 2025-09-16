@@ -256,28 +256,30 @@ const Header = () => {
         <Container fluid>
           <div className="header-body">
             {/* Card stats */}
-            <Row>
-              <Col lg="6" xl="3">
-                <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
-                  {renderCardContent("orders", "Orders", "fas fa-shopping-cart", paths.orders)}
-                </Card>
-              </Col>
-              <Col lg="6" xl="3">
-                <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
-                  {renderCardContent("customers", "Customers", "fas fa-users", paths.customers)}
-                </Card>
-              </Col>
-              <Col lg="6" xl="3">
-                <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
-                  {renderCardContent("menuItems", "Menu Items", "fas fa-utensils", paths.menuItems)}
-                </Card>
-              </Col>
-              <Col lg="6" xl="3">
-                <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
-                  {renderCardContent("tables", "Dining Tables", "fas fa-chair", paths.tables)}
-                </Card>
-              </Col>
-            </Row>
+           {(user?.role === "Branch_Manager") && (
+             <Row>
+               <Col lg="6" xl="3">
+                 <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
+                   {renderCardContent("orders", "Orders", "fas fa-shopping-cart", paths.orders)}
+                 </Card>
+               </Col>
+               <Col lg="6" xl="3">
+                 <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
+                   {renderCardContent("customers", "Customers", "fas fa-users", paths.customers)}
+                 </Card>
+               </Col>
+               <Col lg="6" xl="3">
+                 <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
+                   {renderCardContent("menuItems", "Menu Items", "fas fa-utensils", paths.menuItems)}
+                 </Card>
+               </Col>
+               <Col lg="6" xl="3">
+                 <Card className="card-stats mb-4 mb-xl-0 shadow-sm">
+                   {renderCardContent("tables", "Dining Tables", "fas fa-chair", paths.tables)}
+                 </Card>
+               </Col>
+             </Row>
+           )}
           </div>
         </Container>
       </div>

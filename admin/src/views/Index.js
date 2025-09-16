@@ -220,41 +220,7 @@ const Index = (props) => {
     
     // Process data for orders chart (Bar chart)
     const processDataForOrdersChart = () => {
-      console.log('processDataForOrdersChart called with branchOrders:', branchOrders?.length || 0, 'orders');
-      
-      // Add detailed debugging for the first few orders
-      if (branchOrders && branchOrders.length > 0) {
-        console.log('=== DETAILED ORDER DEBUGGING ===');
-        console.log('Total orders:', branchOrders.length);
-        
-        // Show the complete structure of the first order
-        console.log('COMPLETE FIRST ORDER STRUCTURE:', JSON.stringify(branchOrders[0], null, 2));
-        
-        console.log('Sample orders for debugging:');
-        branchOrders.slice(0, 5).forEach((order, index) => {
-          console.log(`Order ${index + 1}:`, {
-            _id: order._id,
-            orderId: order.orderId,
-            OrderType: order.OrderType,
-            orderType: order.orderType,
-            type: order.type,
-            totalAmount: order.totalAmount,
-            orderDate: order.orderDate,
-            // Check all possible field names that might contain order type
-            allFields: Object.keys(order),
-            typeRelatedFields: Object.keys(order).filter(key => 
-              key.toLowerCase().includes('type') || 
-              key.toLowerCase().includes('order') ||
-              key.toLowerCase().includes('category') ||
-              key.toLowerCase().includes('service') ||
-              key.toLowerCase().includes('delivery')
-            ).reduce((obj, key) => {
-              obj[key] = order[key];
-              return obj;
-            }, {})
-          });
-        });
-      }
+    
       
       // Helper function to safely get order type (expanded to check more fields)
       const getOrderType = (order) => {
@@ -278,8 +244,7 @@ const Index = (props) => {
             return order[field];
           }
         }
-        
-        console.log('No order type field found. Using default: Dine-In');
+         
         return 'Dine-In'; // Default
       };
       
@@ -655,100 +620,102 @@ const Index = (props) => {
       <Header />
       {/* Page content */}
       <Container className="mt--7" fluid>
-        {/* Sales and Order Charts */}
-        <Row>
-          <Col className="mb-5 mb-xl-0" xl="8">
-            <Card className="bg-gradient-default shadow">
-              <CardHeader className="bg-transparent">
-                <Row className="align-items-center">
-                  <div className="col">
-                    <h6 className="text-uppercase text-light ls-1 mb-1">
-                      Overview
-                    </h6>
-                    <h2 className="text-white mb-0">
-                      Sales value{user?.branchId && branchName ? ` - ${branchName}` : ''}
-                    </h2>
-                  </div>
-                  <div className="col">
-                    <Nav className="justify-content-end" pills>
-                      <NavItem>
-                        <NavLink
-                          className={classnames("py-2 px-3", {
-                            active: activeNav === 1,
-                          })}
-                          href="#pablo"
-                          onClick={(e) => toggleNavs(e, 1)}
-                        >
-                          <span className="d-none d-md-block">Month</span>
-                          <span className="d-md-none">M</span>
-                        </NavLink>
-                      </NavItem>
-                      <NavItem>
-                        <NavLink
-                          className={classnames("py-2 px-3", {
-                            active: activeNav === 2,
-                          })}
-                          data-toggle="tab"
-                          href="#pablo"
-                          onClick={(e) => toggleNavs(e, 2)}
-                        >
-                          <span className="d-none d-md-block">Week</span>
-                          <span className="d-md-none">W</span>
-                        </NavLink>
-                      </NavItem>
-                    </Nav>
-                  </div>
-                </Row>
-              </CardHeader>
-              <CardBody>
-                {/* Chart */}
-                <div className="chart">
-                  {loading ? (
-                    <div className="text-center py-5">
-                      <Spinner color="light" />
-                      <p className="text-white mt-3">Loading sales data...</p>
+        {/* Sales and Order Charts (Branch_Manager only) */}
+        {user?.role === 'Branch_Manager' && (
+          <Row>
+            <Col className="mb-5 mb-xl-0" xl="8">
+              <Card className="bg-gradient-default shadow">
+                <CardHeader className="bg-transparent">
+                  <Row className="align-items-center">
+                    <div className="col">
+                      <h6 className="text-uppercase text-light ls-1 mb-1">
+                        Overview
+                      </h6>
+                      <h2 className="text-white mb-0">
+                        Sales value{user?.branchId && branchName ? ` - ${branchName}` : ''}
+                      </h2>
                     </div>
-                  ) : (
-                    <Line
-                      data={salesChartMemoized[chartExample1Data]}
-                      options={salesChartMemoized.options}
-                    />
-                  )}
-                </div>
-              </CardBody>
-            </Card>
-          </Col>
-          <Col xl="4">
-            <Card className="shadow">
-              <CardHeader className="bg-transparent">
-                <Row className="align-items-center">
-                  <div className="col">
-                    <h6 className="text-uppercase text-muted ls-1 mb-1">
-                      Performance
-                    </h6>
-                    <h2 className="mb-0">Total orders{user?.branchId && branchName ? ` - ${branchName}` : ''}</h2>
-                  </div>
-                </Row>
-              </CardHeader>
-              <CardBody>
-                {/* Chart */}
-                <div className="chart">
-                  {loading ? (
-                    <div className="text-center py-5">
-                      <Spinner color="primary" />
-                      <p className="mt-3">Loading order data...</p>
+                    <div className="col">
+                      <Nav className="justify-content-end" pills>
+                        <NavItem>
+                          <NavLink
+                            className={classnames("py-2 px-3", {
+                              active: activeNav === 1,
+                            })}
+                            href="#pablo"
+                            onClick={(e) => toggleNavs(e, 1)}
+                          >
+                            <span className="d-none d-md-block">Month</span>
+                            <span className="d-md-none">M</span>
+                          </NavLink>
+                        </NavItem>
+                        <NavItem>
+                          <NavLink
+                            className={classnames("py-2 px-3", {
+                              active: activeNav === 2,
+                            })}
+                            data-toggle="tab"
+                            href="#pablo"
+                            onClick={(e) => toggleNavs(e, 2)}
+                          >
+                            <span className="d-none d-md-block">Week</span>
+                            <span className="d-md-none">W</span>
+                          </NavLink>
+                        </NavItem>
+                      </Nav>
                     </div>
-                  ) : (
-                    <Bar
-                      data={ordersChartMemoized}
-                      options={chartExample2.options}
-                    />
-                  )}
-                </div>
-              </CardBody>
-            </Card>
-          </Col>
-        </Row>
+                  </Row>
+                </CardHeader>
+                <CardBody>
+                  {/* Chart */}
+                  <div className="chart">
+                    {loading ? (
+                      <div className="text-center py-5">
+                        <Spinner color="light" />
+                        <p className="text-white mt-3">Loading sales data...</p>
+                      </div>
+                    ) : (
+                      <Line
+                        data={salesChartMemoized[chartExample1Data]}
+                        options={salesChartMemoized.options}
+                      />
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            </Col>
+            <Col xl="4">
+              <Card className="shadow">
+                <CardHeader className="bg-transparent">
+                  <Row className="align-items-center">
+                    <div className="col">
+                      <h6 className="text-uppercase text-muted ls-1 mb-1">
+                        Performance
+                      </h6>
+                      <h2 className="mb-0">Total orders{user?.branchId && branchName ? ` - ${branchName}` : ''}</h2>
+                    </div>
+                  </Row>
+                </CardHeader>
+                <CardBody>
+                  {/* Chart */}
+                  <div className="chart">
+                    {loading ? (
+                      <div className="text-center py-5">
+                        <Spinner color="primary" />
+                        <p className="mt-3">Loading order data...</p>
+                      </div>
+                    ) : (
+                      <Bar
+                        data={ordersChartMemoized}
+                        options={chartExample2.options}
+                      />
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            </Col>
+          </Row>
+        )}
         
         {/* Only render widgets when data is ready and loading is complete */}
         {!loading && (
