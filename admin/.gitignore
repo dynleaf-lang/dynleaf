@@ -3,3 +3,6 @@
 package-lock.json
 /build
 .eslintcache
+.env
+.env.development
+.env.production
