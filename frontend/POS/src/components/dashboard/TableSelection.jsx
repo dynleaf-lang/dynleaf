@@ -52,7 +52,7 @@ import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 import toast from '../../utils/notify';
 import './TableSelection.css';
-import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
+import { generateHTMLReceipt, generateHTMLReceiptReference, printHTMLReceipt } from '../../utils/thermalPrinter';
 import axios from 'axios';
 import QRCode from 'react-qr-code';
 import TableQRBatchPOS from './TableQRBatchPOS';
@@ -73,6 +73,8 @@ const TableSelection = () => {
     clearSelectedTable,
     updateTableStatus,
   refreshData,
+  restaurant,
+  branch,
   // reservation APIs
   getTableReservations,
   createReservation: apiCreateReservation,
@@ -720,17 +722,20 @@ const TableSelection = () => {
         }
       };
 
+      // Prefer selected restaurant/branch context for header fields
       const restaurantInfo = {
-        name: (order.brandName || order.restaurantName || 'Restaurant'),
-        brandName: order.brandName || undefined,
-        logo: order.logo || undefined,
-        address: order.branchAddress || 'Address',
-        phone: order.branchPhone || 'Phone',
-        email: '',
-        gst: order.gstNumber || ''
+        name: (restaurant?.brandName || restaurant?.name || user?.restaurantName || 'Restaurant'),
+        brandName: restaurant?.brandName || restaurant?.name || user?.restaurantName || undefined,
+        branchName: branch?.name || branch?.branchName || user?.branchName || undefined,
+        logo: restaurant?.logo || user?.restaurantLogo || undefined,
+        address: branch?.address || branch?.addressLine || 'Address',
+        phone: branch?.phone || branch?.contactNumber || '',
+        email: restaurant?.email || '',
+        gst: branch?.gst || branch?.gstNumber || restaurant?.gstNumber || ''
       };
 
-      const html = generateHTMLReceipt(orderData, restaurantInfo, { duplicateReceipt: false });
+  // Use reference-style bill layout matching the attached receipt
+  const html = generateHTMLReceiptReference(orderData, restaurantInfo, { duplicateReceipt: false });
       const result = printHTMLReceipt(html);
       if (result?.success) {
         toast.success('Printing started');

@@ -499,6 +499,193 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
 };
 
 /**
+ * Generate HTML receipt matching the attached reference style (T&T style)
+ * Compact 80mm thermal layout with CGST/SGST split and round-off.
+ */
+export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptSettings = {}) => {
+  const { order, paymentDetails, customerInfo, tableInfo } = orderData || {};
+  const {
+    name: baseName = '',
+    brandName,
+    logo,
+  address = '',
+    phone = '',
+    email = '',
+    gst = '32AAWFT1084H1ZW',
+
+  branchName: branchNameIn
+  } = restaurantInfo || {};
+
+  const restaurantName = brandName || baseName;
+
+  // Derive amounts
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const computedSubtotal = items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+  const subtotal = Number(order?.subtotal) || computedSubtotal;
+  // Prefer explicit tax; else derive from total
+  let tax = Number(order?.tax) || 0;
+  if (!tax) {
+    const totalAmount = Number(order?.totalAmount) || subtotal;
+    const discount = Number(order?.discount) || 0;
+    const inferred = totalAmount - (subtotal - discount);
+    if (isFinite(inferred) && inferred > 0) tax = inferred;
+  }
+  const discount = Number(order?.discount) || 0;
+  const totalBeforeRound = (subtotal - discount) + tax;
+  const roundedGrandTotal = Math.round(totalBeforeRound);
+  const roundOff = Number((roundedGrandTotal - totalBeforeRound).toFixed(2));
+
+  // Try to infer tax percent if available
+  const taxPercent = subtotal > 0 ? ((tax / subtotal) * 100) : 0;
+  const cgstPercent = taxPercent > 0 ? +(taxPercent / 2).toFixed(2) : 0;
+  const sgstPercent = cgstPercent;
+  const cgstAmt = +(tax / 2).toFixed(2);
+  const sgstAmt = +(tax / 2).toFixed(2);
+
+  const rawBill = (order?.orderNumber || order?._id || '').toString();
+  const billNo = (() => {
+    if (!rawBill) return '';
+    // If orderNumber is numeric or short, keep it; else shorten IDs
+    const isNumeric = /^\d{1,10}$/.test(rawBill);
+    if (isNumeric) return rawBill;
+    // If looks like an ObjectId, take last 6 chars
+    if (/^[a-f0-9]{12,}$/.test(rawBill)) return rawBill.slice(-6).toUpperCase();
+    // Otherwise, keep up to 8 chars
+    return rawBill.slice(-8);
+  })();
+  const tokenNo = order?.tokenNumber || order?.token || '';
+  const cashier = order?.createdByName || order?.cashierName || '';
+  const orderType = (customerInfo?.orderType || order?.orderType || 'Dine-in');
+  const dateStr = new Date(order?.createdAt || Date.now()).toLocaleDateString('en-IN');
+  const timeStr = new Date(order?.createdAt || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const customerName = customerInfo?.name || order?.customerName || '';
+
+  // Currency format (INR)
+  const fmt = (amt) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(amt || 0));
+
+  // Prefer explicit branchName from restaurantInfo; try order fallbacks
+  const branchName = branchNameIn || order?.branchName || order?.branch?.name || '';
+
+  // Normalize logo URL so it shows in about:blank print window
+  const normalizeLogoUrl = (u) => {
+    try {
+      if (!u) return '';
+      const s = String(u);
+      if (s.startsWith('data:')) return s;
+      if (/^https?:\/\//i.test(s)) return s;
+      if (typeof window !== 'undefined' && window.location && s.startsWith('/')) {
+        return window.location.origin + s;
+      }
+      return s;
+    } catch { return u; }
+  };
+  const normalizedLogo = normalizeLogoUrl(logo);
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Bill ${billNo ? `#${billNo}` : ''}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    @media print { body { margin: 0 } .no-print { display:none } }
+    body { font-family: 'Roboto Mono', Menlo, Consolas, 'Courier New', monospace; font-size: 12px; line-height: 1.35; max-width: 300px; margin: 0 auto; padding: 10px; color:#000 }
+    .center { text-align:center }
+    .bold { font-weight:700 }
+    .sep { border-top: 1px dashed #000; margin: 8px 0 }
+    .row { display:flex; justify-content:space-between }
+    .small { font-size: 11px }
+    .hdr img { max-height: 60px; object-fit: contain; display: block; margin: 0 auto 6px auto; }
+    .hdr .title { font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, 'Noto Sans', 'Liberation Sans', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.3px }
+  .hdr .branch { font-weight:700; margin-top:2px }
+    .kv { display:flex; justify-content:space-between; margin: 2px 0 }
+    .items .head, .items .line { display:flex; }
+    .items .c1 { flex: 1 1 auto }
+    .items .c2 { width: 40px; text-align:center }
+    .items .c3 { width: 80px; text-align:right }
+    .totals .row { margin: 3px 0 }
+    .grand { font-weight:700; font-size: 14px; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px }
+    .footer { margin-top: 10px; text-align:center; font-size: 10px; color: #444 }
+  </style>
+  </head>
+  <body>
+    <div class="hdr center">
+      ${normalizedLogo ? `<div><img src="${normalizedLogo}" alt="${restaurantName}" crossOrigin="anonymous" style="max-height:50px;object-fit:contain;display:inline-block" onerror="this.style.display='none'" /></div>` : ''}
+      <div class="title">${restaurantName}</div>
+      ${branchName ? `<div class="branch">${escapeHtml(branchName)}</div>` : ''}
+      ${phone ? `<div class="small">Mob: ${escapeHtml(phone)}</div>` : ''}
+      ${gst ? `<div class="small">GST No: ${escapeHtml(gst)}</div>` : ''}
+      ${address ? `<div class="small">${escapeHtml(address)}</div>` : ''}
+    </div>
+
+    <div class="sep"></div>
+
+    ${customerName ? `<div class="kv"><div>Name:</div><div>${customerName}</div></div>` : ''}
+    <div class="kv"><div>Date:</div><div>${dateStr}</div></div>
+    <div class="kv"><div>Time:</div><div>${timeStr}</div></div>
+  <div class="kv"><div>Type:</div><div class="bold">${escapeHtml(orderType)}</div></div>
+    ${cashier ? `<div class="kv"><div>Cashier:</div><div>${cashier}</div></div>` : ''}
+    ${billNo ? `<div class="kv"><div>Bill No.:</div><div>${billNo}</div></div>` : ''}
+    ${tokenNo ? `<div class="kv"><div>Token No.:</div><div>${tokenNo}</div></div>` : ''}
+
+    <div class="sep"></div>
+
+    <div class="items">
+      <div class="head bold">
+        <div class="c1">Item</div>
+        <div class="c2">Qty</div>
+        <div class="c3">Amount</div>
+      </div>
+      <div class="sep"></div>
+      ${items.map(it => {
+        const name = it.name || it.itemName || 'Item';
+        const qty = Number(it.quantity) || 1;
+        const amount = (Number(it.price) || 0) * qty;
+        return `<div class="line">
+          <div class="c1">${escapeHtml(name)}</div>
+          <div class="c2">${qty}</div>
+          <div class="c3">${fmt(amount)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="totals">
+      <div class="row"><div>Sub Total</div><div>${fmt(subtotal)}</div></div>
+      ${discount ? `<div class="row"><div>Discount</div><div>- ${fmt(discount)}</div></div>` : ''}
+      ${gst && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmt(cgstAmt)}</div></div>` : ''}
+      ${gst && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmt(sgstAmt)}</div></div>` : ''}
+      ${(!gst && tax) ? `<div class="row"><div>Tax</div><div>${fmt(tax)}</div></div>` : ''}
+      <div class="row"><div>Round off</div><div>${roundOff.toFixed(2)}</div></div>
+      <div class="row grand"><div>Grand Total</div><div>${fmt(roundedGrandTotal)}</div></div>
+    </div>
+
+    <div class="sep"></div>
+    <div class="footer small">
+      <div>Consume food products within TWO hours of purchase</div>
+      <div>Thanks</div>
+    </div>
+  </body>
+  </html>`;
+};
+
+// Simple HTML escape helper to keep template safe
+const escapeHtml = (str) => {
+  try {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  } catch {
+    return str;
+  }
+};
+
+/**
  * Print receipt to thermal printer
  */
 export const printThermalReceipt = async (receiptData, printerConfig = {}) => {
@@ -591,6 +778,7 @@ export const PRINTER_CONFIGS = {
 export default {
   generateThermalReceipt,
   generateHTMLReceipt,
+  generateHTMLReceiptReference,
   printThermalReceipt,
   printHTMLReceipt,
   PRINTER_CONFIGS

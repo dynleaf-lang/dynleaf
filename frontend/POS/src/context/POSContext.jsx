@@ -25,6 +25,7 @@ export const POSProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
+  const [branch, setBranch] = useState(null);
 
   // API base URL
   const API_BASE_URL = getApiBase();
@@ -151,6 +152,17 @@ export const POSProvider = ({ children }) => {
     }
   }, [API_BASE_URL, user?.restaurantId]);
 
+  const fetchBranchInfo = useCallback(async () => {
+    try {
+      if (!user?.branchId) return;
+      const resp = await axios.get(`${API_BASE_URL}/public/branches/${user.branchId}`);
+      const data = resp.data?.branch || resp.data || null;
+      setBranch(data);
+    } catch (error) {
+      console.error('Error fetching branch info:', error);
+    }
+  }, [API_BASE_URL, user?.branchId]);
+
   // Fetch data when user is authenticated (placed after fetchRestaurantInfo)
   useEffect(() => {
     (async () => {
@@ -161,7 +173,8 @@ export const POSProvider = ({ children }) => {
             fetchCategories(),
             fetchMenuItems(),
             fetchFloors(),
-            fetchInventory()
+            fetchInventory(),
+            fetchBranchInfo()
           ]);
         }
         if (user?.restaurantId) {
@@ -395,8 +408,10 @@ export const POSProvider = ({ children }) => {
     ,
   getInventoryStatusForMenuItem,
   restaurant,
-  fetchRestaurantInfo
-  }), [tables, categories, menuItems, inventoryItems, floors, selectedTable, loading, error, findCustomerByPhone, createCustomerIfNeeded, getTableReservations, createReservation, updateReservation, cancelReservation, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, updateTableStatus, selectTable, clearSelectedTable, refreshData, getMenuItemsByCategory, getCategoryWithChildren, getAvailableTables, getOccupiedTables, searchMenuItems, getTableById, getInventoryStatusForMenuItem, restaurant, fetchRestaurantInfo]);
+  branch,
+  fetchRestaurantInfo,
+  fetchBranchInfo
+  }), [tables, categories, menuItems, inventoryItems, floors, selectedTable, loading, error, findCustomerByPhone, createCustomerIfNeeded, getTableReservations, createReservation, updateReservation, cancelReservation, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, updateTableStatus, selectTable, clearSelectedTable, refreshData, getMenuItemsByCategory, getCategoryWithChildren, getAvailableTables, getOccupiedTables, searchMenuItems, getTableById, getInventoryStatusForMenuItem, restaurant, branch, fetchRestaurantInfo, fetchBranchInfo]);
 
   return (
     <POSContext.Provider value={value}>
