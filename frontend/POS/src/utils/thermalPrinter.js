@@ -40,6 +40,26 @@ const COMMANDS = {
   DRAWER_KICK: ESC + 'p' + '\x00' + '\x19' + '\xFA'
 };
 
+// Ensure logo URLs render in print windows (about:blank) by resolving relative paths
+function normalizeLogoUrl(u) {
+  try {
+    if (!u) return '';
+    const s = String(u);
+    if (s.startsWith('data:') || s.startsWith('blob:')) return s;
+    if (/^https?:\/\//i.test(s)) return s;
+    if (typeof window !== 'undefined' && window.location) {
+      try {
+        return new URL(s, window.location.href).href;
+      } catch {
+        if (s.startsWith('/')) return window.location.origin + s;
+      }
+    }
+    return s;
+  } catch {
+    return u;
+  }
+}
+
 /**
  * Generate thermal printer receipt content
  */
@@ -281,6 +301,7 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
     duplicateReceipt = false
   } = receiptSettings;
 
+  const normalizedLogo = normalizeLogoUrl(logo);
   return `
     <!DOCTYPE html>
     <html>
@@ -371,7 +392,7 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
     </head>
     <body>
       <div class="header">
-        ${logo ? `<div><img src="${logo}" alt="${restaurantName}" style="max-height:50px;object-fit:contain" onerror="this.style.display='none'" /></div>` : ''}
+        ${normalizedLogo ? `<div><img src="${normalizedLogo}" alt="${restaurantName}" style="max-height:50px;object-fit:contain" onerror="this.style.display='none'" /></div>` : ''}
         <div class="restaurant-name">${restaurantName}</div>
         ${duplicateReceipt ? '<div class="duplicate">*** DUPLICATE RECEIPT ***</div>' : ''}
         <div>${address}</div>
@@ -571,10 +592,16 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     try {
       if (!u) return '';
       const s = String(u);
-      if (s.startsWith('data:')) return s;
+      // Already absolute or embeddable
+      if (s.startsWith('data:') || s.startsWith('blob:')) return s;
       if (/^https?:\/\//i.test(s)) return s;
-      if (typeof window !== 'undefined' && window.location && s.startsWith('/')) {
-        return window.location.origin + s;
+      // Resolve any relative path (with or without leading slash) against current location
+      if (typeof window !== 'undefined' && window.location) {
+        try {
+          return new URL(s, window.location.href).href;
+        } catch {
+          if (s.startsWith('/')) return window.location.origin + s;
+        }
       }
       return s;
     } catch { return u; }
@@ -587,6 +614,7 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
 <head>
   <meta charset="utf-8" />
   <title>Bill ${billNo ? `#${billNo}` : ''}</title>
+  <base href="${typeof window !== 'undefined' && window.location ? window.location.origin : '/'}" />
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     @media print { body { margin: 0 } .no-print { display:none } }
@@ -611,7 +639,7 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
   </head>
   <body>
     <div class="hdr center">
-      ${normalizedLogo ? `<div><img src="${normalizedLogo}" alt="${restaurantName}" crossOrigin="anonymous" style="max-height:50px;object-fit:contain;display:inline-block" onerror="this.style.display='none'" /></div>` : ''}
+  ${normalizedLogo ? `<div><img src="${normalizedLogo}" alt="${restaurantName}" style="max-height:50px;object-fit:contain;display:inline-block" onerror="this.style.display='none'" /></div>` : ''}
       <div class="title">${restaurantName}</div>
       ${branchName ? `<div class="branch">${escapeHtml(branchName)}</div>` : ''}
       ${phone ? `<div class="small">Mob: ${escapeHtml(phone)}</div>` : ''}
@@ -729,10 +757,28 @@ export const printHTMLReceipt = (htmlContent) => {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
-    
+    const waitForAssets = () => {
+      const d = printWindow.document;
+      const images = Array.from(d.images || []);
+      const imgPromises = images.map(img => {
+        if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
+        return new Promise(res => {
+          img.addEventListener('load', () => res(), { once: true });
+          img.addEventListener('error', () => res(), { once: true });
+        });
+      });
+      const fontPromises = (d.fonts && d.fonts.ready) ? [d.fonts.ready.catch(() => {})] : [];
+      return Promise.all([...imgPromises, ...fontPromises]).then(() => undefined);
+    };
+    waitForAssets().finally(() => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } finally {
+        // Delay close a bit so print dialog can open reliably in some browsers
+        setTimeout(() => { try { printWindow.close(); } catch {} }, 250);
+      }
+    });
     return { success: true, message: 'Receipt sent to browser printer' };
   } catch (error) {
     console.error('Browser print error:', error);
