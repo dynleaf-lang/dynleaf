@@ -675,10 +675,12 @@ const TableSelection = () => {
     try {
       const tableOrders = getTableOrders(table._id) || [];
       // Consider all placed/active KOT orders for printing (merge items across batches)
-      const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+      const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+      const legacyStatuses = ['pending','processing','completed'];
       const placedOrders = tableOrders.filter(o => {
         const s = (o?.status || '').toLowerCase();
-        return o?.kotPrinted === true || kotPlacedStatuses.includes(s);
+        const ls = (o?.orderStatus || '').toLowerCase();
+        return o?.kotPrinted === true || kotPlacedStatuses.includes(s) || kotPlacedStatuses.includes(ls) || legacyStatuses.includes(ls);
       });
 
       // If none detected but an explicit order was passed, fallback to it
@@ -693,13 +695,15 @@ const TableSelection = () => {
       let sumTax = 0;
       let sumTotal = 0;
       let lastOrderMeta = null;
+      const normalize = (v) => (String(v || '')).trim().toLowerCase();
       ordersToPrint.forEach(o => {
-        const items = Array.isArray(o.items) ? o.items : [];
+        const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.orderItems) ? o.orderItems : []);
         items.forEach(it => {
-          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || '';
-          const key = JSON.stringify({ n: it?.name || it?.itemName || 'Item', p: Number(it?.price) || 0, v: variant });
+          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || it?.variant || '';
+          const displayName = it?.name || it?.itemName || it?.title || 'Item';
+          const key = JSON.stringify({ n: normalize(displayName), p: Number(it?.price) || 0, v: normalize(variant) });
           const prev = mergeMap.get(key) || {
-            name: it?.name || it?.itemName || 'Item',
+            name: displayName,
             price: Number(it?.price) || 0,
             quantity: 0,
             customizations: it?.customizations || {}
