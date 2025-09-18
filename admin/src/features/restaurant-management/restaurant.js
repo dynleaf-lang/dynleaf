@@ -21,6 +21,7 @@ import {
   ModalBody,
   ModalFooter,
   Form,
+  Col,
   FormGroup,
   Label,
   Input,
@@ -33,6 +34,7 @@ import { RestaurantContext } from "../../context/RestaurantContext";
 import { AuthContext } from "../../context/AuthContext"; // Import AuthContext
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { countries } from "../../utils/countryList"; // Import countries list
+import { indiaStates } from "../../utils/indiaStates";
 
 const RestaurantManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
@@ -46,11 +48,13 @@ const RestaurantManagement = () => {
     name: '',
     address: '',
     city: '',
+  state: '',
     postalCode: '',
     country: '',
     phone: '',
     email: '',
-    openingHours: ''
+  openingHours: '',
+  gstRegistrations: []
   });
 
   const [formErrors, setFormErrors] = useState({});
@@ -75,11 +79,13 @@ const RestaurantManagement = () => {
       name: '',
       address: '',
       city: '',
+  state: '',
       postalCode: '',
       country: '',
       phone: '',
       email: '',
-      openingHours: ''
+  openingHours: '',
+  gstRegistrations: []
     });
   };
   
@@ -90,11 +96,13 @@ const RestaurantManagement = () => {
       name: restaurant.name || '',
       address: restaurant.address || '',
       city: restaurant.city || '',
+  state: restaurant.state || '',
       postalCode: restaurant.postalCode || '',
       country: restaurant.country || '',
       phone: restaurant.phone || '',
       email: restaurant.email || '',
-      openingHours: restaurant.openingHours || ''
+  openingHours: restaurant.openingHours || '',
+  gstRegistrations: restaurant.gstRegistrations || []
     });
     setModalOpen(true);
   };
@@ -114,6 +122,29 @@ const RestaurantManagement = () => {
         [name]: ''
       });
     }
+  };
+
+  const addGstRegistration = () => {
+    setFormData(prev => ({
+      ...prev,
+      gstRegistrations: [...(prev.gstRegistrations || []), { state: '', gstin: '', legalName: '', tradeName: '', effectiveFrom: '' }]
+    }));
+  };
+
+  const updateGstRegistration = (index, key, value) => {
+    setFormData(prev => {
+      const list = [...(prev.gstRegistrations || [])];
+      list[index] = { ...list[index], [key]: value };
+      return { ...prev, gstRegistrations: list };
+    });
+  };
+
+  const removeGstRegistration = (index) => {
+    setFormData(prev => {
+      const list = [...(prev.gstRegistrations || [])];
+      list.splice(index, 1);
+      return { ...prev, gstRegistrations: list };
+    });
   };
   
   // Function to validate form
@@ -214,6 +245,34 @@ const RestaurantManagement = () => {
                 <tbody>
                   {loading ? (
                     <tr>
+                    <Col md={6}>
+                      <FormGroup>
+                        <Label for="state">State</Label>
+                        {formData.country === 'India' ? (
+                          <Input
+                            type="select"
+                            name="state"
+                            id="state"
+                            value={formData.state}
+                            onChange={handleInputChange}
+                          >
+                            <option value="">Select State</option>
+                            {indiaStates.map((st) => (
+                              <option key={st} value={st}>{st}</option>
+                            ))}
+                          </Input>
+                        ) : (
+                          <Input
+                            type="text"
+                            name="state"
+                            id="state"
+                            placeholder="State/Province"
+                            value={formData.state}
+                            onChange={handleInputChange}
+                          />
+                        )}
+                      </FormGroup>
+                    </Col>
                       <td colSpan="6" className="text-center py-4">
                         <p className="font-italic text-muted mb-0">Loading restaurants...</p>
                       </td>
@@ -410,6 +469,46 @@ const RestaurantManagement = () => {
               </Input>
               {formErrors.country && <FormFeedback>{formErrors.country}</FormFeedback>}
             </FormGroup>
+
+            {formData.country === 'India' && (
+              <div className="border rounded p-3 mb-3">
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <Label className="mb-0">GST Registrations (State specific, optional)</Label>
+                  <Button color="secondary" size="sm" onClick={addGstRegistration}>
+                    <i className="fas fa-plus mr-1"></i> Add State GST
+                  </Button>
+                </div>
+                {(formData.gstRegistrations || []).length === 0 && (
+                  <p className="text-muted mb-2">No GST registrations added.</p>
+                )}
+                {(formData.gstRegistrations || []).map((reg, idx) => (
+                  <div key={idx} className="border rounded p-2 mb-2">
+                    <Row>
+                      <Col md={4}>
+                        <FormGroup>
+                          <Label>State</Label>
+                          <Input type="select" value={reg.state || ''} onChange={(e)=>updateGstRegistration(idx,'state',e.target.value)}>
+                            <option value="">Select State</option>
+                            {indiaStates.map((st)=> <option key={st} value={st}>{st}</option>)}
+                          </Input>
+                        </FormGroup>
+                      </Col>
+                      <Col md={4}>
+                        <FormGroup>
+                          <Label>GSTIN</Label>
+                          <Input type="text" value={reg.gstin || ''} placeholder="e.g., 27ABCDE1234F1Z5" onChange={(e)=>updateGstRegistration(idx,'gstin',e.target.value)} />
+                        </FormGroup>
+                      </Col>
+                      <Col md={4} className="d-flex align-items-end">
+                        <Button color="danger" size="sm" onClick={()=>removeGstRegistration(idx)}>
+                          <i className="fas fa-trash mr-1"></i> Remove
+                        </Button>
+                      </Col>
+                    </Row>
+                  </div>
+                ))}
+              </div>
+            )}
             <FormGroup>
               <Label for="phone">Phone</Label>
               <Input

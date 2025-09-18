@@ -26,6 +26,12 @@ const restaurantSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    // State/Province (important for country-specific tax rules like India)
+    state: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     postalCode: {
         type: String,
         required: false,
@@ -48,6 +54,15 @@ const restaurantSchema = new mongoose.Schema({
         type: String,
         required: true,
     }, 
+    // GST registrations per state (India). One restaurant brand may have multiple outlets across states.
+    gstRegistrations: [{
+        state: { type: String, trim: true },
+        gstin: { type: String, trim: true },
+        legalName: { type: String, trim: true },
+        tradeName: { type: String, trim: true },
+        effectiveFrom: { type: Date },
+        active: { type: Boolean, default: true }
+    }],
     createdAt: {
         type: Date,
         default: Date.now,

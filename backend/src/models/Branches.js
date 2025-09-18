@@ -18,6 +18,12 @@ const branchSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    // State/Province (useful for countries like India with state-specific taxes)
+    state: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     postalCode: {
         type: String,
         required: false,
@@ -39,6 +45,13 @@ const branchSchema = new mongoose.Schema({
         type: String,
         required: true,
     }, 
+    // Compliance fields
+    // Optional FSSAI license number for India (branch/outlet specific)
+    fssaiLicense: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     createdAt: {
         type: Date,
         default: Date.now,

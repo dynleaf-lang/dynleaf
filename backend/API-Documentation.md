@@ -10,10 +10,6 @@
    - [Users](#users)
    - [Categories](#categories)
    - [Menu Items](#menu-items)
-   - [File Upload](#file-upload)
-   - [Restaurants](#restaurants)
-   - [Branches](#branches)
-   - [Tables](#tables)
    - [Taxes](#taxes)
    - [Orders](#orders)
    - [Customers](#customers)
@@ -35,14 +31,11 @@ This documentation provides details about the RESTful API endpoints available in
 
 ## Base URL
 
+    "fssaiLicense": "Optional; for India: FSSAI license number"
 The base URL for all API endpoints is:
 
 ```
 http://localhost:5001
-```
-
-For production, replace with your domain:
-
 ```
 https://yourdomain.com/api
 ```
@@ -63,18 +56,20 @@ Authorization: Bearer <your_token>
 
 ### Role-Based Access
 
+    "fssaiLicense": "Optional; for India: FSSAI license number per outlet"
 The system has multiple user roles with different access levels:
 - `Super_Admin`: Full system access
 - `admin`: Restaurant-level administrative access
-- `manager`: Branch-level management access
-- `staff`: Limited operational access
-
----
 
 ## Error Handling
 
 The API uses standard HTTP status codes:
 
+    "city": "Updated City",
+    "state": "Updated State (optional)",
+    "country": "Updated Country",
+    "postalCode": "Updated Postal Code",
+    "fssaiLicense": "Optional FSSAI license for India"
 - `200` - Success
 - `201` - Created
 - `400` - Bad Request
@@ -614,6 +609,7 @@ Some endpoints provide additional error details:
     "description": "Restaurant Description",
     "address": "123 Main St",
     "city": "City Name",
+    "state": "State/Province (optional)",
     "country": "Country Name",
     "postalCode": "12345",
     "phone": "+1234567890",
@@ -629,7 +625,17 @@ Some endpoints provide additional error details:
       "saturday": "9:00 AM - 11:00 PM",
       "sunday": "9:00 AM - 10:00 PM"
     },
-    "cuisineType": "Italian"
+    "cuisineType": "Italian",
+    "gstRegistrations": [
+      {
+        "state": "Maharashtra",
+        "gstin": "27ABCDE1234F1Z5",
+        "legalName": "ABC Foods Pvt Ltd",
+        "tradeName": "OrderEase",
+        "effectiveFrom": "2024-01-01",
+        "active": true
+      }
+    ]
   }
   ```
 - **Response**:
@@ -654,7 +660,16 @@ Some endpoints provide additional error details:
     "name": "Updated Restaurant Name",
     "description": "Updated Description",
     "address": "Updated Address",
-    "phone": "Updated Phone"
+    "city": "Updated City",
+    "state": "Updated State (optional)",
+    "country": "Updated Country",
+    "postalCode": "Updated Postal Code",
+    "phone": "Updated Phone",
+    "email": "Updated Email",
+    "openingHours": "Updated Hours",
+    "gstRegistrations": [
+      { "state": "Maharashtra", "gstin": "27ABCDE1234F1Z5", "active": true }
+    ]
   }
   ```
 - **Response**:
@@ -699,6 +714,7 @@ Some endpoints provide additional error details:
     "restaurantId": "restaurant_id",
     "address": "456 Branch St",
     "city": "Branch City",
+  "state": "State/Province (optional)",
     "country": "Country Name",
     "postalCode": "12345",
     "phone": "+1234567890",
@@ -712,7 +728,8 @@ Some endpoints provide additional error details:
       "friday": "9:00 AM - 11:00 PM",
       "saturday": "9:00 AM - 11:00 PM",
       "sunday": "9:00 AM - 10:00 PM"
-    }
+  },
+  "fssaiLicense": "Optional; for India: FSSAI license number per outlet"
   }
   ```
 - **Response**:
@@ -736,7 +753,14 @@ Some endpoints provide additional error details:
   {
     "name": "Updated Branch Name",
     "address": "Updated Address",
-    "phone": "Updated Phone"
+  "city": "Updated City",
+  "state": "Updated State (optional)",
+  "country": "Updated Country",
+  "postalCode": "Updated Postal Code",
+  "phone": "Updated Phone",
+  "email": "Updated Email",
+  "openingHours": "Updated Hours",
+  "fssaiLicense": "Optional FSSAI license for India"
   }
   ```
 - **Response**:

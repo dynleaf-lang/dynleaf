@@ -60,6 +60,45 @@ function normalizeLogoUrl(u) {
   }
 }
 
+// Resolve GSTIN from restaurantInfo or its gstRegistrations by branch state
+function resolveGSTIN(order, restaurantInfo) {
+  try {
+    if (!restaurantInfo) return '';
+    // Collect possible keys from restaurantInfo
+    const keys = ['gst', 'gstin', 'gstNumber', 'GSTIN', 'GSTNo', 'gst_no', 'gst_no'];
+    let explicit = '';
+    for (const k of keys) {
+      if (restaurantInfo[k]) { explicit = String(restaurantInfo[k]); break; }
+    }
+    if (explicit) return String(explicit);
+    const regs = Array.isArray(restaurantInfo.gstRegistrations) ? restaurantInfo.gstRegistrations : [];
+    if (!regs.length) return '';
+    const branchState = order?.branch?.state || order?.branchState || restaurantInfo.state;
+    let match = null;
+    if (branchState) {
+      match = regs.find(r => r && r.state === branchState && (r.active === undefined || r.active === true));
+    }
+    if (!match) match = regs.find(r => r && r.gstin && (r.active === undefined || r.active === true));
+    return match?.gstin ? String(match.gstin) : '';
+  } catch { return ''; }
+}
+
+// Resolve FSSAI from restaurantInfo or branch (order)
+function resolveFSSAI(order, restaurantInfo) {
+  try {
+    const candidates = [
+      restaurantInfo?.fssai,
+      restaurantInfo?.fssaiLicense,
+      restaurantInfo?.fssaiNo,
+      order?.branch?.fssaiLicense,
+      order?.branch?.fssai,
+      order?.branchFssai
+    ];
+    const val = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+    return val ? String(val) : '';
+  } catch { return ''; }
+}
+
 /**
  * Generate thermal printer receipt content
  */
@@ -78,10 +117,11 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     logo,
     address = 'Restaurant Address',
     phone = 'Phone Number',
-    email = 'Email Address',
-    gst = 'GST Number'
-  } = restaurantInfo;
+    email = 'Email Address'
+  } = restaurantInfo || {};
   const restaurantName = brandName || baseName;
+  const gstResolved = resolveGSTIN(order, restaurantInfo || {});
+  const fssaiResolved = resolveFSSAI(order, restaurantInfo || {});
 
   const {
     showLogo = false,
@@ -113,7 +153,8 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   receipt += address + COMMANDS.CRLF;
   receipt += 'Phone: ' + phone + COMMANDS.CRLF;
   if (email) receipt += 'Email: ' + email + COMMANDS.CRLF;
-  if (gst) receipt += 'GST: ' + gst + COMMANDS.CRLF;
+  if (gstResolved) receipt += 'GSTIN: ' + gstResolved + COMMANDS.CRLF;
+  if (fssaiResolved) receipt += 'FSSAI: ' + fssaiResolved + COMMANDS.CRLF;
   
   // Separator line
   receipt += COMMANDS.CRLF;
@@ -285,10 +326,11 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
     logo,
     address = 'Restaurant Address',
     phone = 'Phone Number',
-    email = 'Email Address',
-    gst = 'GST Number'
-  } = restaurantInfo;
+    email = 'Email Address'
+  } = restaurantInfo || {};
   const restaurantName = brandName || baseName;
+  const gstResolved = resolveGSTIN(order, restaurantInfo || {});
+  const fssaiResolved = resolveFSSAI(order, restaurantInfo || {});
 
   const {
     duplicateReceipt = false
@@ -394,8 +436,9 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
         ${duplicateReceipt ? '<div class="duplicate">*** DUPLICATE RECEIPT ***</div>' : ''}
         <div>${address}</div>
         <div>Phone: ${phone}</div>
-        ${email ? `<div>Email: ${email}</div>` : ''}
-        ${gst ? `<div>GST: ${gst}</div>` : ''}
+  ${email ? `<div>Email: ${escapeHtml(email)}</div>` : ''}
+  ${gstResolved ? `<div>GSTIN: ${escapeHtml(gstResolved)}</div>` : ''}
+  ${fssaiResolved ? `<div>FSSAI: ${escapeHtml(fssaiResolved)}</div>` : ''}
       </div>
 
       <div class="separator"></div>
@@ -520,13 +563,15 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     logo,
   address = '',
     phone = '',
-    email = '',
-    gst = '32AAWFT1084H1ZW',
+  email = '',
+  gst = '32AAWFT1084H1ZW',
 
   branchName: branchNameIn
   } = restaurantInfo || {};
 
   const restaurantName = brandName || baseName;
+  const gstResolvedRef = resolveGSTIN(order, restaurantInfo || {}) || gst;
+  const fssaiResolvedRef = resolveFSSAI(order, restaurantInfo || {});
 
   // Derive amounts
   const items = Array.isArray(order?.items) ? order.items : [];
@@ -634,8 +679,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
   ${normalizedLogo ? `<div><img src="${normalizedLogo}" alt="${restaurantName}" style="max-height:50px;object-fit:contain;display:inline-block" onerror="this.style.display='none'" /></div>` : ''}
       <div class="title">${restaurantName}</div>
       ${branchName ? `<div class="branch">${escapeHtml(branchName)}</div>` : ''}
-      ${phone ? `<div class="small">Mob: ${escapeHtml(phone)}</div>` : ''}
-      ${gst ? `<div class="small">GST No: ${escapeHtml(gst)}</div>` : ''}
+  ${phone ? `<div class="small">Mob: ${escapeHtml(phone)}</div>` : ''}
+  ${gstResolvedRef ? `<div class="small">GSTIN: ${escapeHtml(gstResolvedRef)}</div>` : ''}
+  ${fssaiResolvedRef ? `<div class="small">FSSAI: ${escapeHtml(fssaiResolvedRef)}</div>` : ''}
       ${address ? `<div class="small">${escapeHtml(address)}</div>` : ''}
     </div>
 
@@ -672,9 +718,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     <div class="totals">
       <div class="row"><div>Sub Total</div><div>${fmt(subtotal)}</div></div>
       ${discount ? `<div class="row"><div>Discount</div><div>- ${fmt(discount)}</div></div>` : ''}
-      ${gst && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmt(cgstAmt)}</div></div>` : ''}
-      ${gst && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmt(sgstAmt)}</div></div>` : ''}
-      ${(!gst && tax) ? `<div class="row"><div>Tax</div><div>${fmt(tax)}</div></div>` : ''}
+  ${gstResolvedRef && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmt(cgstAmt)}</div></div>` : ''}
+  ${gstResolvedRef && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmt(sgstAmt)}</div></div>` : ''}
+  ${(!gstResolvedRef && tax) ? `<div class="row"><div>Tax</div><div>${fmt(tax)}</div></div>` : ''}
       <div class="row"><div>Round off</div><div>${roundOff.toFixed(2)}</div></div>
       <div class="row grand"><div>Grand Total</div><div>${fmt(roundedGrandTotal)}</div></div>
     </div>

@@ -817,6 +817,12 @@ const TableSelection = () => {
           // If we have a createdBy object/id, forward as-is (helps resolver fallbacks)
           createdBy: lastOrderMeta?.createdBy || undefined,
         },
+        // Provide branch metadata for receipt resolvers (GSTIN/FSSAI)
+        branch: {
+          name: branch?.name || branch?.branchName || undefined,
+          state: branch?.state || undefined,
+          fssaiLicense: branch?.fssaiLicense || undefined
+        },
         paymentDetails: {
           method: (lastOrderMeta?.paymentMethod || lastOrderMeta?.paymentMode || 'cash').toString(),
           amountReceived: Number(lastOrderMeta?.amountReceived) || Number(lastOrderMeta?.totalAmount) || subtotal,
@@ -846,7 +852,13 @@ const TableSelection = () => {
         address: branch?.address || branch?.addressLine || 'Address',
         phone: branch?.phone || branch?.contactNumber || '',
         email: restaurant?.email || '',
-        gst: branch?.gst || branch?.gstNumber || restaurant?.gstNumber || ''
+        // Optional fields to help GST/FSSAI resolution
+        state: restaurant?.state || undefined,
+        gstRegistrations: Array.isArray(restaurant?.gstRegistrations) ? restaurant.gstRegistrations : undefined,
+        // Only set gst if we truly have a value; avoid empty string which blocks fallback
+        gst: (branch?.gst || branch?.gstNumber || restaurant?.gstNumber) || undefined,
+        // Surface branch-level FSSAI if present (also passed via order.branch)
+        fssaiLicense: branch?.fssaiLicense || undefined
       };
 
   // Use reference-style bill layout matching the attached receipt
