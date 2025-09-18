@@ -144,8 +144,9 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   receipt += COMMANDS.BOLD_OFF;
   receipt += '--------------------------------' + COMMANDS.CRLF;
   
-  // Item header
-  receipt += padString('Item', 16) + padString('Qty', 4) + padString('Price', 12) + COMMANDS.CRLF;
+  // Item header: add Rate column and adjust widths to fit 32 chars
+  // Layout: Item(14) Qty(3) Rate(6) Amount(9) => 32 columns
+  receipt += padString('Item', 14) + padString('Qty', 3) + padString('Rate', 6) + padString('Amount', 9) + COMMANDS.CRLF;
   receipt += '--------------------------------' + COMMANDS.CRLF;
   
   let subtotal = 0;
@@ -153,22 +154,21 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     const itemTotal = item.price * item.quantity;
     subtotal += itemTotal;
     
-    // Item name (truncate if too long)
-    const itemName = item.name.length > 15 ? item.name.substring(0, 15) : item.name;
-    receipt += padString(itemName, 16);
-    receipt += padString(item.quantity.toString(), 4);
-    receipt += padString(formatCurrency(itemTotal), 12) + COMMANDS.CRLF;
+  // Item name (truncate if too long)
+  const cust = item.customizations || {};
+  const inline = formatInlineParenthetical(cust);
+  const baseName = item.name + (inline ? ` (${inline})` : '');
+  const itemName = baseName.length > 14 ? baseName.substring(0, 14) : baseName;
+  receipt += padString(itemName, 14);
+  receipt += padString(item.quantity.toString(), 3);
+  receipt += padString(formatCurrency(item.price), 6);
+  receipt += padString(formatCurrency(itemTotal), 9) + COMMANDS.CRLF;
     
-    // Customizations / Variant selections display (robust)
+    // If name was truncated and there is inline text, show it on next line for clarity
     try {
-      const cust = item.customizations || {};
-      const parsed = parseCustomizations(cust);
-      if (parsed.variantLabel) {
-        receipt += `  + ${parsed.variantLabel}` + COMMANDS.CRLF;
+      if (inline && (item.name.length + 2 + inline.length) > 14) {
+        receipt += `  (${inline})` + COMMANDS.CRLF;
       }
-      parsed.otherSelections.forEach(p => {
-        receipt += `  + ${p}` + COMMANDS.CRLF;
-      });
     } catch {}
   });
   
@@ -403,28 +403,32 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
       <div class="item-row">
         <div class="item-name"><strong>Item</strong></div>
         <div class="item-qty"><strong>Qty</strong></div>
-        <div class="item-price"><strong>Price</strong></div>
+        <div class="item-qty"><strong>Rate</strong></div>
+        <div class="item-price"><strong>Amount</strong></div>
       </div>
       <div class="separator"></div>
 
-      ${order.items.map(item => `
+      ${order.items.map(item => {
+        try {
+          const inline = formatInlineParenthetical(item.customizations || {});
+          const name = item.name + (inline ? ` (${inline})` : '');
+          return `
+        <div class="item-row">
+          <div class="item-name">${escapeHtml(name)}</div>
+          <div class="item-qty">${item.quantity}</div>
+          <div class="item-qty">${formatCurrency(item.price)}</div>
+          <div class="item-price">${formatCurrency(item.price * item.quantity)}</div>
+        </div>`;
+        } catch { 
+          return `
         <div class="item-row">
           <div class="item-name">${item.name}</div>
           <div class="item-qty">${item.quantity}</div>
+          <div class="item-qty">${formatCurrency(item.price)}</div>
           <div class="item-price">${formatCurrency(item.price * item.quantity)}</div>
-        </div>
-        ${(() => {
-          try {
-            const cust = item.customizations || {};
-            const parsed = parseCustomizations(cust);
-            const htmlParts = [];
-            if (parsed.variantLabel) htmlParts.push(`<div class=\"customization\">+ ${parsed.variantLabel}</div>`);
-            parsed.otherSelections.forEach(p => htmlParts.push(`<div class=\"customization\">+ ${p}</div>`));
-            return htmlParts.join('');
-          } catch {}
-          return '';
-        })()}
-      `).join('')}
+        </div>`; 
+        }
+      }).join('')}
 
       <div class="separator"></div>
 
@@ -601,8 +605,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     .kv { display:flex; justify-content:space-between; margin: 2px 0 }
     .items .head, .items .line { display:flex; }
     .items .c1 { flex: 1 1 auto }
-    .items .c2 { width: 40px; text-align:center }
-    .items .c3 { width: 80px; text-align:right }
+  .items .c2 { width: 35px; text-align:center }
+  .items .c3 { width: 65px; text-align:right }
+  .items .c4 { width: 80px; text-align:right }
     .totals .row { margin: 3px 0 }
     .grand { font-weight:700; font-size: 14px; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px }
     .footer { margin-top: 10px; text-align:center; font-size: 10px; color: #444 }
@@ -633,24 +638,19 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     <div class="items">
       <div class="head bold">
         <div class="c1">Item</div>
-        <div class="c2">Qty</div>
-        <div class="c3">Amount</div>
+  <div class="c2">Qty</div>
+  <div class="c3">Rate</div>
+  <div class="c4">Amount</div>
       </div>
       <div class="sep"></div>
       ${items.map(it => {
-        const name = it.name || it.itemName || 'Item';
+        const base = it.name || it.itemName || 'Item';
         const qty = Number(it.quantity) || 1;
-        const amount = (Number(it.price) || 0) * qty;
-        const parsed = parseCustomizations(it.customizations || {});
-        const lines = [];
-        lines.push(`<div class=\"line\">\n          <div class=\"c1\">${escapeHtml(name)}</div>\n          <div class=\"c2\">${qty}</div>\n          <div class=\"c3\">${fmt(amount)}</div>\n        </div>`);
-        if (parsed.variantLabel) {
-          lines.push(`<div class=\"line small\">\n          <div class=\"c1\">+ ${escapeHtml(parsed.variantLabel)}</div>\n          <div class=\"c2\"></div>\n          <div class=\"c3\"></div>\n        </div>`);
-        }
-        parsed.otherSelections.forEach(p => {
-          lines.push(`<div class=\"line small\">\n          <div class=\"c1\">+ ${escapeHtml(p)}</div>\n          <div class=\"c2\"></div>\n          <div class=\"c3\"></div>\n        </div>`);
-        });
-        return lines.join('');
+        const rate = Number(it.price) || 0;
+        const amount = rate * qty;
+        const inline = formatInlineParenthetical(it.customizations || {});
+        const name = base + (inline ? ` (${inline})` : '');
+        return `<div class=\"line\">\n          <div class=\"c1\">${escapeHtml(name)}</div>\n          <div class=\"c2\">${qty}</div>\n          <div class=\"c3\">${fmt(rate)}</div>\n          <div class=\"c4\">${fmt(amount)}</div>\n        </div>`;
       }).join('')}
     </div>
 
@@ -779,7 +779,7 @@ const formatCurrency = (amount) => {
 
 // Helper: robustly parse customizations/variant selections into a single variant label and other option lines
 const parseCustomizations = (cust) => {
-  const result = { variantLabel: '', otherSelections: [] };
+  const result = { variantLabel: '', variantShort: '', otherSelections: [] };
   try {
     if (!cust) return result;
     // If it's a simple array of strings
@@ -807,7 +807,25 @@ const parseCustomizations = (cust) => {
         }
       }
     }
-    if (sizeVal) result.variantLabel = `Size: ${sizeVal}`;
+    if (sizeVal) {
+      result.variantLabel = `Size: ${sizeVal}`;
+      // Compact short form for common sizes
+      const map = { large: 'L', medium: 'M', small: 'S', regular: 'R', jumbo: 'J', extra: 'X' };
+      const key = String(sizeVal).trim().toLowerCase();
+      if (map[key]) {
+        result.variantShort = map[key];
+      } else if (/^(x{1,3})?l(arg(e)?)?$/i.test(sizeVal)) {
+        // XL/XXL/XXXL and large variants -> take letters
+        result.variantShort = sizeVal.toUpperCase().replace(/[^XL]/g, '').slice(0, 3) || 'L';
+      } else if (/^s(mall)?$/i.test(sizeVal)) {
+        result.variantShort = 'S';
+      } else if (/^m(edium)?$/i.test(sizeVal)) {
+        result.variantShort = 'M';
+      }
+      if (result.variantShort) {
+        result.variantShort = `${result.variantShort}`; // already prefixed as "+ ..." in callers
+      }
+    }
 
     // Collect other groups (exclude size-like)
     if (vsel) {
@@ -824,6 +842,31 @@ const parseCustomizations = (cust) => {
     }
   } catch {}
   return result;
+};
+
+// Build inline parenthetical like "Large + Extra Egg" from customizations
+const formatInlineParenthetical = (cust) => {
+  try {
+    const parsed = parseCustomizations(cust || {});
+    const parts = [];
+    if (parsed.variantLabel) {
+      const size = parsed.variantLabel.replace(/^Size:\s*/i, '').trim();
+      if (size) parts.push(size);
+    }
+    if (Array.isArray(parsed.otherSelections)) {
+      parsed.otherSelections.forEach(s => {
+        if (!s) return;
+        const idx = String(s).indexOf(':');
+        if (idx !== -1) {
+          const val = String(s).slice(idx + 1).trim();
+          if (val) parts.push(val);
+        } else {
+          parts.push(String(s));
+        }
+      });
+    }
+    return parts.filter(Boolean).join(' + ');
+  } catch { return ''; }
 };
 
 /**
