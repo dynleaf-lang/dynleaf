@@ -69,7 +69,8 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     paymentDetails,
     customerInfo,
     tableInfo
-  } = orderData;
+  } = orderData; 
+  
 
   const {
     name: baseName = 'Restaurant Name',
@@ -134,6 +135,13 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     receipt += `Phone: ${customerInfo.phone}` + COMMANDS.CRLF;
   }
   receipt += `Order Type: ${customerInfo?.orderType || 'Dine-in'}` + COMMANDS.CRLF;
+  // Professional token and cashier rendering
+  try {
+    const tokenNo = resolveTokenNo(order);
+    const cashierName = resolveCashierName(order);
+    if (tokenNo) receipt += `Token No.: ${tokenNo}` + COMMANDS.CRLF;
+    if (cashierName) receipt += `Cashier: ${cashierName}` + COMMANDS.CRLF;
+  } catch {}
   
   receipt += COMMANDS.CRLF;
   receipt += '================================' + COMMANDS.CRLF;
@@ -400,6 +408,8 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
       <div>Customer: ${customerInfo?.name || 'Walk-in Customer'}</div>
       ${customerInfo?.phone ? `<div>Phone: ${customerInfo.phone}</div>` : ''}
       <div>Order Type: ${customerInfo?.orderType || 'Dine-in'}</div>
+  ${(() => { try { const t = resolveTokenNo(order); return t ? `<div>Token No.: ${escapeHtml(t)}</div>` : ''; } catch { return ''; } })()}
+  ${(() => { try { const c = resolveCashierName(order); return c ? `<div>Cashier: ${escapeHtml(c)}</div>` : ''; } catch { return ''; } })()}
 
       <div class="separator"></div>
 
@@ -554,7 +564,8 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     return rawBill.slice(-8);
   })();
   const tokenNo = order?.tokenNumber || order?.token || '';
-  const cashier = order?.createdByName || order?.cashierName || '';
+  const cashier = (() => { try { return resolveCashierName(order); } catch { return order?.createdByName || order?.cashierName || ''; } })();
+  const tokenResolved = (() => { try { return resolveTokenNo(order); } catch { return tokenNo; } })();
   const orderType = (customerInfo?.orderType || order?.orderType || 'Dine-in');
   const dateStr = new Date(order?.createdAt || Date.now()).toLocaleDateString('en-IN');
   const timeStr = new Date(order?.createdAt || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
@@ -630,9 +641,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
 
     <div class="sep"></div>
 
-    ${customerName ? `<div class="kv"><div><span>Name:</span><span>${customerName}</span></div><div class="bold text-cap">${escapeHtml(orderType)}</div></div>` : ''}
-    <div class="kv"><div>Date: ${dateStr},${timeStr}</div>${cashier ? `<div><div>Cashier:</div><div>${cashier}</div></div>` : ''}</div>  
-    <div class="kv">${billNo ? `<div><div>Bill No.: ${billNo}</div></div>` : ''}${tokenNo ? `<div><div>Token No.:</div><div>${tokenNo}</div></div>` : ''}</div>
+  ${customerName ? `<div class="kv"><div><span>Name:</span><span>${escapeHtml(customerName)}</span></div><div class="bold text-cap">${escapeHtml(orderType)}</div></div>` : ''}
+  <div class="kv"><div>Date: ${dateStr},${timeStr}</div>${cashier ? `<div>Cashier: ${escapeHtml(cashier)}</div>` : ''}</div>
+  <div class="kv">${billNo ? `<div>Bill No.: ${escapeHtml(billNo)}</div>` : ''}${tokenResolved ? `<div class="bold">Token No.: ${escapeHtml(tokenResolved)}</div>` : ''}</div>
    
 
     <div class="sep"></div>
@@ -877,6 +888,43 @@ const formatInlineParenthetical = (cust) => {
       });
     }
     return parts.filter(Boolean).join(' + ');
+  } catch { return ''; }
+};
+
+// Resolve Token No. from various likely fields
+const resolveTokenNo = (order) => {
+  try {
+    if (!order) return '';
+    const candidates = [
+      order.tokenNumber,
+      order.token,
+      order.token_no,
+      order.tokenNo,
+      order.kotToken,
+      order.kot_number,
+      order.kotNumber
+    ];
+    const found = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+    return found !== undefined ? String(found) : '';
+  } catch { return ''; }
+};
+
+// Resolve Cashier/CreatedBy from various likely fields/objects
+const resolveCashierName = (order) => {
+  try {
+    if (!order) return '';
+    const candidates = [
+      order.cashierName,
+      order.createdByName,
+      order.createdBy?.name,
+      order.createdBy?.username,
+      order.createdBy,
+      order.user?.name,
+      order.userName,
+      order.staffName
+    ];
+    const found = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+    return found !== undefined ? String(found) : '';
   } catch { return ''; }
 };
 

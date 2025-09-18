@@ -693,6 +693,24 @@ const TableSelection = () => {
       let sumTax = 0;
       let sumTotal = 0;
       let lastOrderMeta = null;
+      // Helper to extract a token value from a variety of possible fields
+      const extractToken = (obj) => {
+        try {
+          if (!obj) return '';
+          const candidates = [
+            obj.tokenNumber,
+            obj.token,
+            obj.token_no,
+            obj.tokenNo,
+            obj.kotToken,
+            obj.kot_number,
+            obj.kotNumber
+          ];
+          const found = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+          return found !== undefined ? String(found) : '';
+        } catch { return ''; }
+      };
+      let tokenCandidate = '';
 
       if (savedForTable && Array.isArray(savedForTable.batches) && savedForTable.batches.length) {
         const mergeMap = new Map();
@@ -712,11 +730,13 @@ const TableSelection = () => {
         mergedItems = [...mergeMap.values()];
         subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
 
-        // Try to obtain some meta (payment/tax) from the most recent order on this table, if available
+  // Try to obtain some meta (payment/tax) from the most recent order on this table, if available
         const tableOrders = getTableOrders(table._id) || [];
         lastOrderMeta = tableOrders.slice().sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0] || null;
         sumTax = Number(lastOrderMeta?.tax) || 0;
         sumTotal = Number(lastOrderMeta?.totalAmount) || 0;
+  // Derive token from latest order that has it
+  tokenCandidate = extractToken(lastOrderMeta) || (tableOrders.slice().reverse().map(extractToken).find(Boolean) || '');
       } else {
         // 2) Fallback: merge from active/placed orders (legacy behavior)
         const tableOrders = getTableOrders(table._id) || [];
@@ -751,9 +771,11 @@ const TableSelection = () => {
         });
         mergedItems = [...mergeMap.values()];
         subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+        // Prefer the most recent order that contains a token
+        tokenCandidate = (ordersToPrint.slice().reverse().map(extractToken).find(Boolean)) || extractToken(lastOrderMeta) || '';
       }
 
-  const orderData = {
+      const orderData = {
         order: {
           // Use the most recent orderNumber for display; merged content below
           orderNumber: lastOrderMeta?.orderNumber || lastOrderMeta?._id || 'N/A',
@@ -763,7 +785,37 @@ const TableSelection = () => {
           // Provide tax/total hints; template will infer if missing
           tax: sumTax || 0,
           discount: Number(lastOrderMeta?.discount) || 0,
-          totalAmount: sumTotal || subtotal
+          totalAmount: sumTotal || subtotal,
+          // Forward Token No. and Cashier so reference receipt can render them
+          tokenNumber: (tokenCandidate || lastOrderMeta?.tokenNumber
+            || lastOrderMeta?.token
+            || lastOrderMeta?.token_no
+            || lastOrderMeta?.tokenNo
+            || lastOrderMeta?.kotToken
+            || lastOrderMeta?.kot_number
+            || lastOrderMeta?.kotNumber
+          ),
+          // Also set alias for older templates
+          token: tokenCandidate || undefined,
+          cashierName: (lastOrderMeta?.createdByName
+            || lastOrderMeta?.cashierName
+            || lastOrderMeta?.createdBy?.name
+            || lastOrderMeta?.createdBy?.username
+            || lastOrderMeta?.user?.name
+            || lastOrderMeta?.userName
+            || lastOrderMeta?.staffName
+            || user?.name
+            || user?.username
+          ),
+          createdByName: (lastOrderMeta?.createdByName
+            || lastOrderMeta?.cashierName
+            || lastOrderMeta?.createdBy?.name
+            || lastOrderMeta?.createdBy?.username
+            || user?.name
+            || user?.username
+          ),
+          // If we have a createdBy object/id, forward as-is (helps resolver fallbacks)
+          createdBy: lastOrderMeta?.createdBy || undefined,
         },
         paymentDetails: {
           method: (lastOrderMeta?.paymentMethod || lastOrderMeta?.paymentMode || 'cash').toString(),
