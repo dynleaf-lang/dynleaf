@@ -123,12 +123,15 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   const gstResolved = resolveGSTIN(order, restaurantInfo || {});
   const fssaiResolved = resolveFSSAI(order, restaurantInfo || {});
 
-  const {
-    showLogo = false,
-    showQRCode = true,
-    showFooterMessage = true,
-    duplicateReceipt = false
-  } = receiptSettings;
+  // Merge explicit receiptSettings with persisted printer config (fallback)
+  const persistedCfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config') || '{}'); } catch { return {}; } })();
+  const showLogo = receiptSettings.showLogo ?? false;
+  const showQRCode = receiptSettings.showQRCode ?? (persistedCfg.showQRCode !== false);
+  const showFooterMessage = receiptSettings.showFooterMessage ?? (persistedCfg.showFooterMessage !== false);
+  const duplicateReceipt = receiptSettings.duplicateReceipt ?? false;
+  // Payment QR settings (from PrinterSettings)
+  const paymentUPIVPA = receiptSettings.paymentUPIVPA ?? persistedCfg.paymentUPIVPA ?? '';
+  const paymentUPIName = receiptSettings.paymentUPIName ?? persistedCfg.paymentUPIName ?? '';
 
   let receipt = '';
 
@@ -291,11 +294,32 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     receipt += COMMANDS.CRLF;
   }
   
-  // QR Code placeholder (would need actual QR generation)
+  // QR Code (payment intent note for thermal-text; ESC/POS QR not implemented)
   if (showQRCode) {
-    receipt += '--- QR CODE FOR FEEDBACK ---' + COMMANDS.CRLF;
-    receipt += `Order: ${order.orderNumber}` + COMMANDS.CRLF;
-    receipt += COMMANDS.CRLF;
+    if (paymentUPIVPA) {
+      try {
+        const amount = Number(order.totalAmount) || 0;
+        const upiUrl = buildUPIIntent({
+          vpa: paymentUPIVPA,
+          name: paymentUPIName || restaurantName,
+          amount,
+          orderNumber: order.orderNumber,
+          orderId: order._id,
+        });
+        receipt += '--- QR CODE FOR PAYMENT ---' + COMMANDS.CRLF;
+        receipt += `Pay to: ${paymentUPIVPA}` + COMMANDS.CRLF;
+        receipt += `Amount: ${formatCurrencyWithSymbol(amount)} (or more)` + COMMANDS.CRLF;
+        // Show the UPI URI text so staff can assist if QR fails
+        receipt += upiUrl + COMMANDS.CRLF;
+        receipt += COMMANDS.CRLF;
+      } catch {
+        receipt += '--- QR CODE FOR PAYMENT ---' + COMMANDS.CRLF;
+        receipt += COMMANDS.CRLF;
+      }
+    } else {
+      receipt += '--- QR CODE ---' + COMMANDS.CRLF;
+      receipt += COMMANDS.CRLF;
+    }
   }
   
   receipt += `Printed: ${new Date().toLocaleString('en-IN')}` + COMMANDS.CRLF;
@@ -332,9 +356,19 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
   const gstResolved = resolveGSTIN(order, restaurantInfo || {});
   const fssaiResolved = resolveFSSAI(order, restaurantInfo || {});
 
-  const {
-    duplicateReceipt = false
-  } = receiptSettings;
+  // Merge with persisted printer config (fallbacks)
+  const persistedCfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config') || '{}'); } catch { return {}; } })();
+  const duplicateReceipt = receiptSettings.duplicateReceipt ?? false;
+  const paymentUPIVPA = receiptSettings.paymentUPIVPA ?? persistedCfg.paymentUPIVPA ?? '';
+  const paymentUPIName = receiptSettings.paymentUPIName ?? persistedCfg.paymentUPIName ?? '';
+
+  const upiIntent = (() => {
+    try {
+      if (!paymentUPIVPA) return '';
+      const amt = Number(order?.totalAmount) || 0;
+      return buildUPIIntent({ vpa: paymentUPIVPA, name: paymentUPIName || (brandName || baseName), amount: amt, orderNumber: order?.orderNumber, orderId: order?._id });
+    } catch { return ''; }
+  })();
 
   const normalizedLogo = normalizeLogoUrl(logo);
   return `
@@ -421,12 +455,8 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
           margin-top: 20px;
           font-size: 10px;
         }
-        .qr-placeholder {
-          text-align: center;
-          border: 1px dashed #000;
-          padding: 20px;
-          margin: 15px 0;
-        }
+  .qr-placeholder { text-align: center; border: 1px dashed #000; padding: 20px; margin: 15px 0; }
+  .qr-img { display: block; margin: 6px auto; }
       </style>
     </head>
     <body>
@@ -460,7 +490,7 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
       <div class="item-row">
         <div class="item-name"><strong>Item</strong></div>
         <div class="item-qty"><strong>Qty</strong></div>
-  <div class="item-rate"><strong>Rate</strong></div>
+  <div class="item-rate"><strong>Price</strong></div>
         <div class="item-price"><strong>Amount</strong></div>
       </div>
       <div class="separator"></div>
@@ -540,12 +570,14 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
         <div>Please visit again!</div>
         <br>
         <div class="qr-placeholder">
-          QR CODE FOR FEEDBACK<br>
-          Order: ${order.orderNumber}
+          ${upiIntent ? 'Scan to Pay through any UPI' : ''}<br>
+          ${upiIntent ? `Pay to: ${escapeHtml(paymentUPIVPA)}<br>Amount: ${escapeHtml(formatCurrencyWithSymbol(order.totalAmount))} (or more)` : `Order: ${escapeHtml(order.orderNumber)}`}
+          ${upiIntent ? `<img class="qr-img" alt="UPI QR" width="160" height="160" src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(upiIntent)}" />` : ''}
         </div>
         <div>Printed: ${new Date().toLocaleString('en-IN')}</div>
-        <div>Powered by OrderEase POS</div>
+        <div>Powered by DynLeaf</div>
       </div>
+      
     </body>
     </html>
   `;
@@ -643,6 +675,10 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     } catch { return u; }
   };
   const normalizedLogo = normalizeLogoUrl(logo);
+  const persistedCfgRef = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config') || '{}'); } catch { return {}; } })();
+  const paymentUPIVPA = (receiptSettings?.paymentUPIVPA ?? persistedCfgRef.paymentUPIVPA) || '';
+  const paymentUPIName = (receiptSettings?.paymentUPIName ?? persistedCfgRef.paymentUPIName) || '';
+  const upiIntentRef = (() => { try { if (!paymentUPIVPA) return ''; return buildUPIIntent({ vpa: paymentUPIVPA, name: paymentUPIName || (brandName || baseName), amount: Number(roundedGrandTotal)||0, orderNumber: billNo, orderId: order?._id }); } catch { return ''; }})();
 
   return `
 <!DOCTYPE html>
@@ -662,6 +698,8 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     .row { display:flex; justify-content:space-between }
     .small { font-size: 11px }
     .hdr img { max-height: 60px; object-fit: contain; display: block; margin: 0 auto 6px auto; }
+    .fs-9 { font-size: 9px }
+    .fs-8 { font-size: 8px }
     .hdr .title { font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, 'Noto Sans', 'Liberation Sans', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.3px }
   .hdr .branch { font-weight:700; margin-top:2px }
     .kv { display:flex; justify-content:space-between; margin: 2px 0 }
@@ -726,10 +764,16 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     <div class="row grand"><div>Grand Total</div><div>${fmtSym(roundedGrandTotal)}</div></div>
     </div>
 
-    <div class="sep"></div>
+    <div class="sep"></div> 
+    <div class="qr-placeholder center small">
+     <div class="fs-8">${upiIntentRef ? 'Scan to Pay through any UPI' : 'Thank you for your order!'}</div><br>
+      ${upiIntentRef ? `<img alt="UPI QR" width="80" height="80" style="display:block;margin:3px auto" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiIntentRef)}" />` : ''} 
+      <br> 
+      <div class="fs-8">Powered by DynLeaf</div>
+    </div>
     <div class="footer small">
-      <div>Consume food products within TWO hours of purchase</div>
-      <div>Thanks</div>
+      <div class="fs-8">Consume food products within TWO hours of purchase</div>
+      <div class="fs-8">Thanks for your order!</div>
     </div>
   </body>
   </html>`;
@@ -763,9 +807,7 @@ export const printThermalReceipt = async (receiptData, printerConfig = {}) => {
   try {
     if (printerType === 'network') {
       // For network printers, we would typically send data via WebSocket or HTTP
-      // This is a simplified implementation
-      console.log('Sending to network printer:', printerIP + ':' + printerPort);
-      console.log('Receipt data:', receiptData);
+      // This is a simplified implementation 
       
       // In a real implementation, you would:
       // 1. Connect to the printer via WebSocket or HTTP
@@ -1011,6 +1053,26 @@ export const PRINTER_CONFIGS = {
     printerType: 'browser'
   }
 };
+
+// Helpers: build UPI intent URL and a tiny QR renderer for print windows
+function buildUPIIntent({ vpa, name = '', amount = 0, orderNumber = '', orderId = '' }) {
+  try {
+    const params = new URLSearchParams();
+    params.set('pa', String(vpa));
+    if (name) params.set('pn', String(name));
+    const amt = Number(amount) || 0;
+    if (amt > 0) params.set('am', amt.toFixed(2));
+    params.set('cu', 'INR');
+    if (orderNumber) params.set('tn', `Order ${orderNumber}`);
+    if (orderId) params.set('tr', String(orderId));
+    return `upi://pay?${params.toString()}`;
+  } catch {
+    const a = Number(amount) || 0;
+    return `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${encodeURIComponent(name || '')}&am=${encodeURIComponent(a.toFixed(2))}&cu=INR`;
+  }
+}
+
+// Note: QR image rendering for HTML receipts uses a lightweight external image endpoint.
 
 export default {
   generateThermalReceipt,

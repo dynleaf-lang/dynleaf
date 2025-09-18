@@ -280,6 +280,29 @@ export const POSProvider = ({ children }) => {
     setSelectedTable(null);
   }, []);
 
+  // Auto-free tables when batches clear (on payment updates from webhook/another device)
+  useEffect(() => {
+    const onBatchesUpdated = async () => {
+      try {
+        const batchesKey = 'pos_table_batches';
+        const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+        // For each occupied table that no longer has batches, release it
+        const candidates = (tables || []).filter(t => (t?.status === 'occupied'));
+        for (const t of candidates) {
+          const tid = t?._id || t?.tableId;
+          if (!tid) continue;
+          if (!all[String(tid)]) {
+            try {
+              await updateTableStatus(tid, 'available');
+            } catch (_) { /* ignore */ }
+          }
+        }
+      } catch (_) { /* ignore */ }
+    };
+    window.addEventListener('batchesUpdated', onBatchesUpdated);
+    return () => window.removeEventListener('batchesUpdated', onBatchesUpdated);
+  }, [tables, updateTableStatus]);
+
   // Get menu items by category (including subcategories)
   const getMenuItemsByCategory = useCallback((categoryId) => {
     if (!categoryId || categoryId === 'all') {

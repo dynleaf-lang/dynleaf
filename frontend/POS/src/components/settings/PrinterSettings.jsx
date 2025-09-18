@@ -23,7 +23,8 @@ import {
   FaCheck,
   FaTimes,
   FaCog,
-  FaTestTube
+  FaFlask,
+  FaSave
 } from 'react-icons/fa';
 import { PRINTER_CONFIGS, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 import toast from '../../utils/notify';
@@ -174,6 +175,15 @@ const PrinterSettings = ({ onSettingsChange }) => {
     }
   };
 
+  const handleSaveSettings = () => {
+    try {
+      localStorage.setItem('pos_printer_config', JSON.stringify(printerConfig));
+      toast.success('Printer settings saved');
+    } catch (e) {
+      toast.error('Failed to save settings');
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -296,26 +306,37 @@ const PrinterSettings = ({ onSettingsChange }) => {
           <div className="d-flex justify-content-between align-items-center mt-4">
             <div>
               <small className="text-muted">
-                Test your printer configuration to ensure receipts print correctly.
+                Changes are auto-saved. You can also click Save to confirm.
               </small>
             </div>
-            <Button
-              color="primary"
-              onClick={testPrinterConnection}
-              disabled={testing}
-            >
-              {testing ? (
-                <>
-                  <Spinner size="sm" className="me-2" />
-                  Testing...
-                </>
-              ) : (
-                <>
-                  <FaTestTube className="me-2" />
-                  Test Printer
-                </>
-              )}
-            </Button>
+            <div className="d-flex gap-2">
+              <Button
+                color="secondary"
+                onClick={handleSaveSettings}
+                disabled={testing}
+                className="me-2"
+              >
+                <FaSave className="me-2" />
+                Save Printer Settings
+              </Button>
+              <Button
+                color="primary"
+                onClick={testPrinterConnection}
+                disabled={testing}
+              >
+                {testing ? (
+                  <>
+                    <Spinner size="sm" className="me-2" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <FaFlask className="me-2" />
+                    Test Printer
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Additional Settings */}
@@ -362,7 +383,7 @@ const PrinterSettings = ({ onSettingsChange }) => {
                   onChange={(e) => handleConfigChange('showQRCode', e.target.checked)}
                 />
                 <Label check for="showQRCode">
-                  Include QR code for feedback
+                  Include QR / Payment QR
                 </Label>
               </FormGroup>
             </Col>
@@ -377,6 +398,32 @@ const PrinterSettings = ({ onSettingsChange }) => {
                 <Label check for="showFooterMessage">
                   Show thank you message
                 </Label>
+              </FormGroup>
+            </Col>
+          </Row>
+
+          {/* Payment QR Settings */}
+          <Row className="mt-3">
+            <Col md={6}>
+              <FormGroup>
+                <Label>Merchant UPI ID (VPA)</Label>
+                <Input
+                  type="text"
+                  placeholder="merchant@bank"
+                  value={printerConfig.paymentUPIVPA || ''}
+                  onChange={(e) => handleConfigChange('paymentUPIVPA', e.target.value)}
+                />
+              </FormGroup>
+            </Col>
+            <Col md={6}>
+              <FormGroup>
+                <Label>Merchant Name (optional)</Label>
+                <Input
+                  type="text"
+                  placeholder="Display name on UPI"
+                  value={printerConfig.paymentUPIName || ''}
+                  onChange={(e) => handleConfigChange('paymentUPIName', e.target.value)}
+                />
               </FormGroup>
             </Col>
           </Row>

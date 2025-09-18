@@ -499,13 +499,19 @@ const PaymentModal = ({
       };
 
       let result;
+      const receiptSettings = {
+        showQRCode: printerConfig.showQRCode !== false,
+        showFooterMessage: printerConfig.showFooterMessage !== false,
+        paymentUPIVPA: printerConfig.paymentUPIVPA || '',
+        paymentUPIName: printerConfig.paymentUPIName || ''
+      };
       if (printType === 'thermal' || (printType === 'auto' && printerConfig.printerType === 'network')) {
         // Print to thermal printer
-        const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo);
+        const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo, receiptSettings);
         result = await printThermalReceipt(thermalReceipt, printerConfig);
       } else {
         // Print using browser
-        const htmlReceipt = generateHTMLReceipt(orderData, restaurantInfo);
+        const htmlReceipt = generateHTMLReceipt(orderData, restaurantInfo, receiptSettings);
         result = printHTMLReceipt(htmlReceipt);
       }
 

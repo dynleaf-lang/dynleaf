@@ -37,6 +37,7 @@ import {
   FaImage
 } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
+import PrinterSettings from '../settings/PrinterSettings';
 import toast from '../../utils/notify';
 
 const Settings = () => {
@@ -739,72 +740,8 @@ const Settings = () => {
 
         {/* Printer Tab */}
         <TabPane tabId="printer">
-          <Card>
-            <CardHeader>
-              <h5>Thermal Printer Settings</h5>
-            </CardHeader>
-            <CardBody>
-              <Form>
-                <Row>
-                  <Col md={6}>
-                    <FormGroup>
-                      <Label>Printer IP Address</Label>
-                      <Input
-                        type="text"
-                        value={posSettings.printerIP}
-                        onChange={(e) => setPosSettings(prev => ({
-                          ...prev,
-                          printerIP: e.target.value
-                        }))}
-                        placeholder="192.168.1.100"
-                      />
-                    </FormGroup>
-                  </Col>
-                  <Col md={6}>
-                    <FormGroup>
-                      <Label>Printer Port</Label>
-                      <Input
-                        type="text"
-                        value={posSettings.printerPort}
-                        onChange={(e) => setPosSettings(prev => ({
-                          ...prev,
-                          printerPort: e.target.value
-                        }))}
-                        placeholder="9100"
-                      />
-                    </FormGroup>
-                  </Col>
-                </Row>
-                <div className="mt-3">
-                  <Button 
-                    color="info" 
-                    className="me-2"
-                    onClick={testPrinterConnection}
-                  >
-                    <FaWifi className="me-2" />
-                    Test Connection
-                  </Button>
-                  <Button 
-                    color="primary"
-                    onClick={handlePosSettingsUpdate}
-                  >
-                    <FaSave className="me-2" />
-                    Save Printer Settings
-                  </Button>
-                </div>
-                
-                <Alert color="info" className="mt-4" fade={false}>
-                  <strong>Supported Printers:</strong>
-                  <ul className="mb-0 mt-2">
-                    <li>Epson TM-T20II</li>
-                    <li>Star TSP143III</li>
-                    <li>Citizen CT-S310II</li>
-                    <li>Generic ESC/POS compatible printers</li>
-                  </ul>
-                </Alert>
-              </Form>
-            </CardBody>
-          </Card>
+          {/* Use the dedicated PrinterSettings component which includes Payment QR options */}
+          <PrinterSettings onSettingsChange={() => { /* no-op: component persists to localStorage */ }} />
         </TabPane>
       </TabContent>
 
