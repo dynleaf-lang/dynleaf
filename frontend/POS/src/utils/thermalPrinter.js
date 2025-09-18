@@ -237,7 +237,7 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   receipt += '================================' + COMMANDS.CRLF;
   receipt += COMMANDS.DOUBLE_HEIGHT;
   receipt += COMMANDS.BOLD_ON;
-  receipt += padString('TOTAL:', 20) + padString(formatCurrency(order.totalAmount), 12) + COMMANDS.CRLF;
+  receipt += padString('TOTAL:', 20) + padString(formatCurrencyWithSymbol(order.totalAmount), 12) + COMMANDS.CRLF;
   receipt += COMMANDS.NORMAL;
   receipt += COMMANDS.BOLD_OFF;
   receipt += '================================' + COMMANDS.CRLF;
@@ -508,7 +508,7 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
 
       <div class="total-row grand-total">
         <div>TOTAL:</div>
-        <div>${formatCurrency(order.totalAmount)}</div>
+        <div>${formatCurrencyWithSymbol(order.totalAmount)}</div>
       </div>
 
       <div class="separator"></div>
@@ -616,8 +616,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
   const timeStr = new Date(order?.createdAt || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   const customerName = customerInfo?.name || order?.customerName || '';
 
-  // Currency format (INR)
-  const fmt = (amt) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(amt || 0));
+  // Currency formatters (symbol only for Grand Total)
+  const fmtNoSym = (amt) => formatCurrency(amt);
+  const fmtSym = (amt) => formatCurrencyWithSymbol(amt);
 
   // Prefer explicit branchName from restaurantInfo; try order fallbacks
   const branchName = branchNameIn || order?.branchName || order?.branch?.name || '';
@@ -682,10 +683,10 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
   ${phone ? `<div class="small">Mob: ${escapeHtml(phone)}</div>` : ''}
   ${gstResolvedRef ? `<div class="small">GSTIN: ${escapeHtml(gstResolvedRef)}</div>` : ''}
   ${fssaiResolvedRef ? `<div class="small">FSSAI: ${escapeHtml(fssaiResolvedRef)}</div>` : ''}
-      ${address ? `<div class="small">${escapeHtml(address)}</div>` : ''}
+      
     </div>
 
-    <div class="sep"></div>
+    <div class="sep"></div> 
 
   ${customerName ? `<div class="kv"><div><span>Name:</span><span>${escapeHtml(customerName)}</span></div><div class="bold text-cap">${escapeHtml(orderType)}</div></div>` : ''}
   <div class="kv"><div>Date: ${dateStr},${timeStr}</div>${cashier ? `<div>Cashier: ${escapeHtml(cashier)}</div>` : ''}</div>
@@ -709,20 +710,20 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
         const amount = rate * qty;
         const inline = formatInlineParenthetical(it.customizations || {});
         const name = base + (inline ? ` (${inline})` : '');
-        return `<div class=\"line\">\n          <div class=\"c1\">${escapeHtml(name)}</div>\n          <div class=\"c2\">${qty}</div>\n          <div class=\"c3\">${fmt(rate)}</div>\n          <div class=\"c4\">${fmt(amount)}</div>\n        </div>`;
+  return `<div class=\"line\">\n          <div class=\"c1\">${escapeHtml(name)}</div>\n          <div class=\"c2\">${qty}</div>\n          <div class=\"c3\">${fmtNoSym(rate)}</div>\n          <div class=\"c4\">${fmtNoSym(amount)}</div>\n        </div>`;
       }).join('')}
     </div>
 
     <div class="sep"></div>
 
     <div class="totals">
-      <div class="row"><div>Sub Total</div><div>${fmt(subtotal)}</div></div>
-      ${discount ? `<div class="row"><div>Discount</div><div>- ${fmt(discount)}</div></div>` : ''}
-  ${gstResolvedRef && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmt(cgstAmt)}</div></div>` : ''}
-  ${gstResolvedRef && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmt(sgstAmt)}</div></div>` : ''}
-  ${(!gstResolvedRef && tax) ? `<div class="row"><div>Tax</div><div>${fmt(tax)}</div></div>` : ''}
+    <div class="row"><div>Sub Total</div><div>${fmtNoSym(subtotal)}</div></div>
+    ${discount ? `<div class="row"><div>Discount</div><div>- ${fmtNoSym(discount)}</div></div>` : ''}
+  ${gstResolvedRef && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmtNoSym(cgstAmt)}</div></div>` : ''}
+  ${gstResolvedRef && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmtNoSym(sgstAmt)}</div></div>` : ''}
+  ${(!gstResolvedRef && tax) ? `<div class="row"><div>Tax</div><div>${fmtNoSym(tax)}</div></div>` : ''}
       <div class="row"><div>Round off</div><div>${roundOff.toFixed(2)}</div></div>
-      <div class="row grand"><div>Grand Total</div><div>${fmt(roundedGrandTotal)}</div></div>
+    <div class="row grand"><div>Grand Total</div><div>${fmtSym(roundedGrandTotal)}</div></div>
     </div>
 
     <div class="sep"></div>
@@ -829,11 +830,28 @@ const padString = (str, length, padChar = ' ') => {
 };
 
 const formatCurrency = (amount) => {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0
-  }).format(amount);
+  try {
+    // Symbol-less formatting for all amounts except Grand Total
+    return new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }).format(Number(amount || 0));
+  } catch {
+    return String(amount);
+  }
+};
+
+// Use only for Grand Total
+const formatCurrencyWithSymbol = (amount) => {
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0
+    }).format(Number(amount || 0));
+  } catch {
+    return `₹ ${formatCurrency(amount)}`;
+  }
 };
 
 // Title-case for item names: capitalize each word, keep inner punctuation
