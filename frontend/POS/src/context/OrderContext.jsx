@@ -104,10 +104,11 @@ export const OrderProvider = ({ children }) => {
           specialInstructions,
           deliveryAddress
         };
-        entry.batches = [batch, ...list];
+        // Append new batch at the end so Batch #1 stays on top and newer batches appear below
+        entry.batches = [...list, batch];
         if (!ord.orderNumber) entry.nextOrderNumber = (Number(entry.nextOrderNumber) || 1) + 1;
       } else {
-        // update existing batch
+        // update existing batch but keep its relative position
         const existing = list[idx];
         const updated = {
           ...existing,
@@ -123,7 +124,7 @@ export const OrderProvider = ({ children }) => {
           specialInstructions: specialInstructions || existing.specialInstructions || '',
           deliveryAddress: deliveryAddress || existing.deliveryAddress || ''
         };
-        entry.batches = [updated, ...list.filter((_, i) => i !== idx)];
+        entry.batches = list.map((b, i) => (i === idx ? updated : b));
       }
 
       all[tableKey] = entry;
@@ -240,7 +241,9 @@ export const OrderProvider = ({ children }) => {
   try {
   localStorage.setItem('pos_table_batches', JSON.stringify({}));
   localStorage.setItem('pos_table_carts', JSON.stringify({}));
-  fetchedOrders.forEach(o => upsertBatchFromOrder(o));
+  // fetchedOrders is newest-first; upsert in ascending time so we append oldest first,
+  // keeping visual order as Batch #1 (earliest) on top and newer batches below.
+  fetchedOrders.slice().reverse().forEach(o => upsertBatchFromOrder(o));
         try { window.dispatchEvent(new Event('batchesUpdated')); } catch (_) {}
       } catch (_) {}
       

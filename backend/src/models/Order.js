@@ -72,6 +72,13 @@ const orderSchema = new mongoose.Schema({
                 required: true,
                 min: 0,
             },
+            // Full customizations payload (size/variants/addons/notes, etc.)
+            // This preserves selection details for KOT and billing displays
+            customizations: {
+                type: mongoose.Schema.Types.Mixed,
+                required: false,
+                default: {}
+            },
             notes: {
                 type: String,
                 trim: true,

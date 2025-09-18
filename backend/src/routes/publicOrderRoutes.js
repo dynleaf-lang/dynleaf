@@ -438,6 +438,8 @@ router.post('/', async (req, res) => {
                 name: String(item.name).trim(),
                 price: Number(item.price),
                 quantity: Number(item.quantity),
+                // keep full customizations so size/variant/addons survive post-KOT
+                customizations: (item && typeof item.customizations === 'object') ? item.customizations : {},
                 notes: item.notes ? String(item.notes).trim() : '',
                 subtotal: Number(item.subtotal) || Number(item.price) * Number(item.quantity)
             })),

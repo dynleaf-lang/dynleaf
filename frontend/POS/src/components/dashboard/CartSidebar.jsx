@@ -100,6 +100,35 @@ const CartSidebar = () => {
     }
   };
 
+  // Derive displayable size/variant name from customizations
+  const getVariantName = (customizations) => {
+    try {
+      if (!customizations || typeof customizations !== 'object') return null;
+      // Prefer explicit fields
+      const direct = customizations.selectedVariant || customizations.selectedSize || customizations.sizeVariant || customizations.size || customizations.variant || customizations.variantName;
+      if (direct && String(direct).trim()) return String(direct).trim();
+      // Fallback: look into variantSelections for a group named "size"
+      const vsel = customizations.variantSelections || null;
+      if (vsel && typeof vsel === 'object') {
+        const entries = Object.entries(vsel);
+        for (const [k, v] of entries) {
+          const key = String(k).trim().toLowerCase();
+          const looksLikeSize = key === 'size' || key === 'sizes' || key.includes('size') || key.includes('variant');
+          if (!looksLikeSize) continue;
+          if (Array.isArray(v)) {
+            const names = v.filter(Boolean).map((x) => String(x).trim()).filter(Boolean);
+            if (names.length) return names.join(', ');
+          } else if (typeof v === 'string' && v.trim()) {
+            return v.trim();
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   // Autocomplete state for customers
   const [custQueryName, setCustQueryName] = useState('');
   const [custQueryPhone, setCustQueryPhone] = useState('');
@@ -380,10 +409,10 @@ const CartSidebar = () => {
   useEffect(() => {
     try {
       const hasCart = Array.isArray(cartItems) && cartItems.length > 0;
-      const batches = tableBatches?.batches || [];
+  const batches = tableBatches?.batches || [];
       if (hasCart || !Array.isArray(batches) || batches.length === 0) return;
-      // Prefer the most recent batch (first if we prepend newest)
-      const latest = batches[0];
+  // Prefer the most recent batch (now stored at the end when appending)
+  const latest = batches[batches.length - 1];
       if (!latest) return;
       const next = {};
       if (latest.orderType && latest.orderType !== customerInfo.orderType) next.orderType = latest.orderType;
@@ -478,7 +507,7 @@ const CartSidebar = () => {
       const batches = tableBatches?.batches || [];
       for (const b of batches) {
         for (const it of (b.items || [])) {
-          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || '';
+          const variant = getVariantName(it?.customizations) || '';
           const key = JSON.stringify({ n: it.name || '', p: Number(it.price)||0, v: variant });
           const prev = map.get(key) || { name: it.name, price: Number(it.price)||0, quantity: 0, customizations: { selectedVariant: variant }, cartItemId: key };
           prev.quantity += Number(it.quantity)||0;
@@ -1425,8 +1454,7 @@ const CartSidebar = () => {
                 <div className="batch-summary mb-2">
                   {/* <h6>Batches for this Table</h6> */}
                   {tableBatches.batches
-                    .slice()
-                    .sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0))
+                    .slice() // preserve stored order
                     .map((batch, batchIdx) => (
                     <div key={`${batch.orderId || batchIdx}`} className="batch-section">
                       {/* Batch Header */}
@@ -1441,7 +1469,7 @@ const CartSidebar = () => {
                             <div className="item-name">
                               {item.name}
                               {(() => {
-                                const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
+                                const variantName = getVariantName(item && item.customizations);
                                 const extra = formatVariantSelections(item && item.customizations);
                                 if (variantName && extra) {
                                   return (
@@ -1528,7 +1556,7 @@ const CartSidebar = () => {
                             <div className="item-name">
                               {item.name}
                               {(() => {
-                                const variantName = (item && item.customizations && (item.customizations.selectedVariant || item.customizations.selectedSize)) || null;
+                                const variantName = getVariantName(item && item.customizations);
                                 const extra = formatVariantSelections(item && item.customizations);
                                 if (variantName && extra) {
                                   return (

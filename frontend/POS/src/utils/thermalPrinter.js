@@ -159,31 +159,16 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
     receipt += padString(item.quantity.toString(), 4);
     receipt += padString(formatCurrency(itemTotal), 12) + COMMANDS.CRLF;
     
-    // Customizations / Variant selections display
+    // Customizations / Variant selections display (robust)
     try {
       const cust = item.customizations || {};
-      // Support both array of strings and structured variantSelections
-      if (Array.isArray(cust)) {
-        cust.forEach(custom => {
-          receipt += `  + ${custom}` + COMMANDS.CRLF;
-        });
-      } else if (cust && typeof cust === 'object') {
-        const vsel = cust.variantSelections || null;
-        const sizeName = cust.selectedVariant || cust.selectedSize || null;
-        const parts = [];
-        if (sizeName) parts.push(`Size: ${sizeName}`);
-        if (vsel && typeof vsel === 'object') {
-          Object.entries(vsel).forEach(([g, val]) => {
-            if (!g || String(g).toLowerCase() === 'size') return;
-            if (Array.isArray(val)) {
-              if (val.length) parts.push(`${g}: ${val.join(', ')}`);
-            } else if (val) {
-              parts.push(`${g}: ${val}`);
-            }
-          });
-        }
-        parts.forEach(p => { receipt += `  + ${p}` + COMMANDS.CRLF; });
+      const parsed = parseCustomizations(cust);
+      if (parsed.variantLabel) {
+        receipt += `  + ${parsed.variantLabel}` + COMMANDS.CRLF;
       }
+      parsed.otherSelections.forEach(p => {
+        receipt += `  + ${p}` + COMMANDS.CRLF;
+      });
     } catch {}
   });
   
@@ -431,25 +416,11 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
         ${(() => {
           try {
             const cust = item.customizations || {};
-            if (Array.isArray(cust)) {
-              return cust.map(c => `<div class="customization">+ ${c}</div>`).join('');
-            } else if (cust && typeof cust === 'object') {
-              const vsel = cust.variantSelections || null;
-              const sizeName = cust.selectedVariant || cust.selectedSize || null;
-              const parts = [];
-              if (sizeName) parts.push(`Size: ${sizeName}`);
-              if (vsel && typeof vsel === 'object') {
-                Object.entries(vsel).forEach(([g, val]) => {
-                  if (!g || String(g).toLowerCase() === 'size') return;
-                  if (Array.isArray(val)) {
-                    if (val.length) parts.push(`${g}: ${val.join(', ')}`);
-                  } else if (val) {
-                    parts.push(`${g}: ${val}`);
-                  }
-                });
-              }
-              return parts.map(p => `<div class="customization">+ ${p}</div>`).join('');
-            }
+            const parsed = parseCustomizations(cust);
+            const htmlParts = [];
+            if (parsed.variantLabel) htmlParts.push(`<div class=\"customization\">+ ${parsed.variantLabel}</div>`);
+            parsed.otherSelections.forEach(p => htmlParts.push(`<div class=\"customization\">+ ${p}</div>`));
+            return htmlParts.join('');
           } catch {}
           return '';
         })()}
@@ -670,11 +641,16 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
         const name = it.name || it.itemName || 'Item';
         const qty = Number(it.quantity) || 1;
         const amount = (Number(it.price) || 0) * qty;
-        return `<div class="line">
-          <div class="c1">${escapeHtml(name)}</div>
-          <div class="c2">${qty}</div>
-          <div class="c3">${fmt(amount)}</div>
-        </div>`;
+        const parsed = parseCustomizations(it.customizations || {});
+        const lines = [];
+        lines.push(`<div class=\"line\">\n          <div class=\"c1\">${escapeHtml(name)}</div>\n          <div class=\"c2\">${qty}</div>\n          <div class=\"c3\">${fmt(amount)}</div>\n        </div>`);
+        if (parsed.variantLabel) {
+          lines.push(`<div class=\"line small\">\n          <div class=\"c1\">+ ${escapeHtml(parsed.variantLabel)}</div>\n          <div class=\"c2\"></div>\n          <div class=\"c3\"></div>\n        </div>`);
+        }
+        parsed.otherSelections.forEach(p => {
+          lines.push(`<div class=\"line small\">\n          <div class=\"c1\">+ ${escapeHtml(p)}</div>\n          <div class=\"c2\"></div>\n          <div class=\"c3\"></div>\n        </div>`);
+        });
+        return lines.join('');
       }).join('')}
     </div>
 
@@ -799,6 +775,55 @@ const formatCurrency = (amount) => {
     currency: 'INR',
     minimumFractionDigits: 0
   }).format(amount);
+};
+
+// Helper: robustly parse customizations/variant selections into a single variant label and other option lines
+const parseCustomizations = (cust) => {
+  const result = { variantLabel: '', otherSelections: [] };
+  try {
+    if (!cust) return result;
+    // If it's a simple array of strings
+    if (Array.isArray(cust)) {
+      result.otherSelections = cust.map(String);
+      return result;
+    }
+    if (typeof cust !== 'object') return result;
+
+    // Possible size/variant keys
+    const sizeKeys = ['selectedVariant', 'selectedSize', 'sizeVariant', 'size', 'variant', 'variantName'];
+    let sizeVal = '';
+    for (const k of sizeKeys) {
+      if (cust[k]) { sizeVal = String(cust[k]); break; }
+    }
+    // Look inside variantSelections for size-like keys as fallback
+    const vsel = cust.variantSelections && typeof cust.variantSelections === 'object' ? cust.variantSelections : null;
+    if (!sizeVal && vsel) {
+      for (const [g, val] of Object.entries(vsel)) {
+        const low = String(g).toLowerCase();
+        if (low.includes('size') || low.includes('variant')) {
+          if (Array.isArray(val)) sizeVal = val.join(', ');
+          else if (val) sizeVal = String(val);
+          if (sizeVal) break;
+        }
+      }
+    }
+    if (sizeVal) result.variantLabel = `Size: ${sizeVal}`;
+
+    // Collect other groups (exclude size-like)
+    if (vsel) {
+      Object.entries(vsel).forEach(([g, val]) => {
+        if (!g) return;
+        const low = String(g).toLowerCase();
+        if (low.includes('size') || low.includes('variant')) return;
+        if (Array.isArray(val)) {
+          if (val.length) result.otherSelections.push(`${g}: ${val.join(', ')}`);
+        } else if (val !== undefined && val !== null && String(val) !== '') {
+          result.otherSelections.push(`${g}: ${val}`);
+        }
+      });
+    }
+  } catch {}
+  return result;
 };
 
 /**
