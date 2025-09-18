@@ -670,51 +670,75 @@ const TableSelection = () => {
   const canActOnTable = Boolean(actionTableId || selectedTable?._id);
   const actionSelectedTable = tables.find(t => t._id === actionTableId);
 
-  // Print helper: builds a minimal orderData and prints via browser
+  // Print helper: merge all active KOT/batches for the table so printed items match sidebar
   const handlePrintForTable = (table, activeOrderCandidate = null) => {
     try {
       const tableOrders = getTableOrders(table._id) || [];
-      // Prefer active order else pick most recent by createdAt
-      let order = activeOrderCandidate;
-      if (!order) {
-        order = [...tableOrders].sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
-      }
+      // Consider all placed/active KOT orders for printing (merge items across batches)
+      const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+      const placedOrders = tableOrders.filter(o => {
+        const s = (o?.status || '').toLowerCase();
+        return o?.kotPrinted === true || kotPlacedStatuses.includes(s);
+      });
 
-      if (!order) {
+      // If none detected but an explicit order was passed, fallback to it
+      const ordersToPrint = placedOrders.length > 0 ? placedOrders : (activeOrderCandidate ? [activeOrderCandidate] : []);
+      if (ordersToPrint.length === 0) {
         toast.error('No orders found for this table to print.');
         return;
       }
 
-      const safeItems = Array.isArray(order.items) ? order.items : [];
-      const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+      // Merge items from all selected orders; group by name+price+variant (size)
+      const mergeMap = new Map();
+      let sumTax = 0;
+      let sumTotal = 0;
+      let lastOrderMeta = null;
+      ordersToPrint.forEach(o => {
+        const items = Array.isArray(o.items) ? o.items : [];
+        items.forEach(it => {
+          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || '';
+          const key = JSON.stringify({ n: it?.name || it?.itemName || 'Item', p: Number(it?.price) || 0, v: variant });
+          const prev = mergeMap.get(key) || {
+            name: it?.name || it?.itemName || 'Item',
+            price: Number(it?.price) || 0,
+            quantity: 0,
+            customizations: it?.customizations || {}
+          };
+          prev.quantity += Number(it?.quantity) || 1;
+          mergeMap.set(key, prev);
+        });
+        sumTax += Number(o?.tax) || 0;
+        sumTotal += Number(o?.totalAmount) || 0;
+        lastOrderMeta = o; // keep latest for meta like customer/orderType
+      });
+      const mergedItems = [...mergeMap.values()];
+      const subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+
       const orderData = {
         order: {
-          orderNumber: order.orderNumber || order._id || 'N/A',
-          createdAt: order.createdAt || new Date().toISOString(),
-          items: safeItems.map(it => ({
-            name: it.name || it.itemName || 'Item',
-            price: Number(it.price) || 0,
-            quantity: Number(it.quantity) || 1,
-            customizations: it.customizations || []
-          })),
+          // Use the most recent orderNumber for display; merged content below
+          orderNumber: lastOrderMeta?.orderNumber || lastOrderMeta?._id || 'N/A',
+          createdAt: lastOrderMeta?.createdAt || new Date().toISOString(),
+          items: mergedItems,
           subtotal,
-          tax: Number(order.tax) || 0,
-          discount: Number(order.discount) || 0,
-          totalAmount: Number(order.totalAmount) || subtotal
+          // Provide tax/total hints; template will infer if missing
+          tax: sumTax || 0,
+          discount: Number(lastOrderMeta?.discount) || 0,
+          totalAmount: sumTotal || subtotal
         },
         paymentDetails: {
-          method: (order.paymentMethod || order.paymentMode || 'cash').toString(),
-          amountReceived: Number(order.amountReceived) || Number(order.totalAmount) || subtotal,
-          change: Number(order.change) || 0,
-          cardNumber: order.cardNumber || '',
-          cardHolder: order.cardHolder || '',
-          upiId: order.upiId || '',
-          transactionId: order.transactionId || ''
+          method: (lastOrderMeta?.paymentMethod || lastOrderMeta?.paymentMode || 'cash').toString(),
+          amountReceived: Number(lastOrderMeta?.amountReceived) || Number(lastOrderMeta?.totalAmount) || subtotal,
+          change: Number(lastOrderMeta?.change) || 0,
+          cardNumber: lastOrderMeta?.cardNumber || '',
+          cardHolder: lastOrderMeta?.cardHolder || '',
+          upiId: lastOrderMeta?.upiId || '',
+          transactionId: lastOrderMeta?.transactionId || ''
         },
-        customerInfo: order.customerInfo || {
-          name: order.customerName || 'Walk-in Customer',
-          phone: order.customerPhone || '',
-          orderType: order.orderType || 'dine-in'
+        customerInfo: lastOrderMeta?.customerInfo || {
+          name: lastOrderMeta?.customerName || 'Walk-in Customer',
+          phone: lastOrderMeta?.customerPhone || '',
+          orderType: lastOrderMeta?.orderType || 'dine-in'
         },
         tableInfo: {
           name: table.TableName || table.name || table.tableNumber || 'Table',
@@ -737,7 +761,7 @@ const TableSelection = () => {
   // Use reference-style bill layout matching the attached receipt
   const html = generateHTMLReceiptReference(orderData, restaurantInfo, { duplicateReceipt: false });
       const result = printHTMLReceipt(html);
-      if (result?.success) {
+  if (result?.success) {
         toast.success('Printing started');
         // Mark this table as printed locally for UI highlighting and filters
         markTablePrinted(table._id);
@@ -1215,8 +1239,8 @@ const TableSelection = () => {
 
   const FloorPlanTable = ({ table, index }) => {
   const tableOrders = getTableOrders(table._id);
-    // Show print only when KOT has been placed (or later in the flow)
-    const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+  // Show print when a KOT exists (includes freshly placed/pending states)
+  const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
     const placedOrders = (tableOrders || []).filter(order => {
       const s = (order?.status || '').toLowerCase();
       return order?.kotPrinted === true || kotPlacedStatuses.includes(s);
@@ -1225,7 +1249,8 @@ const TableSelection = () => {
     const activeOrder = placedOrders
       .slice()
       .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
-    const shouldShowPrint = placedOrders.length > 0 && ((table?.status || '').toLowerCase() !== 'available');
+  // If there are KOT orders, show print icon regardless of table.status
+  const shouldShowPrint = placedOrders.length > 0;
 
     // Printed state highlighting
     const isPrinted = tableHasPrinted(table._id);
