@@ -157,7 +157,7 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   // Item name (truncate if too long)
   const cust = item.customizations || {};
   const inline = formatInlineParenthetical(cust);
-  const baseName = item.name + (inline ? ` (${inline})` : '');
+  const baseName = toTitleCase(item.name) + (inline ? ` (${inline})` : '');
   const itemName = baseName.length > 14 ? baseName.substring(0, 14) : baseName;
   receipt += padString(itemName, 14);
   receipt += padString(item.quantity.toString(), 3);
@@ -341,6 +341,10 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
           width: 30px;
           text-align: center;
         }
+        .item-rate {
+          width: 60px;
+          text-align: right;
+        }
         .item-price {
           width: 80px;
           text-align: right;
@@ -403,28 +407,28 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
       <div class="item-row">
         <div class="item-name"><strong>Item</strong></div>
         <div class="item-qty"><strong>Qty</strong></div>
-        <div class="item-qty"><strong>Rate</strong></div>
+  <div class="item-rate"><strong>Rate</strong></div>
         <div class="item-price"><strong>Amount</strong></div>
       </div>
       <div class="separator"></div>
 
-      ${order.items.map(item => {
+    ${order.items.map(item => {
         try {
           const inline = formatInlineParenthetical(item.customizations || {});
-          const name = item.name + (inline ? ` (${inline})` : '');
+      const name = toTitleCase(item.name) + (inline ? ` (${inline})` : '');
           return `
         <div class="item-row">
           <div class="item-name">${escapeHtml(name)}</div>
           <div class="item-qty">${item.quantity}</div>
-          <div class="item-qty">${formatCurrency(item.price)}</div>
+      <div class="item-rate">${formatCurrency(item.price)}</div>
           <div class="item-price">${formatCurrency(item.price * item.quantity)}</div>
         </div>`;
         } catch { 
           return `
         <div class="item-row">
-          <div class="item-name">${item.name}</div>
+      <div class="item-name">${toTitleCase(item.name)}</div>
           <div class="item-qty">${item.quantity}</div>
-          <div class="item-qty">${formatCurrency(item.price)}</div>
+      <div class="item-rate">${formatCurrency(item.price)}</div>
           <div class="item-price">${formatCurrency(item.price * item.quantity)}</div>
         </div>`; 
         }
@@ -596,6 +600,7 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     body { font-family: 'Roboto Mono', Menlo, Consolas, 'Courier New', monospace; font-size: 12px; line-height: 1.35; max-width: 300px; margin: 0 auto; padding: 10px; color:#000 }
     .center { text-align:center }
     .bold { font-weight:700 }
+    .text-cap { text-transform:capitalize }
     .sep { border-top: 1px dashed #000; margin: 8px 0 }
     .row { display:flex; justify-content:space-between }
     .small { font-size: 11px }
@@ -604,8 +609,8 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
   .hdr .branch { font-weight:700; margin-top:2px }
     .kv { display:flex; justify-content:space-between; margin: 2px 0 }
     .items .head, .items .line { display:flex; }
-    .items .c1 { flex: 1 1 auto }
-  .items .c2 { width: 35px; text-align:center }
+    .items .c1 { flex: 1; }
+  .items .c2 { width: 25px; text-align:center }
   .items .c3 { width: 65px; text-align:right }
   .items .c4 { width: 80px; text-align:right }
     .totals .row { margin: 3px 0 }
@@ -625,13 +630,10 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
 
     <div class="sep"></div>
 
-    ${customerName ? `<div class="kv"><div>Name:</div><div>${customerName}</div></div>` : ''}
-    <div class="kv"><div>Date:</div><div>${dateStr}</div></div>
-    <div class="kv"><div>Time:</div><div>${timeStr}</div></div>
-  <div class="kv"><div>Type:</div><div class="bold">${escapeHtml(orderType)}</div></div>
-    ${cashier ? `<div class="kv"><div>Cashier:</div><div>${cashier}</div></div>` : ''}
-    ${billNo ? `<div class="kv"><div>Bill No.:</div><div>${billNo}</div></div>` : ''}
-    ${tokenNo ? `<div class="kv"><div>Token No.:</div><div>${tokenNo}</div></div>` : ''}
+    ${customerName ? `<div class="kv"><div><span>Name:</span><span>${customerName}</span></div><div class="bold text-cap">${escapeHtml(orderType)}</div></div>` : ''}
+    <div class="kv"><div>Date: ${dateStr},${timeStr}</div>${cashier ? `<div><div>Cashier:</div><div>${cashier}</div></div>` : ''}</div>  
+    <div class="kv">${billNo ? `<div><div>Bill No.: ${billNo}</div></div>` : ''}${tokenNo ? `<div><div>Token No.:</div><div>${tokenNo}</div></div>` : ''}</div>
+   
 
     <div class="sep"></div>
 
@@ -644,7 +646,7 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
       </div>
       <div class="sep"></div>
       ${items.map(it => {
-        const base = it.name || it.itemName || 'Item';
+        const base = toTitleCase(it.name || it.itemName || 'Item');
         const qty = Number(it.quantity) || 1;
         const rate = Number(it.price) || 0;
         const amount = rate * qty;
@@ -775,6 +777,15 @@ const formatCurrency = (amount) => {
     currency: 'INR',
     minimumFractionDigits: 0
   }).format(amount);
+};
+
+// Title-case for item names: capitalize each word, keep inner punctuation
+const toTitleCase = (s) => {
+  try {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/\b([a-z])(\w*)/g, (m, a, rest) => a.toUpperCase() + rest);
+  } catch { return s; }
 };
 
 // Helper: robustly parse customizations/variant selections into a single variant label and other option lines
