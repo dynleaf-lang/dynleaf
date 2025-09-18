@@ -670,55 +670,90 @@ const TableSelection = () => {
   const canActOnTable = Boolean(actionTableId || selectedTable?._id);
   const actionSelectedTable = tables.find(t => t._id === actionTableId);
 
-  // Print helper: merge all active KOT/batches for the table so printed items match sidebar
+  // Print helper: prefer local KOT batches (sidebar view) so printed items match cart exactly
   const handlePrintForTable = (table, activeOrderCandidate = null) => {
     try {
-      const tableOrders = getTableOrders(table._id) || [];
-      // Consider all placed/active KOT orders for printing (merge items across batches)
-      const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
-      const legacyStatuses = ['pending','processing','completed'];
-      const placedOrders = tableOrders.filter(o => {
-        const s = (o?.status || '').toLowerCase();
-        const ls = (o?.orderStatus || '').toLowerCase();
-        return o?.kotPrinted === true || kotPlacedStatuses.includes(s) || kotPlacedStatuses.includes(ls) || legacyStatuses.includes(ls);
-      });
+      // Helper: normalized string for customizations to avoid merging different add-ons
+      const normalize = (v) => (String(v || '')).trim().toLowerCase();
+      const stableCust = (cust) => {
+        try {
+          if (!cust || typeof cust !== 'object') return JSON.stringify(cust || {});
+          const sorted = Object.keys(cust).sort().reduce((acc, k) => { acc[k] = cust[k]; return acc; }, {});
+          return JSON.stringify(sorted);
+        } catch { return JSON.stringify(cust || {}); }
+      };
 
-      // If none detected but an explicit order was passed, fallback to it
-      const ordersToPrint = placedOrders.length > 0 ? placedOrders : (activeOrderCandidate ? [activeOrderCandidate] : []);
-      if (ordersToPrint.length === 0) {
-        toast.error('No orders found for this table to print.');
-        return;
-      }
+      // 1) Try to build from local batches so bill matches sidebar exactly
+      const batchesKey = 'pos_table_batches';
+      const map = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      const savedForTable = map[table._id] || (table.tableId ? map[table.tableId] : null);
 
-      // Merge items from all selected orders; group by name+price+variant (size)
-      const mergeMap = new Map();
+      let mergedItems = [];
+      let subtotal = 0;
       let sumTax = 0;
       let sumTotal = 0;
       let lastOrderMeta = null;
-      const normalize = (v) => (String(v || '')).trim().toLowerCase();
-      ordersToPrint.forEach(o => {
-        const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.orderItems) ? o.orderItems : []);
-        items.forEach(it => {
-          const variant = it?.customizations?.selectedVariant || it?.customizations?.selectedSize || it?.variant || '';
-          const displayName = it?.name || it?.itemName || it?.title || 'Item';
-          const key = JSON.stringify({ n: normalize(displayName), p: Number(it?.price) || 0, v: normalize(variant) });
-          const prev = mergeMap.get(key) || {
-            name: displayName,
-            price: Number(it?.price) || 0,
-            quantity: 0,
-            customizations: it?.customizations || {}
-          };
-          prev.quantity += Number(it?.quantity) || 1;
-          mergeMap.set(key, prev);
-        });
-        sumTax += Number(o?.tax) || 0;
-        sumTotal += Number(o?.totalAmount) || 0;
-        lastOrderMeta = o; // keep latest for meta like customer/orderType
-      });
-      const mergedItems = [...mergeMap.values()];
-      const subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
 
-      const orderData = {
+      if (savedForTable && Array.isArray(savedForTable.batches) && savedForTable.batches.length) {
+        const mergeMap = new Map();
+        savedForTable.batches.forEach(batch => {
+          const items = Array.isArray(batch?.items) ? batch.items : [];
+          items.forEach(it => {
+            const displayName = it?.name || it?.itemName || it?.title || 'Item';
+            const price = Number(it?.price) || 0;
+            const qty = Number(it?.quantity) || 1;
+            const cust = it?.customizations || {};
+            const key = JSON.stringify({ n: normalize(displayName), p: price, c: stableCust(cust) });
+            const prev = mergeMap.get(key) || { name: displayName, price, quantity: 0, customizations: cust };
+            prev.quantity += qty;
+            mergeMap.set(key, prev);
+          });
+        });
+        mergedItems = [...mergeMap.values()];
+        subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+
+        // Try to obtain some meta (payment/tax) from the most recent order on this table, if available
+        const tableOrders = getTableOrders(table._id) || [];
+        lastOrderMeta = tableOrders.slice().sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0] || null;
+        sumTax = Number(lastOrderMeta?.tax) || 0;
+        sumTotal = Number(lastOrderMeta?.totalAmount) || 0;
+      } else {
+        // 2) Fallback: merge from active/placed orders (legacy behavior)
+        const tableOrders = getTableOrders(table._id) || [];
+        const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+        const legacyStatuses = ['pending','processing','completed'];
+        const placedOrders = tableOrders.filter(o => {
+          const s = (o?.status || '').toLowerCase();
+          const ls = (o?.orderStatus || '').toLowerCase();
+          return o?.kotPrinted === true || kotPlacedStatuses.includes(s) || kotPlacedStatuses.includes(ls) || legacyStatuses.includes(ls);
+        });
+        const ordersToPrint = placedOrders.length > 0 ? placedOrders : (activeOrderCandidate ? [activeOrderCandidate] : []);
+        if (ordersToPrint.length === 0) {
+          toast.error('No orders found for this table to print.');
+          return;
+        }
+        const mergeMap = new Map();
+        ordersToPrint.forEach(o => {
+          const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.orderItems) ? o.orderItems : []);
+          items.forEach(it => {
+            const displayName = it?.name || it?.itemName || it?.title || 'Item';
+            const price = Number(it?.price) || 0;
+            const qty = Number(it?.quantity) || 1;
+            const cust = it?.customizations || {};
+            const key = JSON.stringify({ n: normalize(displayName), p: price, c: stableCust(cust) });
+            const prev = mergeMap.get(key) || { name: displayName, price, quantity: 0, customizations: cust };
+            prev.quantity += qty;
+            mergeMap.set(key, prev);
+          });
+          sumTax += Number(o?.tax) || 0;
+          sumTotal += Number(o?.totalAmount) || 0;
+          lastOrderMeta = o;
+        });
+        mergedItems = [...mergeMap.values()];
+        subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+      }
+
+  const orderData = {
         order: {
           // Use the most recent orderNumber for display; merged content below
           orderNumber: lastOrderMeta?.orderNumber || lastOrderMeta?._id || 'N/A',
