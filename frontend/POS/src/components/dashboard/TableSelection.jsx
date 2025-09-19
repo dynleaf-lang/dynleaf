@@ -1352,8 +1352,9 @@ const TableSelection = () => {
     const activeOrder = placedOrders
       .slice()
       .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
-  // If there are KOT orders, show print icon regardless of table.status
-  const shouldShowPrint = placedOrders.length > 0;
+  // Show print icon only when there are KOT/orders AND table is not currently 'available'
+  // Requirement: "Print icon should not show for available tables, only for KOT sent tables"
+  const shouldShowPrint = placedOrders.length > 0 && (table.status || '').toLowerCase() !== 'available';
 
     // Printed state highlighting
     const isPrinted = tableHasPrinted(table._id);
