@@ -507,8 +507,10 @@ const PaymentModal = ({
       };
       if (printType === 'thermal' || (printType === 'auto' && printerConfig.printerType === 'network')) {
         // Print to thermal printer
-        const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo, receiptSettings);
-        result = await printThermalReceipt(thermalReceipt, printerConfig);
+  const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo, receiptSettings);
+  // Wrap with meta so routing picks cashier printer
+  const payload = Object.assign(new String(thermalReceipt), { _meta: { destination: 'cashier', type: 'receipt' } });
+  result = await printThermalReceipt(payload, printerConfig);
       } else {
         // Print using browser
         const htmlReceipt = generateHTMLReceipt(orderData, restaurantInfo, receiptSettings);

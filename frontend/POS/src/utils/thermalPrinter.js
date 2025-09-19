@@ -334,6 +334,135 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
 };
 
 /**
+ * Generate a Kitchen Order Ticket (KOT) in ESC/POS format (thermal)
+ * Focused layout: Header (KOT), table / token, items with qty + name + variants, special instructions.
+ * Avoid pricing to keep kitchen slip clean. Optional duplicate for expeditor.
+ */
+export const generateThermalKOT = (kotData, restaurantInfo = {}, settings = {}) => {
+  const { order, items = [], tableInfo, customerInfo, batchNumber } = kotData || {};
+  const {
+    name: baseName = 'Restaurant',
+    brandName
+  } = restaurantInfo || {};
+  const restaurantName = brandName || baseName;
+  const duplicate = settings.duplicate ?? false;
+  let out = '';
+  out += COMMANDS.INIT;
+  out += COMMANDS.ALIGN_CENTER + COMMANDS.BOLD_ON + COMMANDS.DOUBLE_WIDTH;
+  out += 'KOT' + COMMANDS.CRLF;
+  out += COMMANDS.NORMAL + COMMANDS.BOLD_OFF;
+  out += COMMANDS.ALIGN_CENTER + restaurantName + COMMANDS.CRLF;
+  if (duplicate) {
+    out += COMMANDS.BOLD_ON + 'DUPLICATE' + COMMANDS.CRLF + COMMANDS.BOLD_OFF;
+  }
+  out += COMMANDS.ALIGN_LEFT;
+  const orderNo = order?.orderNumber || order?._id || '';
+  const token = resolveTokenNo(order);
+  const tableName = tableInfo?.TableName || tableInfo?.name || order?.tableName || ''; 
+  if (tableName) out += 'Table : ' + tableName + COMMANDS.CRLF;
+  if (token) out += 'Token : ' + token + COMMANDS.CRLF;
+  if (orderNo) out += 'Order : ' + orderNo + COMMANDS.CRLF;
+  if (batchNumber) out += 'Batch : ' + batchNumber + COMMANDS.CRLF;
+  if (customerInfo?.name) out += 'Cust  : ' + customerInfo.name + COMMANDS.CRLF;
+  if (customerInfo?.phone) out += 'Phone : ' + customerInfo.phone + COMMANDS.CRLF;
+  out += 'Time  : ' + (new Date()).toLocaleTimeString() + COMMANDS.CRLF;
+  out += COMMANDS.CRLF;
+  // Column header similar to reference: Sl.No | Item Name | Qty.
+  const pad = (txt, len, align='left') => {
+    const s = (txt===''||txt===undefined||txt===null)?'':String(txt);
+    if (s.length >= len) return s.slice(0,len);
+    const spaces = ' '.repeat(len - s.length);
+    return align==='right'? spaces + s : s + spaces;
+  };
+  out += '--------------------------------' + COMMANDS.CRLF;
+  out += pad('Sl',3) + pad('Item Name',24) + pad('Qty',5) + COMMANDS.CRLF;
+  out += '--------------------------------' + COMMANDS.CRLF;
+  let serial = 1; let totalItems = 0;
+  items.forEach((it) => {
+    const qty = Number(it.quantity)||0; if(!qty) return;
+    const name = (it.name||'Item').toString();
+    const parenthetical = formatInlineParenthetical(it.customizations||it.customization||{});
+    const baseLine = pad(serial,3) + pad(name,24) + pad(qty,5,'right');
+    out += baseLine + COMMANDS.CRLF; serial++; totalItems += qty;
+    if (parenthetical) out += '    (' + parenthetical + ')' + COMMANDS.CRLF;
+    if (it.specialInstructions) out += '    * ' + it.specialInstructions + COMMANDS.CRLF;
+  });
+  out += '--------------------------------' + COMMANDS.CRLF;
+  out += COMMANDS.BOLD_ON + 'Total Items : ' + totalItems + COMMANDS.BOLD_OFF + COMMANDS.CRLF;
+  if (customerInfo?.specialInstructions) {
+    out += COMMANDS.CRLF + COMMANDS.BOLD_ON + COMMANDS.DOUBLE_HEIGHT + 'INSTRUCTIONS:' + COMMANDS.CRLF;
+    // Split long instructions into 32-char lines
+    const notes = customerInfo.specialInstructions.replace(/\r/g,'');
+    notes.split(/\n+/).forEach(line => {
+      line.match(/.{1,32}/g)?.forEach(seg => { out += seg + COMMANDS.CRLF; });
+    });
+    out += COMMANDS.NORMAL + COMMANDS.BOLD_OFF;
+  }
+  out += COMMANDS.CRLF + '--- END KOT ---' + COMMANDS.CRLF;
+  out += COMMANDS.CUT_PARTIAL;
+  return out;
+};
+
+/**
+ * Generate HTML based KOT (browser print fallback) with professional minimal styling for kitchen.
+ */
+export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => {
+  const { order, items = [], tableInfo, customerInfo, batchNumber } = kotData || {};
+  const { name: baseName = 'Restaurant', brandName } = restaurantInfo || {};
+  const restaurantName = brandName || baseName;
+  const duplicate = settings.duplicate ?? false;
+  const orderNo = order?.orderNumber || order?._id || '';
+  const token = resolveTokenNo(order);
+  const tableName = tableInfo?.TableName || tableInfo?.name || order?.tableName || '';
+  const time = new Date().toLocaleString();
+  let serial = 1; let totalItems = 0;
+  const rows = items.filter(it=>Number(it.quantity)>0).map(it => {
+    const qty = Number(it.quantity)||0; totalItems += qty;
+    const parenthetical = formatInlineParenthetical(it.customizations||it.customization||{});
+    const extra = parenthetical ? `<div class="variant">(${parenthetical})</div>` : '';
+    const note = it.specialInstructions ? `<div class="note">* ${it.specialInstructions}</div>` : '';
+    return `<tr><td class="sl">${serial++}</td><td class="nm">${(it.name||'')}${extra}${note}</td><td class="qt">${qty}</td></tr>`;
+  }).join('');
+  const orderNotes = customerInfo?.specialInstructions ? `<div class="big-notes"><div class="lbl">INSTRUCTIONS:</div><div>${customerInfo.specialInstructions.replace(/\n/g,'<br/>')}</div></div>` : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>KOT ${orderNo}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:8px;width:270px;font-size:12px;}
+    h1{font-size:20px;margin:0 0 4px;text-align:center;letter-spacing:1px;}
+    .duplicate{font-size:12px;text-align:center;color:#c00;font-weight:700;margin-bottom:4px;}
+    .meta{font-size:12px;margin-bottom:6px;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;}
+    .meta div{margin:2px 0;}
+    table{width:100%;border-collapse:collapse;margin-top:4px;}
+    th,td{padding:2px 0;font-size:12px;text-align:left;vertical-align:top;}
+    th.qt,td.qt{text-align:center;width:32px;}
+    th.sl,td.sl{text-align:center;width:28px;}
+    .nm{font-weight:600;}
+    .variant{font-size:11px;font-weight:400;color:#333;margin-left:4px;}
+    .note{font-size:11px;color:#c00;margin-left:4px;}
+    .tot{border-top:1px dashed #000;margin-top:4px;padding-top:4px;font-weight:700;}
+    .big-notes{margin-top:8px;border-top:1px dashed #000;padding-top:6px;font-size:14px;font-weight:700;}
+    .big-notes .lbl{margin-bottom:4px;}
+    .footer{text-align:center;margin-top:10px;font-size:11px;}
+    @media print{.no-print{display:none}}
+  </style></head><body>
+  <h1>KOT</h1>
+  <div style="text-align:center;font-weight:700;margin-bottom:6px">${restaurantName}</div>
+  ${duplicate?'<div class="duplicate">DUPLICATE</div>':''}
+  <div class="meta">
+    ${tableName?`<div>Table: <strong>${tableName}</strong></div>`:''}
+    ${token?`<div>Token: <strong>${token}</strong></div>`:''}
+    ${orderNo?`<div>Order: <strong>${orderNo}</strong></div>`:''}
+    ${batchNumber?`<div>Batch: <strong>${batchNumber}</strong></div>`:''}
+    <div>Time: ${time}</div>
+    ${customerInfo?.name?`<div>Customer: ${customerInfo.name}</div>`:''}
+  </div>
+  <table class="items"><thead><tr><th class="sl">Sl.No</th><th>Item Name</th><th class="qt">Qty</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="tot">Total Items : ${totalItems}</div>
+  ${orderNotes}
+  <div class="footer">--- END KOT ---</div>
+  <script>window.print();setTimeout(()=>window.close(),100);</script>
+  </body></html>`;
+};
+
+/**
  * Generate HTML receipt for preview/browser printing
  */
 export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings = {}) => {
@@ -801,23 +930,54 @@ export const printThermalReceipt = async (receiptData, printerConfig = {}) => {
     printerType = 'network', // 'network', 'usb', 'bluetooth'
     printerIP = '192.168.1.100',
     printerPort = 9100,
-    encoding = 'utf-8'
+    encoding = 'utf-8',
+    networkMode = 'preview', // preview | direct
+    destinations = {}
   } = printerConfig;
+  const { destination = 'cashier' } = (receiptData && receiptData._meta) || {};
+  // Normalize receipt data to raw ESC/POS string if wrapped with metadata
+  let rawData = receiptData;
+  if (rawData && typeof rawData !== 'string') {
+    if (rawData.data && typeof rawData.data === 'string') {
+      rawData = rawData.data;
+    } else if (rawData instanceof String) {
+      rawData = rawData.valueOf();
+    } else if (typeof rawData.valueOf === 'function') {
+      const v = rawData.valueOf();
+      if (typeof v === 'string') rawData = v;
+    }
+  }
+  const destCfg = destinations[destination] || destinations.cashier || null;
+  const finalIP = destCfg?.ip || printerIP;
+  const finalPort = destCfg?.port || printerPort;
 
   try {
     if (printerType === 'network') {
-      // For network printers, we would typically send data via WebSocket or HTTP
-      // This is a simplified implementation 
-      
-      // In a real implementation, you would:
-      // 1. Connect to the printer via WebSocket or HTTP
-      // 2. Send the ESC/POS commands
-      // 3. Handle printer responses and errors
-      
-      return { success: true, message: 'Receipt sent to network printer' };
+      if (typeof rawData === 'string') {
+        console.debug(`[ThermalPrinter] ESC/POS bytes=${rawData.length} mode=${networkMode} dest=${destination} -> ${finalIP}:${finalPort}`);
+        if (networkMode === 'preview') {
+          try {
+            const plain = rawData
+              .replace(/[\x1B\x1D][@-~]./g, '')
+              .replace(/[\x00-\x09\x0B-\x1A\x1C-\x1F]/g, '')
+              .replace(/\x0D\x0A/g, '\n')
+              .replace(/\r\n/g, '\n')
+              .replace(/\r/g, '\n');
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Print Preview</title><style>body{margin:0;padding:8px;font-family:Courier,monospace;font-size:12px;white-space:pre-wrap;}@media print{body{zoom:1}}.meta{font-size:10px;color:#666;margin-bottom:4px;border-bottom:1px dashed #999;padding-bottom:4px}</style></head><body><div class="meta">Preview ${destination} ${finalIP}:${finalPort}</div><pre>${plain.replace(/</g,'&lt;')}</pre><script>window.print();setTimeout(()=>window.close(),150);</script></body></html>`;
+            const w = window.open('', '_blank', 'width=400,height=600');
+            if (w) { w.document.write(html); w.document.close(); }
+          } catch (e) { console.warn('Preview open failed', e); }
+          return { success: true, message: `Preview opened for ${destination}` };
+        } else {
+          // Direct send (simulated) – integrate real socket/API here
+          console.info(`[ThermalPrinter] Simulated direct send to ${finalIP}:${finalPort} (${destination})`);
+          return { success: true, message: `Direct send simulated to ${finalIP}:${finalPort}` };
+        }
+      }
+      return { success: false, error: 'No data' };
     } else if (printerType === 'browser') {
       // For browser printing (fallback)
-      return printHTMLReceipt(receiptData);
+  return printHTMLReceipt(rawData);
     } else {
       throw new Error(`Printer type ${printerType} not supported`);
     }
@@ -1042,7 +1202,14 @@ export const PRINTER_CONFIGS = {
     printerType: 'network',
     printerIP: '192.168.1.100',
     printerPort: 9100,
-    encoding: 'utf-8'
+    encoding: 'utf-8',
+    networkMode: 'preview', // preview | direct
+  kotDestination: 'kitchen',
+  kotDuplicate: false,
+    destinations: {
+      kitchen: { ip: '192.168.1.110', port: 9100, enabled: true },
+      cashier: { ip: '192.168.1.100', port: 9100, enabled: true }
+    }
   },
   USB_THERMAL: {
     printerType: 'usb',
@@ -1077,6 +1244,8 @@ function buildUPIIntent({ vpa, name = '', amount = 0, orderNumber = '', orderId 
 export default {
   generateThermalReceipt,
   generateHTMLReceipt,
+  generateHTMLKOT,
+  generateThermalKOT,
   generateHTMLReceiptReference,
   printThermalReceipt,
   printHTMLReceipt,

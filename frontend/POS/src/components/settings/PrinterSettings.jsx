@@ -270,6 +270,90 @@ const PrinterSettings = ({ onSettingsChange }) => {
                   </FormGroup>
                 </Col>
               </Row>
+
+              <Row>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Send Mode</Label>
+                    <Input
+                      type="select"
+                      value={printerConfig.networkMode || 'preview'}
+                      onChange={(e) => handleConfigChange('networkMode', e.target.value)}
+                    >
+                      <option value="preview">Preview (Browser)</option>
+                      <option value="direct">Direct (Simulated)</option>
+                    </Input>
+                  </FormGroup>
+                </Col>
+              </Row>
+
+              <h6 className="mt-3">Destination Routing</h6>
+              <Row>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Kitchen Printer IP</Label>
+                    <Input
+                      type="text"
+                      value={printerConfig.destinations?.kitchen?.ip || ''}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, kitchen:{...(prev.destinations?.kitchen||{}), ip:e.target.value}}}))}
+                      placeholder="192.168.1.110"
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={3}>
+                  <FormGroup>
+                    <Label>Port</Label>
+                    <Input
+                      type="number"
+                      value={printerConfig.destinations?.kitchen?.port || 9100}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, kitchen:{...(prev.destinations?.kitchen||{}), port: parseInt(e.target.value)||9100}}}))}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={3} className="d-flex align-items-end">
+                  <FormGroup check className="mb-3">
+                    <Input
+                      type="checkbox"
+                      checked={printerConfig.destinations?.kitchen?.enabled !== false}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, kitchen:{...(prev.destinations?.kitchen||{}), enabled: e.target.checked}}}))}
+                    />
+                    <Label check className="ms-1">Enable</Label>
+                  </FormGroup>
+                </Col>
+              </Row>
+              <Row>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Cashier Printer IP</Label>
+                    <Input
+                      type="text"
+                      value={printerConfig.destinations?.cashier?.ip || ''}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, cashier:{...(prev.destinations?.cashier||{}), ip:e.target.value}}}))}
+                      placeholder="192.168.1.100"
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={3}>
+                  <FormGroup>
+                    <Label>Port</Label>
+                    <Input
+                      type="number"
+                      value={printerConfig.destinations?.cashier?.port || 9100}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, cashier:{...(prev.destinations?.cashier||{}), port: parseInt(e.target.value)||9100}}}))}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md={3} className="d-flex align-items-end">
+                  <FormGroup check className="mb-3">
+                    <Input
+                      type="checkbox"
+                      checked={printerConfig.destinations?.cashier?.enabled !== false}
+                      onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, cashier:{...(prev.destinations?.cashier||{}), enabled: e.target.checked}}}))}
+                    />
+                    <Label check className="ms-1">Enable</Label>
+                  </FormGroup>
+                </Col>
+              </Row>
               
               <FormGroup>
                 <Label>Encoding</Label>
@@ -343,6 +427,35 @@ const PrinterSettings = ({ onSettingsChange }) => {
           <hr className="my-4" />
           
           <h6>Receipt Settings</h6>
+
+          <Row className="mt-2">
+            <Col md={6}>
+              <FormGroup>
+                <Label>KOT Printer Destination</Label>
+                <Input
+                  type="select"
+                  value={printerConfig.kotDestination || 'kitchen'}
+                  onChange={(e)=> handleConfigChange('kotDestination', e.target.value)}
+                >
+                  <option value="kitchen">Kitchen Printer</option>
+                  <option value="cashier">Cashier / Front Desk</option>
+                </Input>
+                <small className="text-muted">Select which printer receives Kitchen Order Tickets.</small>
+              </FormGroup>
+            </Col>
+            <Col md={6}>
+              <FormGroup check className="mt-4">
+                <Input
+                  type="checkbox"
+                  id="kotDuplicate"
+                  checked={printerConfig.kotDuplicate || false}
+                  onChange={(e)=> handleConfigChange('kotDuplicate', e.target.checked)}
+                />
+                <Label check for="kotDuplicate">Print duplicate KOT</Label><br/>
+                <small className="text-muted">Enable to print a second KOT marked DUPLICATE (e.g., for expeditor).</small>
+              </FormGroup>
+            </Col>
+          </Row>
           
           <Row>
             <Col md={6}>

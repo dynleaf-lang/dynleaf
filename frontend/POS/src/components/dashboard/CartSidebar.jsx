@@ -49,7 +49,7 @@ import toast from '../../utils/notify';
 import playPosSound from '../../utils/sound';
 import './CartSidebar.css';
 import axios from 'axios';
-import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
+import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt, generateThermalKOT, generateHTMLKOT } from '../../utils/thermalPrinter';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
@@ -1033,7 +1033,7 @@ const CartSidebar = () => {
         throw new Error(result?.error || 'Failed to create order');
       }
 
-      const createdOrder = result.order;
+  const createdOrder = result.order;
 
       // Update table status to occupied for dine-in tables and link current order
       if (selectedTable?._id && (customerInfo.orderType || 'dine-in') === 'dine-in') {
@@ -1047,12 +1047,52 @@ const CartSidebar = () => {
   // Do not write batches locally here to avoid duplication.
   // OrderContext will upsert the batch into pos_table_batches on socket events.
 
-      // Clear only current table's cart items but keep customer info
-      replaceCart([], { ...customerInfo });
+      // If print requested generate professional KOT slip
+      if (withPrint) {
+        try {
+          const restaurantInfo = {
+            name: 'OrderEase Restaurant'
+          };
+          const kotPayload = {
+            order: createdOrder,
+            items: orderItems,
+            tableInfo: selectedTable,
+            customerInfo,
+            batchNumber: (tableBatches?.batches?.length || 0) + 1
+          };
+          if (printerConfig?.printerType === 'network') {
+            const kotDestination = printerConfig?.kotDestination || 'kitchen';
+            const wantDuplicate = !!printerConfig?.kotDuplicate;
+            const iterations = wantDuplicate ? 2 : 1;
+            for (let i=0;i<iterations;i++) {
+              const duplicate = i===1; // second copy marked duplicate
+              let escpos = generateThermalKOT(kotPayload, restaurantInfo, { duplicate });
+              escpos = Object.assign(new String(escpos), { _meta: { destination: kotDestination, type: duplicate? 'kot-duplicate':'kot' } });
+              const res = await printThermalReceipt(escpos, printerConfig, { destination: kotDestination });
+              if (!res?.success) {
+                console.warn('Thermal KOT print failed, falling back to HTML (copy '+(i+1)+')');
+                const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+                printHTMLReceipt(html);
+              }
+            }
+          } else {
+            const wantDuplicate = !!printerConfig?.kotDuplicate;
+            const iterations = wantDuplicate ? 2 : 1;
+            for (let i=0;i<iterations;i++) {
+              const duplicate = i===1;
+              const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+              printHTMLReceipt(html);
+            }
+          }
+        } catch (e) {
+          console.error('KOT print error', e);
+        }
+      }
 
+      // Clear only current table's cart items but keep customer info (new batch ready)
+      replaceCart([], { ...customerInfo });
       setKotSent(true);
-  // Sound feedback only; no visual toasts
-  playPosSound('success');
+      playPosSound('success');
       
     } catch (error) {
       console.error('KOT Error:', error);
