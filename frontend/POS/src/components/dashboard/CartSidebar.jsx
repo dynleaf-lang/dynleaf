@@ -38,7 +38,9 @@ import {
   FaClipboardList,
   FaPhone,
   FaMapMarkerAlt,
-  FaStickyNote
+  FaStickyNote,
+  FaPrint,
+  FaRedo
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
@@ -1250,6 +1252,124 @@ const CartSidebar = () => {
     }
   };
 
+  // Reprint last KOT for the selected table
+  const handleReprintKOT = async () => {
+    if (!batchCount) {
+      toast.error('No previous KOT to reprint');
+      return;
+    }
+    try {
+      setIsProcessing(true);
+      setProcessingAction('reprint-kot');
+      const lastBatch = tableBatches.batches[tableBatches.batches.length - 1];
+      if (!lastBatch || !Array.isArray(lastBatch.items) || lastBatch.items.length === 0) {
+        toast.error('Last batch has no items');
+        return;
+      }
+      const restaurantInfo = { name: 'OrderEase Restaurant' };
+      const kotPayload = {
+        order: { _id: lastBatch.orderId, orderNumber: lastBatch.orderNumber },
+        items: lastBatch.items,
+        tableInfo: selectedTable,
+        customerInfo: {
+          name: lastBatch.customer?.name || customerInfo.name || '',
+          phone: lastBatch.customer?.phone || customerInfo.phone || '',
+          specialInstructions: lastBatch.specialInstructions || customerInfo.specialInstructions || ''
+        },
+        batchNumber: lastBatch.orderNumber || tableBatches.batches.length
+      };
+      // Print (duplicate flag false, but allow duplicate if config)
+      try {
+        if (printerConfig?.printerType === 'network') {
+          const kotDestination = printerConfig?.kotDestination || 'kitchen';
+          const wantDuplicate = !!printerConfig?.kotDuplicate; 
+          const iterations = wantDuplicate ? 2 : 1;
+          for (let i = 0; i < iterations; i++) {
+            const duplicate = i === 1;
+            let escpos = generateThermalKOT(kotPayload, restaurantInfo, { duplicate });
+            escpos = Object.assign(new String(escpos), { _meta: { destination: kotDestination, type: duplicate ? 'kot-duplicate' : 'kot' } });
+            const res = await printThermalReceipt(escpos, printerConfig, { destination: kotDestination });
+            if (!res?.success) {
+              const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+              printHTMLReceipt(html);
+            }
+          }
+        } else {
+          const wantDuplicate = !!printerConfig?.kotDuplicate; 
+          const iterations = wantDuplicate ? 2 : 1;
+          for (let i = 0; i < iterations; i++) {
+            const duplicate = i === 1;
+            const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+            printHTMLReceipt(html);
+          }
+        }
+        toast.success('KOT reprinted');
+      } catch (e) {
+        console.error('Reprint KOT error', e);
+        toast.error('Failed to reprint KOT');
+      }
+    } finally {
+      setIsProcessing(false);
+      setProcessingAction('');
+    }
+  };
+
+  // Print provisional bill (all existing batches + current cart items)
+  const handlePrintBill = async () => {
+    const existingItems = (tableBatches?.batches || []).flatMap(b => b.items || []);
+    const newItems = cartItems || [];
+    if (existingItems.length === 0 && newItems.length === 0) {
+      toast.error('No items to print');
+      return;
+    }
+    try {
+      setIsProcessing(true);
+      setProcessingAction('print-bill');
+      const combinedItems = [...existingItems, ...newItems];
+      const total = combinedItems.reduce((s,it)=> s + (Number(it.price)||0)*(Number(it.quantity)||0), 0);
+      const restaurantInfo = {
+        name: 'OrderEase Restaurant',
+        address: 'Provisional Bill',
+        phone: '',
+        email: ''
+      };
+      const provisionalOrder = {
+        _id: 'provisional',
+        orderNumber: selectedTable ? `P-${selectedTable.TableName || selectedTable.name || ''}` : 'PROV',
+        items: combinedItems,
+        totalAmount: total,
+        tableName: selectedTable?.TableName || selectedTable?.name || ''
+      };
+      const receiptData = {
+        order: provisionalOrder,
+        paymentDetails: { method: 'N/A', amountReceived: 0, change: 0 },
+        customerInfo,
+        tableInfo: selectedTable
+      };
+      if (printerConfig?.printerType === 'network') {
+        try {
+          const payload = generateThermalReceipt(receiptData, restaurantInfo, { provisional: true });
+          const res = await printThermalReceipt(payload, printerConfig);
+          if (!res?.success) throw new Error(res?.error || 'Thermal print failed');
+        } catch (e) {
+          console.warn('Thermal provisional print failed, falling back to HTML', e);
+          const html = generateHTMLReceipt(receiptData, restaurantInfo, { provisional: true });
+          printHTMLReceipt(html);
+        }
+      } else {
+        const html = generateHTMLReceipt(receiptData, restaurantInfo, { provisional: true });
+        printHTMLReceipt(html);
+      }
+      toast.success('Provisional bill printed');
+    } catch (e) {
+      console.error('Print bill error', e);
+      toast.error('Failed to print bill');
+    } finally {
+      setIsProcessing(false);
+      setProcessingAction('');
+    }
+  };
+
   // Global keyboard shortcuts for faster POS actions
   useEffect(() => {
     const isTypingContext = (target) => {
@@ -1890,7 +2010,7 @@ const CartSidebar = () => {
                     )}
                   </Button>
                 </div>
-                <div className="col-4 d-none">
+                <div className="col-4">
                   <Button
                     color="outline-secondary"
                     size="sm"
@@ -1908,6 +2028,50 @@ const CartSidebar = () => {
                       <>
                         <FaEdit className="me-1" />
                         Hold
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="outline-secondary"
+                    size="sm"
+                    onClick={handleReprintKOT}
+                    disabled={isProcessing || batchCount === 0}
+                    className="w-100 pos-action-btn"
+                    title={batchCount === 0 ? 'No KOT batches yet' : 'Reprint last KOT'}
+                  >
+                    {isProcessing && processingAction === 'reprint-kot' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Reprinting...
+                      </>
+                    ) : (
+                      <>
+                        <FaRedo className="me-1" />
+                        Reprint KOT
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <div className="col-4">
+                  <Button
+                    color="outline-primary"
+                    size="sm"
+                    onClick={handlePrintBill}
+                    disabled={isProcessing || (batchCount === 0 && cartItems.length === 0)}
+                    className="w-100 pos-action-btn"
+                    title={(batchCount === 0 && cartItems.length === 0) ? 'No items to bill' : 'Print provisional bill'}
+                  >
+                    {isProcessing && processingAction === 'print-bill' ? (
+                      <>
+                        <Spinner size="sm" className="me-1" />
+                        Printing...
+                      </>
+                    ) : (
+                      <>
+                        <FaPrint className="me-1" />
+                        Print Bill
                       </>
                     )}
                   </Button>

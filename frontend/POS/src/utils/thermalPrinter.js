@@ -1213,8 +1213,17 @@ export const PRINTER_CONFIGS = {
   },
   USB_THERMAL: {
     printerType: 'usb',
-    vendorId: 0x04b8,
-    productId: 0x0202
+    vendorId: 0x04b8, // Example Epson
+    productId: 0x0202,
+    interface: 0,
+    timeout: 3000
+  },
+  BLUETOOTH_THERMAL: {
+    printerType: 'bluetooth',
+    deviceName: '',
+    deviceAddress: '',
+    paired: false,
+    connectionTimeout: 5000
   },
   BROWSER_FALLBACK: {
     printerType: 'browser'

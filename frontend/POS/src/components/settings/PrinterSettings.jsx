@@ -12,7 +12,14 @@ import {
   ButtonGroup,
   Row,
   Col,
-  Spinner
+  Spinner,
+  Nav,
+  NavItem,
+  NavLink,
+  TabContent,
+  TabPane,
+  FormFeedback,
+  UncontrolledTooltip
 } from 'reactstrap';
 import {
   FaPrint,
@@ -24,7 +31,10 @@ import {
   FaTimes,
   FaCog,
   FaFlask,
-  FaSave
+  FaSave,
+  FaInfoCircle,
+  FaLink,
+  FaUnlink
 } from 'react-icons/fa';
 import { PRINTER_CONFIGS, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 import toast from '../../utils/notify';
@@ -38,6 +48,77 @@ const PrinterSettings = ({ onSettingsChange }) => {
   
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('unknown');
+  const [activeTab, setActiveTab] = useState('printer');
+  const [validation, setValidation] = useState({});
+  const [usbDeviceInfo, setUsbDeviceInfo] = useState(null);
+  const [btDeviceInfo, setBtDeviceInfo] = useState(null);
+  // Validation patterns
+  const ipRegex = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+  const upiRegex = /^[A-Za-z0-9._-]{2,}@{1}[A-Za-z]{2,}$/;
+  const hexIdRegex = /^0x[0-9a-fA-F]{4}$/;
+  const macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+
+  const validateConfig = (cfg) => {
+    const v = {};
+    if (cfg.printerType === 'network') {
+      if (!cfg.printerIP || !ipRegex.test(cfg.printerIP.trim())) v.printerIP = 'Invalid IP';
+      if (!cfg.printerPort || cfg.printerPort < 1 || cfg.printerPort > 65535) v.printerPort = 'Invalid port';
+      if (cfg.destinations) {
+        if (cfg.destinations.kitchen?.ip && !ipRegex.test(cfg.destinations.kitchen.ip)) v.kitchenIP = 'Invalid kitchen IP';
+        if (cfg.destinations.cashier?.ip && !ipRegex.test(cfg.destinations.cashier.ip)) v.cashierIP = 'Invalid cashier IP';
+      }
+    }
+    if (cfg.printerType === 'usb') {
+      if (cfg.vendorId && !hexIdRegex.test(String(cfg.vendorId))) v.vendorId = 'Use hex e.g. 0x04b8';
+      if (cfg.productId && !hexIdRegex.test(String(cfg.productId))) v.productId = 'Use hex e.g. 0x0202';
+    }
+    if (cfg.printerType === 'bluetooth') {
+      if (cfg.deviceAddress && !macRegex.test(cfg.deviceAddress)) v.deviceAddress = 'Invalid MAC format';
+    }
+    if (cfg.paymentUPIVPA) {
+      if (!upiRegex.test(cfg.paymentUPIVPA.trim())) v.paymentUPIVPA = 'Invalid UPI VPA';
+    }
+    setValidation(v);
+    return v;
+  };
+
+  useEffect(() => { validateConfig(printerConfig); }, [printerConfig]);
+  const hasErrors = Object.keys(validation).length > 0;
+
+  // WebUSB pairing
+  const handleUSBPair = async () => {
+    if (!('usb' in navigator)) { toast.error('WebUSB not supported in this browser'); return; }
+    try {
+      const device = await navigator.usb.requestDevice({ filters: [] });
+      if (device) {
+        const ven = '0x' + device.vendorId.toString(16).padStart(4,'0');
+        const prod = '0x' + device.productId.toString(16).padStart(4,'0');
+        handleConfigChange('vendorId', ven);
+        handleConfigChange('productId', prod);
+        setUsbDeviceInfo({ productName: device.productName, manufacturerName: device.manufacturerName, serialNumber: device.serialNumber, ven, prod });
+        toast.success('USB device selected');
+      }
+    } catch (e) {
+      if (e && e.name !== 'NotFoundError') toast.error('USB pairing failed: ' + e.message);
+    }
+  };
+  const clearUSB = () => setUsbDeviceInfo(null);
+
+  // Web Bluetooth pairing
+  const handleBluetoothPair = async () => {
+    if (!('bluetooth' in navigator)) { toast.error('Web Bluetooth not supported'); return; }
+    try {
+      const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+      if (device) {
+        setBtDeviceInfo({ name: device.name, id: device.id });
+        handleConfigChange('deviceName', device.name || 'BT Printer');
+        toast.success('Bluetooth device selected');
+      }
+    } catch (e) {
+      if (e && e.name !== 'NotFoundError') toast.error('Bluetooth pairing failed: ' + e.message);
+    }
+  };
+  const clearBluetooth = () => setBtDeviceInfo(null);
 
   useEffect(() => {
     // Save to localStorage whenever config changes
@@ -58,6 +139,9 @@ const PrinterSettings = ({ onSettingsChange }) => {
         break;
       case 'browser':
         newConfig = { ...PRINTER_CONFIGS.BROWSER_FALLBACK };
+        break;
+      case 'bluetooth':
+        newConfig = { ...PRINTER_CONFIGS.BLUETOOTH_THERMAL };
         break;
       default:
         newConfig = { ...PRINTER_CONFIGS.BROWSER_FALLBACK };
@@ -188,18 +272,35 @@ const PrinterSettings = ({ onSettingsChange }) => {
     <Card>
       <CardHeader>
         <div className="d-flex justify-content-between align-items-center">
-          <div>
+          <div className="d-flex align-items-center">
             <FaPrint className="me-2" />
-            Thermal Printer Settings
+            <span>Printer & Payment Settings</span>
           </div>
           <Alert color={getStatusColor()} className="mb-0 py-1 px-2" fade={false}>
             {getStatusIcon()} <span className="ms-1">{getStatusText()}</span>
           </Alert>
         </div>
+        <Nav pills className="mt-3">
+          <NavItem>
+            <NavLink
+              className={activeTab === 'printer' ? 'active' : ''}
+              onClick={() => setActiveTab('printer')}
+              style={{ cursor: 'pointer' }}
+            >Printer</NavLink>
+          </NavItem>
+          <NavItem>
+            <NavLink
+              className={activeTab === 'payment' ? 'active' : ''}
+              onClick={() => setActiveTab('payment')}
+              style={{ cursor: 'pointer' }}
+            >Payment</NavLink>
+          </NavItem>
+        </Nav>
       </CardHeader>
-      
       <CardBody>
-        <Form>
+        <TabContent activeTab={activeTab}>
+          <TabPane tabId="printer">
+          <Form>
           {/* Printer Type Selection */}
           <FormGroup>
             <Label>Printer Type</Label>
@@ -217,7 +318,6 @@ const PrinterSettings = ({ onSettingsChange }) => {
                   color={printerConfig.printerType === 'usb' ? 'primary' : 'outline-primary'}
                   onClick={() => handlePrinterTypeChange('usb')}
                   className="d-flex flex-column align-items-center py-3"
-                  disabled
                 >
                   <FaUsb size={20} className="mb-1" />
                   <small>USB</small>
@@ -226,7 +326,6 @@ const PrinterSettings = ({ onSettingsChange }) => {
                   color={printerConfig.printerType === 'bluetooth' ? 'primary' : 'outline-primary'}
                   onClick={() => handlePrinterTypeChange('bluetooth')}
                   className="d-flex flex-column align-items-center py-3"
-                  disabled
                 >
                   <FaBluetooth size={20} className="mb-1" />
                   <small>Bluetooth</small>
@@ -249,13 +348,16 @@ const PrinterSettings = ({ onSettingsChange }) => {
               <Row>
                 <Col md={8}>
                   <FormGroup>
-                    <Label>Printer IP Address</Label>
+                    <Label>Printer IP Address <FaInfoCircle id="tipPrinterIP" className="text-muted" size={12} /></Label>
                     <Input
                       type="text"
                       value={printerConfig.printerIP || ''}
                       onChange={(e) => handleConfigChange('printerIP', e.target.value)}
                       placeholder="192.168.1.100"
+                      invalid={!!validation.printerIP}
                     />
+                    {validation.printerIP && <FormFeedback>{validation.printerIP}</FormFeedback>}
+                    <UncontrolledTooltip target="tipPrinterIP">LAN IPv4 of thermal printer (port 9100 typical)</UncontrolledTooltip>
                   </FormGroup>
                 </Col>
                 <Col md={4}>
@@ -266,7 +368,9 @@ const PrinterSettings = ({ onSettingsChange }) => {
                       value={printerConfig.printerPort || ''}
                       onChange={(e) => handleConfigChange('printerPort', parseInt(e.target.value))}
                       placeholder="9100"
+                      invalid={!!validation.printerPort}
                     />
+                    {validation.printerPort && <FormFeedback>{validation.printerPort}</FormFeedback>}
                   </FormGroup>
                 </Col>
               </Row>
@@ -297,7 +401,9 @@ const PrinterSettings = ({ onSettingsChange }) => {
                       value={printerConfig.destinations?.kitchen?.ip || ''}
                       onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, kitchen:{...(prev.destinations?.kitchen||{}), ip:e.target.value}}}))}
                       placeholder="192.168.1.110"
+                      invalid={!!validation.kitchenIP}
                     />
+                    {validation.kitchenIP && <FormFeedback>{validation.kitchenIP}</FormFeedback>}
                   </FormGroup>
                 </Col>
                 <Col md={3}>
@@ -330,7 +436,9 @@ const PrinterSettings = ({ onSettingsChange }) => {
                       value={printerConfig.destinations?.cashier?.ip || ''}
                       onChange={(e)=> setPrinterConfig(prev => ({...prev, destinations:{...prev.destinations, cashier:{...(prev.destinations?.cashier||{}), ip:e.target.value}}}))}
                       placeholder="192.168.1.100"
+                      invalid={!!validation.cashierIP}
                     />
+                    {validation.cashierIP && <FormFeedback>{validation.cashierIP}</FormFeedback>}
                   </FormGroup>
                 </Col>
                 <Col md={3}>
@@ -372,17 +480,76 @@ const PrinterSettings = ({ onSettingsChange }) => {
 
           {/* USB Printer Settings */}
           {printerConfig.printerType === 'usb' && (
-            <Alert color="warning" fade={false}>
-              <strong>USB Printing:</strong> USB printer support requires additional drivers and is not yet implemented. 
-              Please use Network or Browser printing for now.
-            </Alert>
+            <>
+              <Alert color="warning" fade={false}>
+                <strong>USB Printing (Experimental):</strong> Pair with your device via WebUSB (Chromium / localhost or HTTPS).
+              </Alert>
+              <Row>
+                <Col md={4}>
+                  <FormGroup>
+                    <Label>Vendor ID (hex)</Label>
+                    <Input type="text" value={printerConfig.vendorId || ''}
+                      onChange={e=>handleConfigChange('vendorId', e.target.value)} placeholder="0x04b8" invalid={!!validation.vendorId} />
+                    {validation.vendorId && <FormFeedback>{validation.vendorId}</FormFeedback>}
+                  </FormGroup>
+                </Col>
+                <Col md={4}>
+                  <FormGroup>
+                    <Label>Product ID (hex)</Label>
+                    <Input type="text" value={printerConfig.productId || ''}
+                      onChange={e=>handleConfigChange('productId', e.target.value)} placeholder="0x0202" invalid={!!validation.productId} />
+                    {validation.productId && <FormFeedback>{validation.productId}</FormFeedback>}
+                  </FormGroup>
+                </Col>
+                <Col md={4}>
+                  <FormGroup>
+                    <Label>Interface</Label>
+                    <Input type="number" value={printerConfig.interface || 0}
+                      onChange={e=>handleConfigChange('interface', parseInt(e.target.value)||0)} />
+                  </FormGroup>
+                </Col>
+              </Row>
+              <div className="d-flex align-items-center gap-2 mb-3">
+                <Button color="secondary" size="sm" onClick={handleUSBPair}><FaLink className="me-1" />Pair USB</Button>
+                {usbDeviceInfo && <Button color="outline-danger" size="sm" onClick={clearUSB}><FaUnlink className="me-1" />Clear</Button>}
+                {usbDeviceInfo && <small className="text-muted">{usbDeviceInfo.productName || 'USB'} paired</small>}
+              </div>
+            </>
+          )}
+
+          {/* Bluetooth Printer Settings */}
+          {printerConfig.printerType === 'bluetooth' && (
+            <>
+              <Alert color="info" fade={false}>
+                <strong>Bluetooth Printing (Experimental):</strong> Requires Web Bluetooth (Chromium / localhost or HTTPS).
+              </Alert>
+              <Row>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Device Name</Label>
+                    <Input type="text" value={printerConfig.deviceName || ''} onChange={e=>handleConfigChange('deviceName', e.target.value)} placeholder="BT-Printer" />
+                  </FormGroup>
+                </Col>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>MAC / Address</Label>
+                    <Input type="text" value={printerConfig.deviceAddress || ''} onChange={e=>handleConfigChange('deviceAddress', e.target.value)} placeholder="00:11:22:33:44:55" invalid={!!validation.deviceAddress} />
+                    {validation.deviceAddress && <FormFeedback>{validation.deviceAddress}</FormFeedback>}
+                  </FormGroup>
+                </Col>
+              </Row>
+              <div className="d-flex align-items-center gap-2 mb-3">
+                <Button color="secondary" size="sm" onClick={handleBluetoothPair}><FaLink className="me-1" />Pair Bluetooth</Button>
+                {btDeviceInfo && <Button color="outline-danger" size="sm" onClick={clearBluetooth}><FaUnlink className="me-1" />Clear</Button>}
+                {btDeviceInfo && <small className="text-muted">{btDeviceInfo.name || 'BT'} paired</small>}
+              </div>
+            </>
           )}
 
           {/* Browser Printer Settings */}
           {printerConfig.printerType === 'browser' && (
             <Alert color="info" fade={false}>
-              <strong>Browser Printing:</strong> Receipts will be printed using the browser's print dialog. 
-              This works with any printer connected to your computer.
+              <strong>Browser Printing:</strong> Uses system dialog for any connected printer.
             </Alert>
           )}
 
@@ -397,11 +564,11 @@ const PrinterSettings = ({ onSettingsChange }) => {
               <Button
                 color="secondary"
                 onClick={handleSaveSettings}
-                disabled={testing}
+                disabled={testing || hasErrors}
                 className="me-2"
               >
                 <FaSave className="me-2" />
-                Save Printer Settings
+                {hasErrors ? 'Fix Errors to Save' : 'Save Printer Settings'}
               </Button>
               <Button
                 color="primary"
@@ -425,7 +592,6 @@ const PrinterSettings = ({ onSettingsChange }) => {
 
           {/* Additional Settings */}
           <hr className="my-4" />
-          
           <h6>Receipt Settings</h6>
 
           <Row className="mt-2">
@@ -515,32 +681,47 @@ const PrinterSettings = ({ onSettingsChange }) => {
             </Col>
           </Row>
 
-          {/* Payment QR Settings */}
-          <Row className="mt-3">
-            <Col md={6}>
-              <FormGroup>
-                <Label>Merchant UPI ID (VPA)</Label>
-                <Input
-                  type="text"
-                  placeholder="merchant@bank"
-                  value={printerConfig.paymentUPIVPA || ''}
-                  onChange={(e) => handleConfigChange('paymentUPIVPA', e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md={6}>
-              <FormGroup>
-                <Label>Merchant Name (optional)</Label>
-                <Input
-                  type="text"
-                  placeholder="Display name on UPI"
-                  value={printerConfig.paymentUPIName || ''}
-                  onChange={(e) => handleConfigChange('paymentUPIName', e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-          </Row>
-        </Form>
+          </Form>
+          </TabPane>
+          <TabPane tabId="payment">
+            <Form>
+              <h6>Payment QR / UPI Settings</h6>
+              <Row className="mt-2">
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Merchant UPI ID (VPA)</Label>
+                    <Input type="text" placeholder="merchant@bank" value={printerConfig.paymentUPIVPA || ''}
+                      onChange={e=>handleConfigChange('paymentUPIVPA', e.target.value)} invalid={!!validation.paymentUPIVPA} />
+                    {validation.paymentUPIVPA && <FormFeedback>{validation.paymentUPIVPA}</FormFeedback>}
+                  </FormGroup>
+                </Col>
+                <Col md={6}>
+                  <FormGroup>
+                    <Label>Merchant Name (optional)</Label>
+                    <Input type="text" placeholder="Display name on UPI" value={printerConfig.paymentUPIName || ''}
+                      onChange={e=>handleConfigChange('paymentUPIName', e.target.value)} />
+                  </FormGroup>
+                </Col>
+              </Row>
+              <Row>
+                <Col md={6}>
+                  <FormGroup check>
+                    <Input type="checkbox" id="showQRCode2" checked={printerConfig.showQRCode !== false}
+                      onChange={e=>handleConfigChange('showQRCode', e.target.checked)} />
+                    <Label check for="showQRCode2">Include Payment QR on receipts</Label>
+                  </FormGroup>
+                </Col>
+                <Col md={6}>
+                  <FormGroup check>
+                    <Input type="checkbox" id="showFooterMessage2" checked={printerConfig.showFooterMessage !== false}
+                      onChange={e=>handleConfigChange('showFooterMessage', e.target.checked)} />
+                    <Label check for="showFooterMessage2">Show thank you message</Label>
+                  </FormGroup>
+                </Col>
+              </Row>
+            </Form>
+          </TabPane>
+        </TabContent>
       </CardBody>
     </Card>
   );
