@@ -45,13 +45,15 @@ import {
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
 import { useOrder } from '../../context/OrderContext';
+import { useAuth } from '../../context/AuthContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import PaymentModal from './PaymentModal';
 import toast from '../../utils/notify';
 import playPosSound from '../../utils/sound';
 import './CartSidebar.css';
 import axios from 'axios';
-import { generateHTMLReceipt, printHTMLReceipt, printThermalReceipt, generateThermalReceipt, generateThermalKOT, generateHTMLKOT } from '../../utils/thermalPrinter';
+import { generateHTMLReceipt, generateHTMLReceiptReference, printHTMLReceipt, printThermalReceipt, generateThermalReceipt, generateThermalKOT, generateHTMLKOT } from '../../utils/thermalPrinter';
+import { printTableBill } from '../../utils/printTableBill';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
@@ -74,9 +76,23 @@ const CartSidebar = () => {
     replaceCart
   } = useCart();
   
-  const { selectedTable, updateTableStatus } = usePOS();
-  const { createOrder, updatePaymentStatus } = useOrder();
+  const { selectedTable, updateTableStatus, restaurant, branch } = usePOS();
+  const { createOrder, updatePaymentStatus, getOrdersByTable } = useOrder();
+  const { user } = useAuth();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
+
+  // Price formatter (fallbacks if currency context not ready)
+  const formatPrice = (value) => {
+    try {
+      const num = Number(value) || 0;
+      if (currencyReady && typeof formatCurrencyDynamic === 'function') {
+        return formatCurrencyDynamic(num);
+      }
+      return num.toFixed(2);
+    } catch {
+      return (Number(value) || 0).toFixed(2);
+    }
+  };
 
   // Format non-size variant group selections for display next to item names
   const formatVariantSelections = (customizations) => {
@@ -135,6 +151,9 @@ const CartSidebar = () => {
   const [custQueryName, setCustQueryName] = useState('');
   const [custQueryPhone, setCustQueryPhone] = useState('');
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
+  // Tick to force recompute of memoized table batches when localStorage mutations occur
+  const [batchesTick, setBatchesTick] = useState(0);
+  const [kotSentItems, setKotSentItems] = useState({}); // { cartItemId: sentQty }
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
@@ -262,140 +281,32 @@ const CartSidebar = () => {
     setCustQueryPhone(customerInfo?.phone || '');
   }, [customerInfo?.name, customerInfo?.phone]);
 
+  // Load KOT sent quantities per table
+  useEffect(() => {
+    const tableId = selectedTable?._id;
+    if (!tableId) { setKotSentItems({}); return; }
+    try {
+      const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
+      setKotSentItems(all[tableId] || {});
+    } catch { setKotSentItems({}); }
+  }, [selectedTable && selectedTable._id]);
+
   // Initialize notes draft from context when opening instructions modal or when context changes externally
   useEffect(() => {
     setNotesDraft(customerInfo?.specialInstructions || '');
   }, [customerInfo?.specialInstructions, showInstructionsModal]);
 
-  // Strong event isolation for notes textarea to prevent global listeners from triggering rerenders
-  useEffect(() => {
-    const el = notesInputRef.current;
-    if (!el) return;
-    const stopAll = (e) => {
-      e.stopPropagation();
-      if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-        e.nativeEvent.stopImmediatePropagation();
-      }
-    };
-    const handlers = [
-      ['keydown', stopAll, true],
-      ['keyup', stopAll, true],
-      ['keypress', stopAll, true],
-      ['input', stopAll, true],
-      ['click', stopAll, true],
-      ['focus', stopAll, true]
-    ];
-    handlers.forEach(([type, fn, cap]) => el.addEventListener(type, fn, { capture: cap }));
-    return () => handlers.forEach(([type, fn, cap]) => el.removeEventListener(type, fn, { capture: cap }));
-  }, [notesInputRef.current]);
-
-  // Dynamic currency formatting (memoized)
-  const nf = useMemo(() => {
-    if (!currencyReady || !formatCurrencyDynamic) return null;
-    // Wrap provided formatter in a stable shim for consistent API
-    return (v) => formatCurrencyDynamic(v, { minimumFractionDigits: 0 });
-  }, [currencyReady, formatCurrencyDynamic]);
-  const fallbackNf = useMemo(() => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }), []);
-  const formatPrice = (price) => (nf ? nf(price || 0) : fallbackNf.format(price || 0));
-
-  // Get batches for the currently selected table from localStorage
-  // Tries multiple identifiers to handle cases where orders are keyed by table code (e.g., "T0653")
-  // or by Mongo _id, depending on the event source.
+  // Retrieve current table batches from localStorage
   const getCurrentTableBatches = () => {
-    if (!selectedTable) return null;
-    const keys = [];
+    const tableId = selectedTable?._id || selectedTable?.tableId;
+    if (!tableId) return null;
     try {
-      const candidates = [
-        selectedTable?._id,
-        selectedTable?.tableId,
-        selectedTable?.id,
-        selectedTable?.TableId,
-        selectedTable?.TableID,
-        selectedTable?.name,
-        selectedTable?.TableName
-      ]
-        .map((k) => (k != null ? String(k) : null))
-        .filter(Boolean);
-      keys.push(...candidates);
       const map = JSON.parse(localStorage.getItem('pos_table_batches') || '{}');
-      for (const k of keys) {
-        if (map[k] && Array.isArray(map[k].batches)) return map[k];
-      }
-      return null;
+      return map[tableId] || null;
     } catch {
       return null;
     }
   };
-
-  // Debug function to clear persistent batch data
-  const clearTableBatchData = (tableId) => {
-    try {
-      const batchesKey = 'pos_table_batches';
-      const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
-      delete batchesAll[tableId];
-      localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
-      
-      // Also clear cart data
-      const cartsKey = 'pos_table_carts';
-      const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
-      delete cartsAll[tableId];
-      localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
-      
-      toast.success(`Cleared persistent data for table ${tableId}`);
-      
-      // Force re-render
-      setIsProcessing(false);
-    } catch (error) {
-      console.error('Error clearing table data:', error);
-      toast.error('Failed to clear table data');
-    }
-  };
-
-  // Sync to context on blur to avoid frequent re-renders while typing
-  const syncNameToContext = () => {
-    const val = (custQueryName || '').trim();
-    const shouldClearId = !!customerInfo?.customerId && val !== (customerInfo?.name || '');
-    updateCustomerInfo({ name: val, ...(shouldClearId ? { customerId: null } : {}) });
-  };
-  const syncPhoneToContext = () => {
-    const val = normalizePhone(custQueryPhone || '');
-    const shouldClearId = !!customerInfo?.customerId && val !== normalizePhone(customerInfo?.phone || '');
-    updateCustomerInfo({ phone: val, ...(shouldClearId ? { customerId: null } : {}) });
-  };
-
-  // Hide suggestions with a slight delay to allow onMouseDown selection
-  const hideNameSuggestions = () => setTimeout(() => setShowNameSuggestions(false), 100);
-  const hidePhoneSuggestions = () => setTimeout(() => setShowPhoneSuggestions(false), 100);
-
-  // Force refresh of batches when real-time events arrive (must be before useMemo uses it)
-  const [batchesTick, setBatchesTick] = useState(0);
-  useEffect(() => {
-    // Throttle to one state update per animation frame
-    let rafId = null;
-    const schedule = () => {
-      if (rafId != null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        setBatchesTick((t) => t + 1);
-      });
-    };
-    const bump = () => schedule();
-    window.addEventListener('newOrder', bump);
-    window.addEventListener('orderUpdate', bump);
-    window.addEventListener('orderStatusUpdate', bump);
-    window.addEventListener('paymentStatusUpdate', bump);
-    window.addEventListener('tableStatusUpdate', bump);
-    window.addEventListener('batchesUpdated', bump);
-    return () => {
-      window.removeEventListener('newOrder', bump);
-      window.removeEventListener('orderUpdate', bump);
-      window.removeEventListener('orderStatusUpdate', bump);
-      window.removeEventListener('paymentStatusUpdate', bump);
-      window.removeEventListener('tableStatusUpdate', bump);
-      window.removeEventListener('batchesUpdated', bump);
-      if (rafId != null) window.cancelAnimationFrame(rafId);
-    };
-  }, []);
 
   const tableBatches = useMemo(
     () => getCurrentTableBatches(),
@@ -545,6 +456,7 @@ const CartSidebar = () => {
         const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
         delete all[selectedTable._id];
         localStorage.setItem(batchesKey, JSON.stringify(all));
+  try { setBatchesTick(t => t + 1); } catch {}
       } catch {}
       try {
         const cartsKey = 'pos_table_carts';
@@ -723,6 +635,7 @@ const CartSidebar = () => {
         // Save back to localStorage
         batchesAll[tableId] = entry;
         localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+  try { setBatchesTick(t => t + 1); } catch {}
         
         toast.success('Item quantity updated');
         
@@ -767,6 +680,7 @@ const CartSidebar = () => {
         // Save back to localStorage
         batchesAll[tableId] = entry;
         localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+  try { setBatchesTick(t => t + 1); } catch {}
         
         toast.success('Item removed from batch');
         
@@ -993,20 +907,29 @@ const CartSidebar = () => {
     setProcessingAction(withPrint ? 'kot-print' : 'kot');
     
     try {
-      // Build order data for this batch (send only current cart items)
-      const orderItems = cartItems.map(item => {
-        const price = Number(item.price) || 0;
-        const quantity = Number(item.quantity) || 0;
-        const subtotal = price * quantity;
-        return {
-          menuItemId: item.menuItemId,
-          name: item.name,
-          price,
-          quantity,
-          subtotal,
-          customizations: item.customizations || {}
-        };
+      // Build only unsent quantities for this KOT
+      const pendingItems = [];
+      cartItems.forEach(item => {
+        const total = Number(item.quantity) || 0;
+        const sent = Number(kotSentItems[item.cartItemId] || 0);
+        const pending = total - sent;
+        if (pending > 0) {
+          const price = Number(item.price) || 0;
+          pendingItems.push({
+            menuItemId: item.menuItemId,
+            name: item.name,
+            price,
+            quantity: pending,
+            subtotal: price * pending,
+            customizations: item.customizations || {}
+          });
+        }
       });
+
+      if (pendingItems.length === 0) {
+        toast.error('No new items to send to kitchen');
+        return;
+      }
 
       const orderData = {
         tableId: selectedTable?._id || null,
@@ -1017,7 +940,7 @@ const CartSidebar = () => {
           phone: customerInfo.phone || ''
         },
         specialInstructions: customerInfo.specialInstructions || '',
-        items: orderItems,
+  items: pendingItems,
         totalAmount: getTotal()
       };
 
@@ -1057,7 +980,7 @@ const CartSidebar = () => {
           };
           const kotPayload = {
             order: createdOrder,
-            items: orderItems,
+            items: pendingItems,
             tableInfo: selectedTable,
             customerInfo,
             batchNumber: (tableBatches?.batches?.length || 0) + 1
@@ -1091,8 +1014,22 @@ const CartSidebar = () => {
         }
       }
 
-      // Clear only current table's cart items but keep customer info (new batch ready)
-      replaceCart([], { ...customerInfo });
+      // Update sent quantity map (persist per table) and keep items
+      const updatedSent = { ...kotSentItems };
+      pendingItems.forEach(pi => {
+        const match = cartItems.find(ci => ci.menuItemId === pi.menuItemId && ci.name === pi.name && ci.customizations === pi.customizations && ci.cartItemId);
+        const id = match ? match.cartItemId : null;
+        if (id) updatedSent[id] = (updatedSent[id] || 0) + pi.quantity;
+      });
+      setKotSentItems(updatedSent);
+      try {
+        const tableId = selectedTable?._id;
+        if (tableId) {
+          const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
+          all[tableId] = updatedSent;
+          localStorage.setItem('pos_table_kot_sent', JSON.stringify(all));
+        }
+      } catch {}
       setKotSent(true);
       playPosSound('success');
       
@@ -1266,7 +1203,19 @@ const CartSidebar = () => {
         toast.error('Last batch has no items');
         return;
       }
-      const restaurantInfo = { name: 'OrderEase Restaurant' };
+      const restaurantInfo = {
+        name: (restaurant?.brandName || restaurant?.name || user?.restaurantName || 'Restaurant'),
+        brandName: restaurant?.brandName || restaurant?.name || user?.restaurantName || undefined,
+        branchName: branch?.name || branch?.branchName || user?.branchName || undefined,
+        logo: restaurant?.logo || user?.restaurantLogo || undefined,
+        address: branch?.address || branch?.addressLine || 'Address',
+        phone: branch?.phone || branch?.contactNumber || '',
+        email: restaurant?.email || '',
+        state: restaurant?.state || undefined,
+        gstRegistrations: Array.isArray(restaurant?.gstRegistrations) ? restaurant.gstRegistrations : undefined,
+        gst: (branch?.gst || branch?.gstNumber || restaurant?.gstNumber) || undefined,
+        fssaiLicense: branch?.fssaiLicense || undefined
+      };
       const kotPayload = {
         order: { _id: lastBatch.orderId, orderNumber: lastBatch.orderNumber },
         items: lastBatch.items,
@@ -1314,53 +1263,23 @@ const CartSidebar = () => {
     }
   };
 
-  // Print provisional bill (all existing batches + current cart items)
+  // Print Bill using shared utility (was duplicated, now centralized)
   const handlePrintBill = async () => {
-    const existingItems = (tableBatches?.batches || []).flatMap(b => b.items || []);
-    const newItems = cartItems || [];
-    if (existingItems.length === 0 && newItems.length === 0) {
-      toast.error('No items to print');
+    if (!selectedTable?._id) {
+      toast.error('Select a table to print bill');
       return;
     }
     try {
       setIsProcessing(true);
       setProcessingAction('print-bill');
-      const combinedItems = [...existingItems, ...newItems];
-      const total = combinedItems.reduce((s,it)=> s + (Number(it.price)||0)*(Number(it.quantity)||0), 0);
-      const restaurantInfo = {
-        name: 'OrderEase Restaurant',
-        address: 'Provisional Bill',
-        phone: '',
-        email: ''
-      };
-      const provisionalOrder = {
-        _id: 'provisional',
-        orderNumber: selectedTable ? `P-${selectedTable.TableName || selectedTable.name || ''}` : 'PROV',
-        items: combinedItems,
-        totalAmount: total,
-        tableName: selectedTable?.TableName || selectedTable?.name || ''
-      };
-      const receiptData = {
-        order: provisionalOrder,
-        paymentDetails: { method: 'N/A', amountReceived: 0, change: 0 },
-        customerInfo,
-        tableInfo: selectedTable
-      };
-      if (printerConfig?.printerType === 'network') {
-        try {
-          const payload = generateThermalReceipt(receiptData, restaurantInfo, { provisional: true });
-          const res = await printThermalReceipt(payload, printerConfig);
-          if (!res?.success) throw new Error(res?.error || 'Thermal print failed');
-        } catch (e) {
-          console.warn('Thermal provisional print failed, falling back to HTML', e);
-          const html = generateHTMLReceipt(receiptData, restaurantInfo, { provisional: true });
-          printHTMLReceipt(html);
-        }
-      } else {
-        const html = generateHTMLReceipt(receiptData, restaurantInfo, { provisional: true });
-        printHTMLReceipt(html);
-      }
-      toast.success('Provisional bill printed');
+      await printTableBill({
+        table: selectedTable,
+        getOrdersByTable,
+        restaurant,
+        branch,
+        user,
+        customerInfo
+      });
     } catch (e) {
       console.error('Print bill error', e);
       toast.error('Failed to print bill');
@@ -2118,7 +2037,7 @@ const CartSidebar = () => {
                   <Button 
                     color="primary" 
                     onClick={handleSaveOrder}
-                    disabled={isProcessing || !saveOrderName.trim()}
+                                       disabled={isProcessing || !saveOrderName.trim()}
                   >
                     {isProcessing && processingAction === 'saving' ? (
                       <>
@@ -2635,9 +2554,10 @@ const CartSidebar = () => {
               setSplitPayerIndex(0);
               setSplitSingleMode(false);
               if (!billingSplitMode) {
-                const slice = cartItems
-                  .map((it)=> ({ ...it, quantity: (splitAllocations[it.cartItemId] || [])[0] || 0 }))
-                  .filter(it=>it.quantity>0);
+                const slice = cartItems.map((it)=>({
+                  ...it,
+                  quantity: (splitAllocations[it.cartItemId] || [])[0] || 0
+                })).filter(it=>it.quantity>0);
                 setCurrentSplitCart(slice);
               } else {
                 setCurrentSplitCart([]);
