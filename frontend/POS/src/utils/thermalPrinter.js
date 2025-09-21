@@ -493,7 +493,7 @@ export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => 
     const note = it.specialInstructions ? `<div class="note">* ${it.specialInstructions}</div>` : '';
     return `<tr><td class="sl">${serial++}</td><td class="nm">${(it.name||'')}${extra}${note}</td><td class="qt">${qty}</td></tr>`;
   }).join('');
-  const orderNotes = customerInfo?.specialInstructions ? `<div class="big-notes"><div class="lbl">INSTRUCTIONS:</div><div>${customerInfo.specialInstructions.replace(/\n/g,'<br/>')}</div></div>` : '';
+  const orderNotes = customerInfo?.specialInstructions ? `<div class="big-notes"><div class="lbl fs-8">Order Notes:</div><div>${customerInfo.specialInstructions.replace(/\n/g,'<br/>')}</div></div>` : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>KOT ${orderNo}</title><style>
     body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:8px;width:270px;font-size:12px;}
     h1{font-size:20px;margin:0 0 4px;text-align:center;letter-spacing:1px;}
@@ -508,8 +508,8 @@ export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => 
     .variant{font-size:11px;font-weight:400;color:#333;margin-left:4px;}
     .note{font-size:11px;color:#c00;margin-left:4px;}
     .tot{border-top:1px dashed #000;margin-top:4px;padding-top:4px;font-weight:700;}
-    .big-notes{margin-top:8px;border-top:1px dashed #000;padding-top:6px;font-size:14px;font-weight:700;}
-    .big-notes .lbl{margin-bottom:4px;}
+    .big-notes{margin-top:8px;border-top:1px dashed #000;padding-top:6px;font-size:14px;font-weight:700; text-align:center;}
+    .big-notes .lbl{margin-bottom:4px; font-weight:400; font-size:9px;}
     .footer{text-align:center;margin-top:10px;font-size:11px;}
     @media print{.no-print{display:none}}
   </style></head><body>

@@ -1487,7 +1487,7 @@ const CartSidebar = () => {
                     {(customerInfo.name || customerInfo.phone) && (
                       <Badge 
                         color="success" 
-                        className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                        className="position-absolute top-0 start-100 translate-middle badge-indicator mt-2 ms-3  p-1"
                       >
                         ✓
                       </Badge>
@@ -1508,7 +1508,7 @@ const CartSidebar = () => {
                     {customerInfo.specialInstructions && (
                       <Badge 
                         color="success" 
-                        className="position-absolute top-0 start-100 translate-middle badge-indicator"
+                        className="position-absolute top-0 start-100 translate-middle badge-indicator mt-2 ms-3  p-1"
                       >
                         ✓
                       </Badge>
@@ -2301,6 +2301,9 @@ const CartSidebar = () => {
                         ? `${currentInstructions}, ${tag.label}`
                         : tag.label;
                       setNotesDraft(newInstructions);
+                      // Immediately save the instructions
+                      updateCustomerInfo({ specialInstructions: newInstructions.slice(0, 500).trim() });
+                      toast.success(`Added "${tag.label}" to instructions`);
                     }}
                   >
                     <span className="me-1">{tag.icon}</span>
@@ -2324,10 +2327,24 @@ const CartSidebar = () => {
           >
             Clear
           </Button>
-          <Button color="secondary" onClick={() => setShowInstructionsModal(false)}>
+          <Button color="secondary" onClick={() => {
+            // Save any pending changes before closing
+            const val = (notesDraft || '').slice(0, 500).trim();
+            if (val !== (customerInfo?.specialInstructions || '')) {
+              updateCustomerInfo({ specialInstructions: val });
+            }
+            setShowInstructionsModal(false);
+          }}>
             Close
           </Button>
-          <Button color="primary" onClick={() => setShowInstructionsModal(false)}>
+          <Button color="primary" onClick={() => {
+            // Save any pending changes before closing
+            const val = (notesDraft || '').slice(0, 500).trim();
+            if (val !== (customerInfo?.specialInstructions || '')) {
+              updateCustomerInfo({ specialInstructions: val });
+            }
+            setShowInstructionsModal(false);
+          }}>
             Done
           </Button>
         </ModalFooter>
