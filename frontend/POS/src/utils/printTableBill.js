@@ -160,13 +160,17 @@ export function printTableBill({ table, getOrdersByTable, restaurant, branch, us
       address: branch?.address || branch?.addressLine || 'Address',
       phone: branch?.phone || branch?.contactNumber || '',
       email: restaurant?.email || '',
+      country: restaurant?.country || branch?.country || undefined,
       state: restaurant?.state || undefined,
       gstRegistrations: Array.isArray(restaurant?.gstRegistrations) ? restaurant.gstRegistrations : undefined,
       gst: (branch?.gst || branch?.gstNumber || restaurant?.gstNumber) || undefined,
       fssaiLicense: branch?.fssaiLicense || undefined
     };
 
-    const html = generateHTMLReceiptReference(orderData, restaurantInfo, { duplicateReceipt: false });
+    const html = generateHTMLReceiptReference(orderData, restaurantInfo, { 
+      duplicateReceipt: false,
+      dynamicTaxPercent: null // Will be added when POSContext provides tax info
+    });
     const result = printHTMLReceipt(html);
     if (result?.success) {
       toast.success('Printing started');

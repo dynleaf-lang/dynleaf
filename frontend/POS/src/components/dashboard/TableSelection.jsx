@@ -852,6 +852,8 @@ const TableSelection = () => {
         address: branch?.address || branch?.addressLine || 'Address',
         phone: branch?.phone || branch?.contactNumber || '',
         email: restaurant?.email || '',
+        // Critical: Include country for tax breakdown (CGST/SGST for India)
+        country: restaurant?.country || branch?.country || undefined,
         // Optional fields to help GST/FSSAI resolution
         state: restaurant?.state || undefined,
         gstRegistrations: Array.isArray(restaurant?.gstRegistrations) ? restaurant.gstRegistrations : undefined,
@@ -862,7 +864,10 @@ const TableSelection = () => {
       };
 
   // Use reference-style bill layout matching the attached receipt
-  const html = generateHTMLReceiptReference(orderData, restaurantInfo, { duplicateReceipt: false });
+  const html = generateHTMLReceiptReference(orderData, restaurantInfo, { 
+    duplicateReceipt: false,
+    dynamicTaxPercent: null // Will be added when POSContext provides tax info
+  });
       const result = printHTMLReceipt(html);
   if (result?.success) {
         toast.success('Printing started');

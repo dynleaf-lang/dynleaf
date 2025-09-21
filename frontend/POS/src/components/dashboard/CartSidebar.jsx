@@ -1129,6 +1129,7 @@ const CartSidebar = () => {
             address: '123 Main Street, City, State 12345',
             phone: '+91 98765 43210',
             email: 'info@orderease.com',
+            country: 'India',
             gst: 'GST123456789'
           };
 

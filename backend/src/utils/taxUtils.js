@@ -20,7 +20,12 @@ const calculateTax = async (restaurantId, subtotal) => {
       throw new Error('Restaurant not found');
     }
 
-    const country = restaurant.country;
+    let country = restaurant.country;
+    
+    // Normalize country names to match tax table entries
+    if (country && country.toLowerCase() === 'india') {
+      country = 'IN';
+    }
     
     // Get tax information for the country
     const taxInfo = await Tax.findOne({ country, active: true });
@@ -51,12 +56,24 @@ const calculateTax = async (restaurantId, subtotal) => {
     // Round to 2 decimal places
     taxAmount = parseFloat(taxAmount.toFixed(2));
     
+    // For India, provide CGST/SGST breakdown
+    let taxBreakdown = {};
+    if (country === 'IN' && taxAmount > 0) {
+      const halfAmount = +(taxAmount / 2).toFixed(2);
+      const halfPercent = +(taxInfo.percentage / 2).toFixed(2);
+      taxBreakdown = {
+        cgst: { amount: halfAmount, percentage: halfPercent },
+        sgst: { amount: halfAmount, percentage: halfPercent }
+      };
+    }
+    
     return {
       tax: taxAmount,
       taxDetails: {
         country,
         taxName: taxInfo.name,
-        percentage: taxInfo.percentage
+        percentage: taxInfo.percentage,
+        breakdown: taxBreakdown
       }
     };
   } catch (error) {

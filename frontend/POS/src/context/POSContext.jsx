@@ -26,6 +26,7 @@ export const POSProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
   const [branch, setBranch] = useState(null);
+  const [taxInfo, setTaxInfo] = useState(null);
 
   // API base URL
   const API_BASE_URL = getApiBase();
@@ -163,6 +164,24 @@ export const POSProvider = ({ children }) => {
     }
   }, [API_BASE_URL, user?.branchId]);
 
+  const fetchTaxInfo = useCallback(async () => {
+    try {
+      // Try to get country from restaurant or branch
+      let country = restaurant?.country || branch?.country;
+      if (!country) return;
+      
+      // Normalize country for API call
+      const normalizedCountry = country.toLowerCase() === 'india' ? 'IN' : country;
+      
+      const resp = await axios.get(`${API_BASE_URL}/public/taxes/${normalizedCountry}`);
+      if (resp.data?.success && resp.data?.data) {
+        setTaxInfo(resp.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching tax info:', error);
+    }
+  }, [API_BASE_URL, restaurant?.country, branch?.country]);
+
   // Fetch data when user is authenticated (placed after fetchRestaurantInfo)
   useEffect(() => {
     (async () => {
@@ -185,6 +204,13 @@ export const POSProvider = ({ children }) => {
       }
     })();
   }, [user, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, fetchRestaurantInfo]);
+
+  // Fetch tax info when restaurant or branch is loaded
+  useEffect(() => {
+    if (restaurant || branch) {
+      fetchTaxInfo();
+    }
+  }, [restaurant, branch, fetchTaxInfo]);
 
   // Reservations API (secured)
   const getTableReservations = useCallback(async (tableId, params = {}) => {
@@ -432,9 +458,11 @@ export const POSProvider = ({ children }) => {
   getInventoryStatusForMenuItem,
   restaurant,
   branch,
+  taxInfo,
   fetchRestaurantInfo,
-  fetchBranchInfo
-  }), [tables, categories, menuItems, inventoryItems, floors, selectedTable, loading, error, findCustomerByPhone, createCustomerIfNeeded, getTableReservations, createReservation, updateReservation, cancelReservation, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, updateTableStatus, selectTable, clearSelectedTable, refreshData, getMenuItemsByCategory, getCategoryWithChildren, getAvailableTables, getOccupiedTables, searchMenuItems, getTableById, getInventoryStatusForMenuItem, restaurant, branch, fetchRestaurantInfo, fetchBranchInfo]);
+  fetchBranchInfo,
+  fetchTaxInfo
+  }), [tables, categories, menuItems, inventoryItems, floors, selectedTable, loading, error, findCustomerByPhone, createCustomerIfNeeded, getTableReservations, createReservation, updateReservation, cancelReservation, fetchTables, fetchCategories, fetchMenuItems, fetchFloors, fetchInventory, updateTableStatus, selectTable, clearSelectedTable, refreshData, getMenuItemsByCategory, getCategoryWithChildren, getAvailableTables, getOccupiedTables, searchMenuItems, getTableById, getInventoryStatusForMenuItem, restaurant, branch, taxInfo, fetchRestaurantInfo, fetchBranchInfo, fetchTaxInfo]);
 
   return (
     <POSContext.Provider value={value}>

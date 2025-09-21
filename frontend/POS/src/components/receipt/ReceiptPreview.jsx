@@ -40,6 +40,7 @@ const ReceiptPreview = ({
     address: 'Address',
     phone: 'Phone',
     email: '',
+    country: undefined,
     gst: ''
   };
 

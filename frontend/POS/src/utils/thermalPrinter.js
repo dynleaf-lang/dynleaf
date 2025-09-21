@@ -99,6 +99,71 @@ function resolveFSSAI(order, restaurantInfo) {
   } catch { return ''; }
 }
 
+// Utility function to fetch dynamic tax information
+async function fetchTaxInfo(country) {
+  try {
+    const normalizedCountry = country === 'India' ? 'IN' : country;
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api/public/taxes/${normalizedCountry}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.data) {
+        return data.data.percentage || null;
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch tax information:', error);
+  }
+  return null;
+}
+
+// Determine tax breakdown lines based on restaurant country.
+// For India (IN / India) and when GSTIN present, split into CGST and SGST equally.
+function buildTaxBreakdown({ order, restaurantInfo, subtotal, dynamicTaxPercent = null }) {
+  try {
+    const countryRaw = (restaurantInfo?.country || '').toString().trim();
+    const country = countryRaw.toUpperCase();
+    // Prefer new field names if present
+    const taxAmount = Number(order?.taxAmount ?? order?.tax) || 0;
+    
+    // For testing: if no tax but we have India + GSTIN, compute GST using dynamic or default rate
+    const gstPresent = !!resolveGSTIN(order, restaurantInfo || {});
+    const isIndia = country === 'IN' || country === 'INDIA' || countryRaw.toLowerCase() === 'india';
+    
+    let finalTaxAmount = taxAmount;
+    
+    // If no tax amount but we have India + GSTIN, compute using dynamic or fallback rate
+    if (!finalTaxAmount && isIndia && gstPresent && subtotal > 0) {
+      const taxRate = dynamicTaxPercent || 5; // Use dynamic rate or fallback to 5%
+      finalTaxAmount = +((subtotal * (taxRate / 100)).toFixed(2));
+    }
+    
+    if (!finalTaxAmount) return { lines: [], taxAmount: 0 };
+    
+    const effectiveSubtotal = Number(subtotal) || 0;
+    const pctFromDetails = Number(order?.taxDetails?.percentage);
+    // Use dynamic tax percent if available, otherwise calculate from amount
+    const inferredPct = effectiveSubtotal > 0 ? (finalTaxAmount / effectiveSubtotal) * 100 : 0;
+    const taxPercent = pctFromDetails || dynamicTaxPercent || inferredPct || 0;
+    
+    if (isIndia && gstPresent) {
+      const halfAmt = +(finalTaxAmount / 2).toFixed(2);
+      const halfPct = taxPercent ? +(taxPercent / 2).toFixed(2) : 0;
+      return {
+        lines: [
+          { label: halfPct ? `CGST@${halfPct}%` : 'CGST', amount: halfAmt },
+          { label: halfPct ? `SGST@${halfPct}%` : 'SGST', amount: halfAmt }
+        ],
+        taxAmount: finalTaxAmount
+      };
+    }
+    // Generic single tax line
+    const label = taxPercent ? `Tax@${(+taxPercent.toFixed(2))}%` : 'Tax';
+    return { lines: [{ label, amount: finalTaxAmount }], taxAmount: finalTaxAmount };
+  } catch (err) {
+    return { lines: [], taxAmount: 0 };
+  }
+}
+
 /**
  * Generate thermal printer receipt content
  */
@@ -229,9 +294,14 @@ export const generateThermalReceipt = (orderData, restaurantInfo, receiptSetting
   // Totals
   receipt += padString('Subtotal:', 20) + padString(formatCurrency(order.subtotal || subtotal), 12) + COMMANDS.CRLF;
   
-  if (order.tax && order.tax > 0) {
-    receipt += padString('Tax:', 20) + padString(formatCurrency(order.tax), 12) + COMMANDS.CRLF;
-  }
+  // Tax breakdown (supports CGST/SGST for India)
+  try {
+    const dynamicTaxPercent = receiptSettings.dynamicTaxPercent;
+    const taxInfo = buildTaxBreakdown({ order, restaurantInfo, subtotal: order.subtotal || subtotal, dynamicTaxPercent });
+    taxInfo.lines.forEach(l => {
+      receipt += padString(l.label + ':', 20) + padString(formatCurrency(l.amount), 12) + COMMANDS.CRLF;
+    });
+  } catch {}
   
   if (order.discount && order.discount > 0) {
     receipt += padString('Discount:', 20) + padString('-' + formatCurrency(order.discount), 12) + COMMANDS.CRLF;
@@ -652,12 +722,15 @@ export const generateHTMLReceipt = (orderData, restaurantInfo, receiptSettings =
         <div>Subtotal:</div>
         <div>${formatCurrency(order.subtotal || order.totalAmount)}</div>
       </div>
-      ${order.tax ? `
-        <div class="total-row">
-          <div>Tax:</div>
-          <div>${formatCurrency(order.tax)}</div>
-        </div>
-      ` : ''}
+      ${(() => { 
+        try { 
+          const subtotalVal = order.subtotal || order.totalAmount || 0; 
+          const dynamicTaxPercent = receiptSettings.dynamicTaxPercent;
+          const { lines } = buildTaxBreakdown({ order, restaurantInfo, subtotal: subtotalVal, dynamicTaxPercent });
+          if (!lines.length) return '';
+          return lines.map(l => `<div class=\"total-row\"><div>${escapeHtml(l.label)}:</div><div>${formatCurrency(l.amount)}</div></div>`).join('');
+        } catch { return ''; } 
+      })()}
       ${order.discount ? `
         <div class="total-row">
           <div>Discount:</div>
@@ -747,16 +820,43 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     if (isFinite(inferred) && inferred > 0) tax = inferred;
   }
   const discount = Number(order?.discount) || 0;
+  // If no explicit/inferred tax yet and GSTIN + Indian context exists, try deriving via percentage (exclusive model)
+  const countryRawRef = (restaurantInfo?.country || '').toString().trim().toUpperCase();
+  const isIndiaRef = countryRawRef === 'IN' || countryRawRef === 'INDIA' || restaurantInfo?.country?.toLowerCase() === 'india';
+  const gstKnownRef = !!gstResolvedRef;
+  let explicitPct = Number(order?.taxDetails?.percentage);
+  if (!explicitPct) {
+    const dt = restaurantInfo?.defaultTaxRate; // could be 0.18 or 0.1
+    if (dt) {
+      explicitPct = dt <= 1 ? (dt * 100) : dt;
+    }
+  }
+  // Use dynamic tax percentage from admin portal if available
+  const dynamicTaxPercent = receiptSettings?.dynamicTaxPercent;
+  if (!explicitPct && dynamicTaxPercent) {
+    explicitPct = dynamicTaxPercent;
+  }
+  // If still zero and we previously inferred a tax >0 derive percent from it.
+  if (!explicitPct && tax > 0 && subtotal > 0) {
+    explicitPct = (tax / subtotal) * 100;
+  }
+  // For India with GSTIN, ensure tax is calculated even if zero initially
+  if (isIndiaRef && gstKnownRef && !tax) {
+    // Use dynamic percentage from admin, fallback to 5% if not available
+    const defaultGSTRate = explicitPct || dynamicTaxPercent || 5;
+    tax = +(((subtotal - discount) * defaultGSTRate) / 100).toFixed(2);
+  }
+
   const totalBeforeRound = (subtotal - discount) + tax;
   const roundedGrandTotal = Math.round(totalBeforeRound);
   const roundOff = Number((roundedGrandTotal - totalBeforeRound).toFixed(2));
 
-  // Try to infer tax percent if available
+  // Determine final percent used for display
   const taxPercent = subtotal > 0 ? ((tax / subtotal) * 100) : 0;
-  const cgstPercent = taxPercent > 0 ? +(taxPercent / 2).toFixed(2) : 0;
+  const cgstPercent = (isIndiaRef && gstKnownRef && taxPercent > 0) ? +(taxPercent / 2).toFixed(2) : (taxPercent > 0 ? +(taxPercent / 2).toFixed(2) : 0);
   const sgstPercent = cgstPercent;
-  const cgstAmt = +(tax / 2).toFixed(2);
-  const sgstAmt = +(tax / 2).toFixed(2);
+  const cgstAmt = (isIndiaRef && gstKnownRef && tax > 0) ? +(tax / 2).toFixed(2) : +(tax / 2).toFixed(2);
+  const sgstAmt = cgstAmt;
 
   const rawBill = (order?.orderNumber || order?._id || '').toString();
   const billNo = (() => {
@@ -886,9 +986,9 @@ export const generateHTMLReceiptReference = (orderData, restaurantInfo, receiptS
     <div class="totals">
     <div class="row"><div>Sub Total</div><div>${fmtNoSym(subtotal)}</div></div>
     ${discount ? `<div class="row"><div>Discount</div><div>- ${fmtNoSym(discount)}</div></div>` : ''}
-  ${gstResolvedRef && tax ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmtNoSym(cgstAmt)}</div></div>` : ''}
-  ${gstResolvedRef && tax ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmtNoSym(sgstAmt)}</div></div>` : ''}
-  ${(!gstResolvedRef && tax) ? `<div class="row"><div>Tax</div><div>${fmtNoSym(tax)}</div></div>` : ''}
+  ${(isIndiaRef && gstKnownRef && tax > 0) ? `<div class="row"><div>CGST@${cgstPercent}%</div><div>${fmtNoSym(cgstAmt)}</div></div>` : ''}
+  ${(isIndiaRef && gstKnownRef && tax > 0) ? `<div class="row"><div>SGST@${sgstPercent}%</div><div>${fmtNoSym(sgstAmt)}</div></div>` : ''}
+  ${(!isIndiaRef && tax > 0) ? `<div class="row"><div>Tax</div><div>${fmtNoSym(tax)}</div></div>` : ''}
       <div class="row"><div>Round off</div><div>${roundOff.toFixed(2)}</div></div>
     <div class="row grand"><div>Grand Total</div><div>${fmtSym(roundedGrandTotal)}</div></div>
     </div>
