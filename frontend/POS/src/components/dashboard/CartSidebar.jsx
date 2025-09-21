@@ -1735,6 +1735,20 @@ const CartSidebar = () => {
             }
           })()}
 
+          {/* Show Saved Orders Button - Only show when there are saved orders but section is hidden and cart is empty */}
+          {!showSavedOrders && savedOrders.length > 0 && cartItems.length === 0 && (
+            <div className="text-center mt-3">
+              <Button
+                color="outline-primary"
+                size="sm"
+                onClick={() => setShowSavedOrders(true)} 
+              >
+                <FaClipboardList className="me-2" />
+                View Saved Orders ({savedOrders.length})
+              </Button>
+            </div>
+          )}
+
           {/* Saved Orders Section */}
           {showSavedOrders && savedOrders.length > 0 && (
             <div className="saved-orders mt-4">
