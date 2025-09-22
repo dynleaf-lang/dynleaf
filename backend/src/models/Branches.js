@@ -59,6 +59,12 @@ const branchSchema = new mongoose.Schema({
     // Settings
     settings: {
         whatsappUpdatesEnabled: { type: Boolean, default: false },
+        printerConfig: {
+            paymentUPIVPA: { type: String, default: '' },
+            paymentUPIName: { type: String, default: '' },
+            showQRCode: { type: Boolean, default: true },
+            showFooterMessage: { type: Boolean, default: true },
+        },
     },
 });
 

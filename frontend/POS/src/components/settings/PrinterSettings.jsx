@@ -38,13 +38,18 @@ import {
 } from 'react-icons/fa';
 import { PRINTER_CONFIGS, printThermalReceipt, generateThermalReceipt } from '../../utils/thermalPrinter';
 import toast from '../../utils/notify';
+import { useAuth } from '../../context/AuthContext';
+import settingsService from '../../services/settingsService';
 
 const PrinterSettings = ({ onSettingsChange }) => {
+  const { user } = useAuth();
   const [printerConfig, setPrinterConfig] = useState(() => {
     // Load from localStorage or use default
     const saved = localStorage.getItem('pos_printer_config');
     return saved ? JSON.parse(saved) : PRINTER_CONFIGS.BROWSER_FALLBACK;
   });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('unknown');
@@ -84,6 +89,39 @@ const PrinterSettings = ({ onSettingsChange }) => {
 
   useEffect(() => { validateConfig(printerConfig); }, [printerConfig]);
   const hasErrors = Object.keys(validation).length > 0;
+
+  // Load printer settings from database when component mounts
+  useEffect(() => {
+    if (user?.branchId) {
+      loadPrinterSettings();
+    }
+  }, [user?.branchId]);
+
+  const loadPrinterSettings = async () => {
+    if (!user?.branchId) return;
+    
+    setLoading(true);
+    try {
+      const dbConfig = await settingsService.getPrinterSettings(user.branchId);
+      
+      // Merge database config with current printer config (preserving non-payment settings)
+      setPrinterConfig(prev => ({
+        ...prev,
+        paymentUPIVPA: dbConfig.paymentUPIVPA || '',
+        paymentUPIName: dbConfig.paymentUPIName || '',
+        showQRCode: dbConfig.showQRCode !== false,
+        showFooterMessage: dbConfig.showFooterMessage !== false,
+      }));
+      
+      console.log('Printer settings loaded from database:', dbConfig);
+    } catch (error) {
+      console.error('Failed to load printer settings from database:', error);
+      // Fallback to localStorage - this is fine
+      toast.info('Using local printer settings');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // WebUSB pairing
   const handleUSBPair = async () => {
@@ -126,7 +164,29 @@ const PrinterSettings = ({ onSettingsChange }) => {
     if (onSettingsChange) {
       onSettingsChange(printerConfig);
     }
-  }, [printerConfig, onSettingsChange]);
+    
+    // Auto-save payment settings to database when they change
+    if (user?.branchId && !loading) {
+      const paymentSettings = {
+        paymentUPIVPA: printerConfig.paymentUPIVPA || '',
+        paymentUPIName: printerConfig.paymentUPIName || '',
+        showQRCode: printerConfig.showQRCode !== false,
+        showFooterMessage: printerConfig.showFooterMessage !== false,
+      };
+      
+      // Debounce auto-save to avoid too many API calls
+      const timeoutId = setTimeout(async () => {
+        try {
+          await settingsService.savePrinterSettings(user.branchId, paymentSettings);
+          console.log('Payment settings auto-saved to database');
+        } catch (error) {
+          console.error('Failed to auto-save payment settings:', error);
+        }
+      }, 1000);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [printerConfig, onSettingsChange, user?.branchId, loading]);
 
   const handlePrinterTypeChange = (type) => {
     let newConfig;
@@ -259,12 +319,34 @@ const PrinterSettings = ({ onSettingsChange }) => {
     }
   };
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
+    if (hasErrors) {
+      toast.error('Please fix validation errors before saving');
+      return;
+    }
+
+    setSaving(true);
     try {
+      // Save to localStorage for immediate use
       localStorage.setItem('pos_printer_config', JSON.stringify(printerConfig));
-      toast.success('Printer settings saved');
-    } catch (e) {
-      toast.error('Failed to save settings');
+      
+      // Save payment settings to database if user has branchId
+      if (user?.branchId) {
+        await settingsService.savePrinterSettings(user.branchId, {
+          paymentUPIVPA: printerConfig.paymentUPIVPA || '',
+          paymentUPIName: printerConfig.paymentUPIName || '',
+          showQRCode: printerConfig.showQRCode !== false,
+          showFooterMessage: printerConfig.showFooterMessage !== false,
+        });
+        toast.success('Printer settings saved to database');
+      } else {
+        toast.success('Printer settings saved locally');
+      }
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+      toast.error('Failed to save settings to database, but saved locally');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -564,11 +646,20 @@ const PrinterSettings = ({ onSettingsChange }) => {
               <Button
                 color="secondary"
                 onClick={handleSaveSettings}
-                disabled={testing || hasErrors}
+                disabled={testing || hasErrors || saving}
                 className="me-2"
               >
-                <FaSave className="me-2" />
-                {hasErrors ? 'Fix Errors to Save' : 'Save Printer Settings'}
+                {saving ? (
+                  <>
+                    <Spinner size="sm" className="me-2" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <FaSave className="me-2" />
+                    {hasErrors ? 'Fix Errors to Save' : 'Save Printer Settings'}
+                  </>
+                )}
               </Button>
               <Button
                 color="primary"
@@ -685,7 +776,21 @@ const PrinterSettings = ({ onSettingsChange }) => {
           </TabPane>
           <TabPane tabId="payment">
             <Form>
-              <h6>Payment QR / UPI Settings</h6>
+              <div className="d-flex align-items-center justify-content-between mb-3">
+                <h6 className="mb-0">Payment QR / UPI Settings</h6>
+                {loading && (
+                  <div className="d-flex align-items-center text-muted">
+                    <Spinner size="sm" className="me-2" />
+                    Loading settings...
+                  </div>
+                )}
+              </div>
+              {user?.branchId && (
+                <Alert color="info" className="small mb-3">
+                  <FaInfoCircle className="me-2" />
+                  Payment settings are synced with the database for this branch.
+                </Alert>
+              )}
               <Row className="mt-2">
                 <Col md={6}>
                   <FormGroup>

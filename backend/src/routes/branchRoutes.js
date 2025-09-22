@@ -188,6 +188,38 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
     }
 });
 
+// Get printer settings for a branch
+router.get('/:id/printer-settings', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid branch ID format' });
+        }
+
+        const branch = await Branch.findById(id);
+        if (!branch) return res.status(404).json({ message: 'Branch not found' });
+
+        // Permission: must match restaurant unless Super_Admin
+        const userRestaurantIdStr = req.user.restaurantId ? String(req.user.restaurantId) : '';
+        const branchRestaurantIdStr = branch.restaurantId ? String(branch.restaurantId) : '';
+        if (req.user.role !== 'Super_Admin' && userRestaurantIdStr && userRestaurantIdStr !== branchRestaurantIdStr) {
+            return res.status(403).json({ message: 'Access denied to view this branch settings' });
+        }
+
+        const printerConfig = branch.settings?.printerConfig || {
+            paymentUPIVPA: '',
+            paymentUPIName: '',
+            showQRCode: true,
+            showFooterMessage: true
+        };
+
+        return res.json({ printerConfig });
+    } catch (error) {
+        console.error('Error getting printer settings:', error);
+        return res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
 module.exports = router;
 
 // Settings: toggle WhatsApp updates per branch
@@ -214,11 +246,29 @@ router.patch('/:id/settings', authenticateJWT, async (req, res) => {
         }
 
         // Only allow known keys for now
-        const allowed = ['whatsappUpdatesEnabled'];
+        const allowed = ['whatsappUpdatesEnabled', 'printerConfig'];
         branch.settings = branch.settings || {};
         for (const key of allowed) {
             if (Object.prototype.hasOwnProperty.call(settings, key)) {
-                branch.settings[key] = Boolean(settings[key]);
+                if (key === 'printerConfig') {
+                    // Handle nested printer configuration
+                    const printerConfig = settings[key];
+                    if (printerConfig && typeof printerConfig === 'object') {
+                        branch.settings.printerConfig = branch.settings.printerConfig || {};
+                        const printerAllowed = ['paymentUPIVPA', 'paymentUPIName', 'showQRCode', 'showFooterMessage'];
+                        for (const printerKey of printerAllowed) {
+                            if (Object.prototype.hasOwnProperty.call(printerConfig, printerKey)) {
+                                if (printerKey === 'paymentUPIVPA' || printerKey === 'paymentUPIName') {
+                                    branch.settings.printerConfig[printerKey] = String(printerConfig[printerKey] || '');
+                                } else {
+                                    branch.settings.printerConfig[printerKey] = Boolean(printerConfig[printerKey]);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    branch.settings[key] = Boolean(settings[key]);
+                }
             }
         }
 
