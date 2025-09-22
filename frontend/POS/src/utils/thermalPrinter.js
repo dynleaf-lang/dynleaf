@@ -427,11 +427,12 @@ export const generateThermalKOT = (kotData, restaurantInfo = {}, settings = {}) 
   }
   out += COMMANDS.ALIGN_LEFT;
   const orderNo = order?.orderNumber || order?._id || '';
+  const shortOrderNo = orderNo ? (orderNo.length > 8 ? orderNo.slice(-8) : orderNo) : '';
   const token = resolveTokenNo(order);
   const tableName = tableInfo?.TableName || tableInfo?.name || order?.tableName || ''; 
   if (tableName) out += 'Table : ' + tableName + COMMANDS.CRLF;
   if (token) out += 'Token : ' + token + COMMANDS.CRLF;
-  if (orderNo) out += 'Order : ' + orderNo + COMMANDS.CRLF;
+  if (shortOrderNo) out += 'Order : ' + shortOrderNo + COMMANDS.CRLF;
   if (batchNumber) out += 'Batch : ' + batchNumber + COMMANDS.CRLF;
   if (customerInfo?.name) out += 'Cust  : ' + customerInfo.name + COMMANDS.CRLF;
   if (customerInfo?.phone) out += 'Phone : ' + customerInfo.phone + COMMANDS.CRLF;
@@ -482,6 +483,7 @@ export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => 
   const restaurantName = brandName || baseName;
   const duplicate = settings.duplicate ?? false;
   const orderNo = order?.orderNumber || order?._id || '';
+  const shortOrderNo = orderNo ? (orderNo.length > 8 ? orderNo.slice(-8) : orderNo) : '';
   const token = resolveTokenNo(order);
   const tableName = tableInfo?.TableName || tableInfo?.name || order?.tableName || '';
   const time = new Date().toLocaleString();
@@ -494,23 +496,25 @@ export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => 
     return `<tr><td class="sl">${serial++}</td><td class="nm">${(it.name||'')}${extra}${note}</td><td class="qt">${qty}</td></tr>`;
   }).join('');
   const orderNotes = customerInfo?.specialInstructions ? `<div class="big-notes"><div class="lbl fs-8">Order Notes:</div><div>${customerInfo.specialInstructions.replace(/\n/g,'<br/>')}</div></div>` : '';
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>KOT ${orderNo}</title><style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:8px;width:270px;font-size:12px;}
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>KOT ${shortOrderNo}</title><style>
+    body{font-family:'Courier New',monospace;margin:0; max-width: 300px;
+          margin: 0 auto;
+          padding: 10px;font-size:14px;}
     h1{font-size:20px;margin:0 0 4px;text-align:center;letter-spacing:1px;}
     .duplicate{font-size:12px;text-align:center;color:#c00;font-weight:700;margin-bottom:4px;}
-    .meta{font-size:12px;margin-bottom:6px;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;}
+    .meta{font-size:14px;margin-bottom:6px;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:4px 0;}
     .meta div{margin:2px 0;}
-    table{width:100%;border-collapse:collapse;margin-top:4px;}
-    th,td{padding:2px 0;font-size:12px;text-align:left;vertical-align:top;}
+    table{width:100%;border-collapse:collapse;margin-top:4px; text-transform: capitalize;}
+    th,td{padding:2px 0;font-size:14px;text-align:left;vertical-align:top;}
     th.qt,td.qt{text-align:center;width:32px;}
     th.sl,td.sl{text-align:center;width:28px;}
     .nm{font-weight:600;}
-    .variant{font-size:11px;font-weight:400;color:#333;margin-left:4px;}
-    .note{font-size:11px;color:#c00;margin-left:4px;}
+    .variant{font-size:12px;font-weight:400;color:#333;margin-left:4px;}
+    .note{font-size:12px;color:#c00;margin-left:4px;}
     .tot{border-top:1px dashed #000;margin-top:4px;padding-top:4px;font-weight:700;}
     .big-notes{margin-top:8px;border-top:1px dashed #000;padding-top:6px;font-size:14px;font-weight:700; text-align:center;}
     .big-notes .lbl{margin-bottom:4px; font-weight:400; font-size:9px;}
-    .footer{text-align:center;margin-top:10px;font-size:11px;}
+    .footer{text-align:center;margin-top:10px;font-size:12px;}
     @media print{.no-print{display:none}}
   </style></head><body>
   <h1>KOT</h1>
@@ -519,7 +523,7 @@ export const generateHTMLKOT = (kotData, restaurantInfo = {}, settings = {}) => 
   <div class="meta">
     ${tableName?`<div>Table: <strong>${tableName}</strong></div>`:''}
     ${token?`<div>Token: <strong>${token}</strong></div>`:''}
-    ${orderNo?`<div>Order: <strong>${orderNo}</strong></div>`:''}
+    ${shortOrderNo?`<div>Order: <strong>${shortOrderNo}</strong></div>`:''}
     ${batchNumber?`<div>Batch: <strong>${batchNumber}</strong></div>`:''}
     <div>Time: ${time}</div>
     ${customerInfo?.name?`<div>Customer: ${customerInfo.name}</div>`:''}
