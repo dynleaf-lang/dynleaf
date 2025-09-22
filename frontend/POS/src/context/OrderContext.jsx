@@ -37,117 +37,155 @@ export const OrderProvider = ({ children }) => {
       const status = String(ord?.status || '').toLowerCase();
       const legacy = String(ord?.orderStatus || '').toLowerCase();
       const paid = String(ord?.paymentStatus || '').toLowerCase() === 'paid';
-  const isTerminal = ['delivered', 'cancelled', 'canceled'].includes(status) || ['cancelled'].includes(legacy) || paid;
+      const isTerminal = ['delivered', 'cancelled', 'canceled'].includes(status) || ['cancelled'].includes(legacy) || paid;
 
       const tableKey = String(tId);
       const batchesKey = 'pos_table_batches';
-      const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      
+      // Use a retry mechanism for localStorage operations to handle race conditions
+      const updateLocalStorageWithRetry = (retries = 3) => {
+        try {
+          const all = JSON.parse(localStorage.getItem(batchesKey) || '{}');
 
-      // Remove terminal/settled orders from local batches
-      if (isTerminal) {
-        if (all[tableKey]?.batches) {
-          const filtered = all[tableKey].batches.filter(b => b.orderId !== ord._id);
-          if (filtered.length === 0) {
-            delete all[tableKey];
-          } else {
-            all[tableKey].batches = filtered;
-          }
-          localStorage.setItem(batchesKey, JSON.stringify(all));
-          // Also clear per-table cart if no batches remain
-          try {
-            if (!all[tableKey]) {
-              const cartsKey = 'pos_table_carts';
-              const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
-              if (cartsAll[tableKey]) {
-                delete cartsAll[tableKey];
-                localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
+          // Remove terminal/settled orders from local batches
+          if (isTerminal) {
+            if (all[tableKey]?.batches) {
+              const filtered = all[tableKey].batches.filter(b => b.orderId !== ord._id);
+              if (filtered.length === 0) {
+                delete all[tableKey];
+              } else {
+                all[tableKey].batches = filtered;
+              }
+              localStorage.setItem(batchesKey, JSON.stringify(all));
+              
+              // Also clear per-table cart if no batches remain
+              try {
+                if (!all[tableKey]) {
+                  const cartsKey = 'pos_table_carts';
+                  const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
+                  if (cartsAll[tableKey]) {
+                    delete cartsAll[tableKey];
+                    localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
+                  }
+                  
+                  // Also clear KOT sent items for this table
+                  const kotSentKey = 'pos_table_kot_sent';
+                  const kotSentAll = JSON.parse(localStorage.getItem(kotSentKey) || '{}');
+                  if (kotSentAll[tableKey]) {
+                    delete kotSentAll[tableKey];
+                    localStorage.setItem(kotSentKey, JSON.stringify(kotSentAll));
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to clear table cart/kot data:', e);
+              }
+              
+              try { 
+                window.dispatchEvent(new Event('batchesUpdated')); 
+              } catch (e) {
+                console.warn('Failed to dispatch batchesUpdated event:', e);
               }
             }
-          } catch (_) {}
-          try { window.dispatchEvent(new Event('batchesUpdated')); } catch (_) {}
+            return;
+          }
+
+          // Only upsert active orders
+          const activeModern = ['pending', 'confirmed', 'accepted', 'placed', 'in_progress', 'preparing', 'ready', 'served'];
+          const activeLegacy = ['pending', 'processing', 'completed'];
+          const isActive = activeModern.includes(status) || activeLegacy.includes(legacy);
+          if (!isActive) return;
+
+          const entry = all[tableKey] || { nextOrderNumber: 1, batches: [] };
+          const list = Array.isArray(entry.batches) ? entry.batches : [];
+          const idx = list.findIndex((b) => b.orderId === ord._id);
+          const safeItems = Array.isArray(ord.items) ? ord.items : [];
+          const total = Number(ord.totalAmount) || safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+
+          // Derive customer/order meta from the order
+          const ci = ord.customer || ord.customerInfo || {};
+          const name = ci.name || ord.customerName || '';
+          const phone = ci.phone || ord.customerPhone || '';
+          const customerId = ci.customerId || ci._id || ord.customerId || null;
+          const orderType = ord.orderType || ord.type || 'dine-in';
+          const specialInstructions = ord.specialInstructions || ord.notes || ord.instructions || '';
+          const deliveryAddress = ord.deliveryAddress || ci.address || '';
+
+          if (idx === -1) {
+            const orderNumber = ord.orderNumber || entry.nextOrderNumber;
+            const batch = {
+              orderId: ord._id,
+              orderNumber,
+              items: safeItems,
+              totalAmount: total,
+              createdAt: ord.createdAt || new Date().toISOString(),
+              // Extra meta so POS can reflect customer/order context
+              orderType,
+              customer: { name, phone, customerId },
+              specialInstructions,
+              deliveryAddress
+            };
+            // Append new batch at the end so Batch #1 stays on top and newer batches appear below
+            entry.batches = [...list, batch];
+            if (!ord.orderNumber) entry.nextOrderNumber = (Number(entry.nextOrderNumber) || 1) + 1;
+          } else {
+            // update existing batch but keep its relative position
+            const existing = list[idx];
+            const updated = {
+              ...existing,
+              items: safeItems,
+              totalAmount: total,
+              orderType: orderType || existing.orderType,
+              customer: {
+                ...(existing.customer || {}),
+                ...(name ? { name } : {}),
+                ...(phone ? { phone } : {}),
+                ...(customerId ? { customerId } : {})
+              },
+              specialInstructions: specialInstructions || existing.specialInstructions || '',
+              deliveryAddress: deliveryAddress || existing.deliveryAddress || ''
+            };
+            entry.batches = list.map((b, i) => (i === idx ? updated : b));
+          }
+
+          all[tableKey] = entry;
+          localStorage.setItem(batchesKey, JSON.stringify(all));
+
+          // Also mirror customer meta into per-table cart storage so selecting the table restores it
+          try {
+            const cartsKey = 'pos_table_carts';
+            const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
+            const saved = cartsAll[tableKey] || { items: [], customerInfo: {} };
+            const mergedCustomer = {
+              ...(saved.customerInfo || {}),
+              ...(name ? { name } : {}),
+              ...(phone ? { phone } : {}),
+              ...(customerId ? { customerId } : {}),
+              ...(orderType ? { orderType } : {}),
+              ...(specialInstructions ? { specialInstructions } : {}),
+              ...(deliveryAddress ? { deliveryAddress } : {})
+            };
+            cartsAll[tableKey] = { items: saved.items || [], customerInfo: mergedCustomer };
+            localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
+          } catch (e) {
+            console.warn('Failed to update table cart data:', e);
+          }
+          
+        } catch (e) {
+          console.error('localStorage operation failed:', e);
+          if (retries > 0) {
+            console.log(`Retrying localStorage operation, ${retries} attempts remaining...`);
+            setTimeout(() => updateLocalStorageWithRetry(retries - 1), 100);
+          } else {
+            console.error('Failed to update batches after all retries');
+          }
         }
-        return;
-      }
-
-      // Only upsert active orders
-  const activeModern = ['pending', 'confirmed', 'accepted', 'placed', 'in_progress', 'preparing', 'ready', 'served'];
-      const activeLegacy = ['pending', 'processing', 'completed'];
-      const isActive = activeModern.includes(status) || activeLegacy.includes(legacy);
-      if (!isActive) return;
-
-      const entry = all[tableKey] || { nextOrderNumber: 1, batches: [] };
-      const list = Array.isArray(entry.batches) ? entry.batches : [];
-      const idx = list.findIndex((b) => b.orderId === ord._id);
-      const safeItems = Array.isArray(ord.items) ? ord.items : [];
-      const total = Number(ord.totalAmount) || safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
-
-      // Derive customer/order meta from the order
-      const ci = ord.customer || ord.customerInfo || {};
-      const name = ci.name || ord.customerName || '';
-      const phone = ci.phone || ord.customerPhone || '';
-      const customerId = ci.customerId || ci._id || ord.customerId || null;
-      const orderType = ord.orderType || ord.type || 'dine-in';
-      const specialInstructions = ord.specialInstructions || ord.notes || ord.instructions || '';
-      const deliveryAddress = ord.deliveryAddress || ci.address || '';
-
-      if (idx === -1) {
-        const orderNumber = ord.orderNumber || entry.nextOrderNumber;
-        const batch = {
-          orderId: ord._id,
-          orderNumber,
-          items: safeItems,
-          totalAmount: total,
-          createdAt: ord.createdAt || new Date().toISOString(),
-          // Extra meta so POS can reflect customer/order context
-          orderType,
-          customer: { name, phone, customerId },
-          specialInstructions,
-          deliveryAddress
-        };
-        // Append new batch at the end so Batch #1 stays on top and newer batches appear below
-        entry.batches = [...list, batch];
-        if (!ord.orderNumber) entry.nextOrderNumber = (Number(entry.nextOrderNumber) || 1) + 1;
-      } else {
-        // update existing batch but keep its relative position
-        const existing = list[idx];
-        const updated = {
-          ...existing,
-          items: safeItems,
-          totalAmount: total,
-          orderType: orderType || existing.orderType,
-          customer: {
-            ...(existing.customer || {}),
-            ...(name ? { name } : {}),
-            ...(phone ? { phone } : {}),
-            ...(customerId ? { customerId } : {})
-          },
-          specialInstructions: specialInstructions || existing.specialInstructions || '',
-          deliveryAddress: deliveryAddress || existing.deliveryAddress || ''
-        };
-        entry.batches = list.map((b, i) => (i === idx ? updated : b));
-      }
-
-      all[tableKey] = entry;
-      localStorage.setItem(batchesKey, JSON.stringify(all));
-
-      // Also mirror customer meta into per-table cart storage so selecting the table restores it
-      try {
-        const cartsKey = 'pos_table_carts';
-        const cartsAll = JSON.parse(localStorage.getItem(cartsKey) || '{}');
-        const saved = cartsAll[tableKey] || { items: [], customerInfo: {} };
-        const mergedCustomer = {
-          ...(saved.customerInfo || {}),
-          ...(name ? { name } : {}),
-          ...(phone ? { phone } : {}),
-          ...(customerId ? { customerId } : {}),
-          ...(orderType ? { orderType } : {}),
-          ...(specialInstructions ? { specialInstructions } : {}),
-          ...(deliveryAddress ? { deliveryAddress } : {})
-        };
-        cartsAll[tableKey] = { items: saved.items || [], customerInfo: mergedCustomer };
-        localStorage.setItem(cartsKey, JSON.stringify(cartsAll));
-      } catch (_) {}
-    } catch (_) {}
+      };
+      
+      updateLocalStorageWithRetry();
+      
+    } catch (e) {
+      console.error('Error in upsertBatchFromOrder:', e);
+    }
   }, []);
 
   // Fetch orders when user is authenticated

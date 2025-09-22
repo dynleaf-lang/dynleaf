@@ -291,6 +291,66 @@ const CartSidebar = () => {
     } catch { setKotSentItems({}); }
   }, [selectedTable && selectedTable._id]);
 
+  // Clean up KOT sent items when cart items change (remove orphaned entries)
+  useEffect(() => {
+    const tableId = selectedTable?._id;
+    if (!tableId || Object.keys(kotSentItems).length === 0) return;
+    
+    const currentCartItemIds = new Set(cartItems.map(item => item.cartItemId));
+    const kotSentItemIds = Object.keys(kotSentItems);
+    
+    // Find orphaned KOT sent items (items that were sent but no longer in cart)
+    const orphanedIds = kotSentItemIds.filter(id => !currentCartItemIds.has(id));
+    
+    if (orphanedIds.length > 0) {
+      console.log('Cleaning up orphaned KOT sent items:', orphanedIds);
+      
+      const cleanedKotSentItems = { ...kotSentItems };
+      orphanedIds.forEach(id => {
+        delete cleanedKotSentItems[id];
+      });
+      
+      setKotSentItems(cleanedKotSentItems);
+      
+      // Update localStorage
+      try {
+        const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
+        all[tableId] = cleanedKotSentItems;
+        localStorage.setItem('pos_table_kot_sent', JSON.stringify(all));
+      } catch (e) {
+        console.error('Failed to update KOT sent items in localStorage:', e);
+      }
+    }
+    
+    // Also validate that sent quantities don't exceed current cart quantities
+    let needsUpdate = false;
+    const validatedKotSentItems = { ...kotSentItems };
+    
+    cartItems.forEach(cartItem => {
+      const cartItemId = cartItem.cartItemId;
+      const currentQty = Number(cartItem.quantity) || 0;
+      const sentQty = Number(kotSentItems[cartItemId] || 0);
+      
+      if (sentQty > currentQty) {
+        console.warn(`KOT sent quantity (${sentQty}) exceeds current cart quantity (${currentQty}) for item ${cartItemId}, correcting...`);
+        validatedKotSentItems[cartItemId] = currentQty;
+        needsUpdate = true;
+      }
+    });
+    
+    if (needsUpdate) {
+      setKotSentItems(validatedKotSentItems);
+      
+      try {
+        const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
+        all[tableId] = validatedKotSentItems;
+        localStorage.setItem('pos_table_kot_sent', JSON.stringify(all));
+      } catch (e) {
+        console.error('Failed to update validated KOT sent items in localStorage:', e);
+      }
+    }
+  }, [cartItems, kotSentItems, selectedTable?._id]);
+
   // Initialize notes draft from context when opening instructions modal or when context changes externally
   useEffect(() => {
     setNotesDraft(customerInfo?.specialInstructions || '');
@@ -379,6 +439,48 @@ const CartSidebar = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingAction, setProcessingAction] = useState(''); // Track which action is processing
   const [kotSent, setKotSent] = useState(false); // Track if KOT has been sent
+  
+  // Computed KOT status - check if all cart items have been sent to kitchen
+  const kotStatus = useMemo(() => {
+    if (cartItems.length === 0) {
+      return { allSent: false, anySent: false, pendingItems: [], sentItems: [] };
+    }
+    
+    const pendingItems = [];
+    const sentItems = [];
+    let allSent = true;
+    let anySent = false;
+    
+    cartItems.forEach(item => {
+      const total = Number(item.quantity) || 0;
+      const sent = Number(kotSentItems[item.cartItemId] || 0);
+      const pending = total - sent;
+      
+      if (pending > 0) {
+        pendingItems.push({ ...item, pendingQty: pending });
+        allSent = false;
+      }
+      
+      if (sent > 0) {
+        sentItems.push({ ...item, sentQty: sent });
+        anySent = true;
+      }
+    });
+    
+    return {
+      allSent,
+      anySent,
+      pendingItems,
+      sentItems,
+      pendingCount: pendingItems.length,
+      sentCount: sentItems.length
+    };
+  }, [cartItems, kotSentItems]);
+  
+  // Update the kotSent state based on the computed status
+  useEffect(() => {
+    setKotSent(kotStatus.allSent && kotStatus.anySent);
+  }, [kotStatus.allSent, kotStatus.anySent]);
   // Split bill states
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [splitCount, setSplitCount] = useState(2);
@@ -526,15 +628,38 @@ const CartSidebar = () => {
     }
   };
 
-  // Reset KOT sent flag when cart gets new items (new batch) or when table changes
+  // Reset KOT sent flag only when new items are added (not when existing items are modified)
+  // Track previous cart items to detect actual additions vs modifications
+  const prevCartItemsRef = useRef([]);
+  
   useEffect(() => {
-    if (cartItems.length > 0) {
-      setKotSent(false);
+    const prevItems = prevCartItemsRef.current;
+    const currentItems = cartItems;
+    
+    // Only reset kotSent if completely new items are added
+    if (currentItems.length > prevItems.length) {
+      // Check if any new items exist that weren't in previous cart
+      const hasNewItems = currentItems.some(currentItem => 
+        !prevItems.some(prevItem => prevItem.cartItemId === currentItem.cartItemId)
+      );
+      
+      if (hasNewItems) {
+        setKotSent(false);
+      }
     }
+    
+    // If cart is completely empty, reset everything
+    if (currentItems.length === 0) {
+      setKotSent(false);
+      setKotSentItems({});
+    }
+    
+    prevCartItemsRef.current = [...currentItems];
   }, [cartItems]);
 
   useEffect(() => {
     setKotSent(false);
+    setKotSentItems({}); // Clear KOT sent items when changing tables
   }, [selectedTable && selectedTable._id]);
 
   // Persist current table's cart and customer info to localStorage whenever they change
@@ -909,6 +1034,8 @@ const CartSidebar = () => {
     try {
       // Build only unsent quantities for this KOT
       const pendingItems = [];
+      const itemsToUpdateKOT = []; // Track items for KOT update
+      
       cartItems.forEach(item => {
         const total = Number(item.quantity) || 0;
         const sent = Number(kotSentItems[item.cartItemId] || 0);
@@ -921,7 +1048,14 @@ const CartSidebar = () => {
             price,
             quantity: pending,
             subtotal: price * pending,
-            customizations: item.customizations || {}
+            customizations: item.customizations || {},
+            cartItemId: item.cartItemId // Keep reference for tracking
+          });
+          
+          // Track for KOT sent items update
+          itemsToUpdateKOT.push({
+            cartItemId: item.cartItemId,
+            pendingQty: pending
           });
         }
       });
@@ -930,6 +1064,8 @@ const CartSidebar = () => {
         toast.error('No new items to send to kitchen');
         return;
       }
+
+      console.log('Sending KOT for items:', pendingItems.map(i => ({ name: i.name, qty: i.quantity })));
 
       const orderData = {
         tableId: selectedTable?._id || null,
@@ -940,7 +1076,11 @@ const CartSidebar = () => {
           phone: customerInfo.phone || ''
         },
         specialInstructions: customerInfo.specialInstructions || '',
-  items: pendingItems,
+        items: pendingItems.map(item => {
+          // Remove cartItemId from order data sent to backend
+          const { cartItemId, ...orderItem } = item;
+          return orderItem;
+        }),
         totalAmount: getTotal()
       };
 
@@ -1015,27 +1155,53 @@ const CartSidebar = () => {
       }
 
       // Update sent quantity map (persist per table) and keep items
+      // Use the tracked itemsToUpdateKOT for more reliable updates
       const updatedSent = { ...kotSentItems };
-      pendingItems.forEach(pi => {
-        const match = cartItems.find(ci => ci.menuItemId === pi.menuItemId && ci.name === pi.name && ci.customizations === pi.customizations && ci.cartItemId);
-        const id = match ? match.cartItemId : null;
-        if (id) updatedSent[id] = (updatedSent[id] || 0) + pi.quantity;
+      
+      itemsToUpdateKOT.forEach(item => {
+        const { cartItemId, pendingQty } = item;
+        if (cartItemId) {
+          updatedSent[cartItemId] = (updatedSent[cartItemId] || 0) + pendingQty;
+          console.log(`Updated KOT sent for ${cartItemId}: ${updatedSent[cartItemId]}`);
+        }
       });
+      
+      // Validate that sent quantities don't exceed cart quantities
+      Object.keys(updatedSent).forEach(cartItemId => {
+        const cartItem = cartItems.find(ci => ci.cartItemId === cartItemId);
+        if (cartItem) {
+          const maxQty = Number(cartItem.quantity) || 0;
+          if (updatedSent[cartItemId] > maxQty) {
+            console.warn(`KOT sent quantity (${updatedSent[cartItemId]}) exceeds cart quantity (${maxQty}) for item ${cartItemId}, correcting...`);
+            updatedSent[cartItemId] = maxQty;
+          }
+        }
+      });
+      
       setKotSentItems(updatedSent);
+      
+      // Persist to localStorage with error handling
       try {
         const tableId = selectedTable?._id;
         if (tableId) {
           const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
           all[tableId] = updatedSent;
           localStorage.setItem('pos_table_kot_sent', JSON.stringify(all));
+          console.log('KOT sent items saved to localStorage for table:', tableId);
         }
-      } catch {}
-      setKotSent(true);
+      } catch (e) {
+        console.error('Failed to save KOT sent items to localStorage:', e);
+      }
+      
+      // Note: kotSent state will be automatically updated by the useEffect that watches kotStatus
       playPosSound('success');
+      
+      toast.success(`KOT sent successfully${withPrint ? ' and printed' : ''}`);
       
     } catch (error) {
       console.error('KOT Error:', error);
-  playPosSound('error');
+      toast.error(`Failed to send KOT: ${error.message}`);
+      playPosSound('error');
     } finally {
       setIsProcessing(false);
       setProcessingAction('');
@@ -1630,11 +1796,30 @@ const CartSidebar = () => {
                   {/* Cart Items List */}
                   {cartItems.length > 0 && (
                     <>
-                      {cartItems.map((item) => (
-                        <div key={item.cartItemId} className="cart-item-row d-flex justify-content-between align-items-center">
+                      {cartItems.map((item) => {
+                        const total = Number(item.quantity) || 0;
+                        const sent = Number(kotSentItems[item.cartItemId] || 0);
+                        const pending = total - sent;
+                        const isFullySent = sent >= total && sent > 0;
+                        const isPartiallySent = sent > 0 && sent < total;
+                        
+                        return (
+                        <div key={item.cartItemId} className={`cart-item-row d-flex justify-content-between align-items-center ${isFullySent ? 'fully-sent' : isPartiallySent ? 'partially-sent' : ''}`}>
                           <div className="item-info">
-                            <div className="item-name">
+                            <div className="item-name d-flex align-items-center">
                               {item.name}
+                              {isFullySent && (
+                                <Badge color="success" size="sm" className="ms-2">
+                                  <FaUtensils size={10} className="me-1" />
+                                  Sent
+                                </Badge>
+                              )}
+                              {isPartiallySent && (
+                                <Badge color="warning" size="sm" className="ms-2">
+                                  <FaUtensils size={10} className="me-1" />
+                                  {sent}/{total}
+                                </Badge>
+                              )}
                               {(() => {
                                 const variantName = getVariantName(item && item.customizations);
                                 const extra = formatVariantSelections(item && item.customizations);
@@ -1652,6 +1837,11 @@ const CartSidebar = () => {
                                 return null;
                               })()}
                             </div>
+                            {isPartiallySent && (
+                              <small className="text-muted">
+                                {pending} pending • {sent} sent to kitchen
+                              </small>
+                            )}
                           </div>
                           <div className="item-controls d-flex align-items-center">
                             <button 
@@ -1697,7 +1887,8 @@ const CartSidebar = () => {
                             </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </>
                   )}
                 </>
@@ -1880,12 +2071,20 @@ const CartSidebar = () => {
               <div className="row g-2">
                 <div className="col-4">
                   <Button
-                    color={kotSent ? "success" : "secondary"}
+                    color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(false)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : kotSent ? 'KOT already sent' : 'Send Kitchen Order Ticket'}
+                    title={
+                      cartItems.length === 0 
+                        ? 'Add items to cart first' 
+                        : kotStatus.allSent 
+                          ? 'All items sent to kitchen' 
+                          : kotStatus.anySent 
+                            ? `${kotStatus.pendingCount} items pending, ${kotStatus.sentCount} already sent`
+                            : 'Send Kitchen Order Ticket'
+                    }
                   >
                     {isProcessing && processingAction === 'kot' ? (
                       <>
@@ -1895,19 +2094,27 @@ const CartSidebar = () => {
                     ) : (
                       <>
                         <FaClipboardList className="me-1" />
-                        {kotSent ? 'KOT Sent' : 'KOT'}
+                        {kotStatus.allSent ? 'KOT Sent' : kotStatus.anySent ? `KOT (${kotStatus.pendingCount} left)` : 'KOT'}
                       </>
                     )}
                   </Button>
                 </div>
                 <div className="col-4">
                   <Button
-                    color={kotSent ? "success" : "secondary"}
+                    color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(true)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : kotSent ? 'KOT already sent and printed' : 'Send KOT and print'}
+                    title={
+                      cartItems.length === 0 
+                        ? 'Add items to cart first' 
+                        : kotStatus.allSent 
+                          ? 'All items sent and can be reprinted' 
+                          : kotStatus.anySent 
+                            ? `Print ${kotStatus.pendingCount} pending items`
+                            : 'Send KOT and print'
+                    }
                   >
                     {isProcessing && processingAction === 'kot-print' ? (
                       <>
@@ -1917,7 +2124,7 @@ const CartSidebar = () => {
                     ) : (
                       <>
                         <FaClipboardList className="me-1" />
-                        {kotSent ? 'KOT Printed' : 'KOT & Print'}
+                        {kotStatus.allSent ? 'KOT Printed' : kotStatus.anySent ? `Print (${kotStatus.pendingCount})` : 'KOT & Print'}
                       </>
                     )}
                   </Button>
