@@ -35,6 +35,10 @@ const CheckoutForm = memo(() => {
   const [errorMessage, setErrorMessage] = useState('');
   const [registerClosed, setRegisterClosed] = useState(false);
   const { addNotification } = useNotifications();
+  // Payment selection (UPI only) and app preference
+  const [selectedUpiApp, setSelectedUpiApp] = useState('gpay'); // gpay | phonepe | paytm | other
+  const [paymentInProgress, setPaymentInProgress] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
   
   // For authenticated users, use their account info
   const effectiveCustomerInfo = isAuthenticated && user ? {
@@ -53,6 +57,17 @@ const CheckoutForm = memo(() => {
       }));
     }
   }, [orderType]);
+
+  // Load Cashfree SDK on mount
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.Cashfree) return;
+      const script = document.createElement('script');
+      script.src = 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.js';
+      script.async = true;
+      document.body.appendChild(script);
+    } catch (_) {}
+  }, []);
 
   // On mount: check register status once to initialize disabled state
   useEffect(() => {
@@ -354,15 +369,70 @@ const CheckoutForm = memo(() => {
     };
     
     console.log('[CHECKOUT FORM] Submitting order with data:', orderData);
-    
-    // Dispatch custom event to be handled by parent component
-    document.dispatchEvent(
-      new CustomEvent('placeOrder', { 
-        detail: { 
-          orderData: orderData 
-        } 
-      })
-    );
+
+    // Always UPI: initiate Cashfree payment first
+    {
+      try {
+        setPaymentError('');
+        setPaymentInProgress(true);
+        const totalAmount = cartTotal + calculateTax(cartTotal);
+        // Create CF order via backend
+        // Sanitize customer_id for Cashfree: only alphanumeric, underscore, hyphen
+        const rawId = `${effectiveCustomerInfo.email || effectiveCustomerInfo.phone || 'guest'}_${Date.now()}`;
+        const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const cfResp = await api.public.payments.cashfree.createOrder({
+          amount: Number(totalAmount.toFixed(2)),
+          currency: 'INR',
+          customer: {
+            name: effectiveCustomerInfo.name,
+            email: effectiveCustomerInfo.email || 'guest@example.com',
+            phone: effectiveCustomerInfo.phone || '9999999999',
+            id: safeId
+          },
+          orderMeta: {
+            payment_methods: 'upi',
+            preferred_upi_app: selectedUpiApp
+          }
+        });
+
+        const sessionId = cfResp?.data?.payment_session_id;
+        const cfOrderId = cfResp?.data?.order_id;
+        if (!sessionId) throw new Error('Payment session not created');
+
+        // Show processing overlay in cart and start backend polling there
+        try {
+          document.dispatchEvent(new CustomEvent('paymentStart', { detail: { cfOrderId, orderData } }));
+        } catch (_) {}
+
+        // Use Cashfree Checkout JS v2 if available on window
+        if (window && window.Cashfree && typeof window.Cashfree === 'function') {
+          const cashfree = window.Cashfree({ mode: (import.meta.env.VITE_CASHFREE_ENV || 'test') === 'prod' ? 'production' : 'sandbox' });
+
+          await new Promise((resolve, reject) => {
+            cashfree.checkout({
+              paymentSessionId: sessionId
+              // For UPI intent, avoid forcing a page redirect; let the SDK trigger the UPI app
+            }).then(resolve).catch(reject);
+          });
+        } else {
+          // Fallback: redirect to Cashfree hosted page
+          const env = (import.meta.env.VITE_CASHFREE_ENV || 'test').toLowerCase();
+          const base = env === 'prod' ? 'https://payments.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+          // Hosted checkout URL format
+          window.location.href = `${base}/orders/${cfOrderId}`;
+          return; // Don't proceed locally; user will return via redirect
+        }
+        // From here, processing overlay will continue polling and place the order when verified
+      } catch (err) {
+        console.error('[CHECKOUT FORM] UPI payment init error:', err);
+        setPaymentError(err?.message || 'Failed to start payment');
+        setIsSubmitting(false);
+        setPaymentInProgress(false);
+        return;
+      } finally {
+        setPaymentInProgress(false);
+      }
+    }
     
     // Note: Success/error handling is done by the parent component (EnhancedCart)
     // We don't set success message here because we don't know if the API call succeeded yet
@@ -472,6 +542,20 @@ const CheckoutForm = memo(() => {
       )}
       
       <form onSubmit={handleSubmit} noValidate>
+        {/* Payment selection moved near the Place Order button; UPI apps only */}
+        {paymentError && (
+          <div style={{ 
+            background: 'white',
+            padding: theme.spacing.sm,
+            borderRadius: theme.borderRadius.md,
+            border: `1px solid ${theme.colors.danger}30`,
+            color: theme.colors.danger,
+            marginBottom: theme.spacing.md,
+            fontSize: theme.typography.sizes.sm
+          }}>
+            {paymentError}
+          </div>
+        )}
         {/* Show customer info for authenticated users */}
         {isAuthenticated && user && (
           <motion.div
@@ -980,61 +1064,111 @@ const CheckoutForm = memo(() => {
             Back
           </motion.button> */}
         
-          {/* Enhanced submit button with loading state */}
-          <motion.button
-            type="submit"
-            disabled={isSubmitting || registerClosed}
-            whileHover={!isSubmitting ? { scale: 1.01 } : {}}
-            whileTap={!isSubmitting ? { scale: 0.98 } : {}}
-            style={{
-              flex: 1,
-              backgroundColor: (isSubmitting || registerClosed) ? theme.colors.primary + 'aa' : theme.colors.primary,
-              color: theme.colors.text.light,
-              border: 'none',
+          {/* Pay using (left) + Place Order (right) */}
+          <div style={{
+            display: 'flex',
+            gap: theme.spacing.md,
+            alignItems: 'stretch',
+            marginBottom: theme.spacing.lg,
+            flexWrap: 'wrap'
+          }}>
+            {/* Left: UPI apps */}
+            <div style={{
+              flex: '1 1 45%',
+              minWidth: '240px',
+              backgroundColor: 'white',
+              border: `1px solid ${theme.colors.border}`,
               borderRadius: theme.borderRadius.md,
-              padding: theme.spacing.lg,
-              fontSize: theme.typography.sizes.md,
-              fontWeight: theme.typography.fontWeights.semibold,
-              cursor: (isSubmitting || registerClosed) ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: theme.transitions.fast,
-              boxShadow: theme.shadows.md,
-              width: '100%',
-              marginBottom: theme.spacing.lg,
-            }}
-          >
-            {isSubmitting ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                <>
-                  <div style={{ 
-                    width: '20px', 
-                    height: '20px', 
-                    borderRadius: '50%',
-                    border: '2px solid rgba(255,255,255,0.3)',
-                    borderTopColor: 'white',
-                    animation: 'spin 1s linear infinite',
-                  }} />
-                  Processing Order...
-                </>
+              padding: theme.spacing.md,
+              boxShadow: theme.shadows.sm
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}>
+                <img src="https://static.cashfree.com/images/upi.png" alt="UPI" style={{ width: 20, height: 20 }} />
+                <div style={{ fontWeight: 600 }}>Pay using</div>
               </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                {registerClosed ? (
-                  <>
-                    <span className="material-icons">pause_circle</span>
-                    Ordering paused
-                  </>
-                ) : (
-                  <>
-                    <span className="material-icons">shopping_cart_checkout</span>
-                    {`Place Order • `}<CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} />
-                  </>
-                )}
+              <div style={{ display: 'flex', gap: theme.spacing.sm, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'gpay', label: 'Google Pay' },
+                  { key: 'phonepe', label: 'PhonePe' },
+                  { key: 'paytm', label: 'Paytm UPI' },
+                  { key: 'other', label: 'Other UPI' },
+                ].map(app => (
+                  <button
+                    key={app.key}
+                    type="button"
+                    onClick={() => setSelectedUpiApp(app.key)}
+                    style={{
+                      padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
+                      borderRadius: theme.borderRadius.pill,
+                      border: `1px solid ${selectedUpiApp === app.key ? theme.colors.primary : theme.colors.border}`,
+                      backgroundColor: selectedUpiApp === app.key ? theme.colors.primary + '10' : 'white',
+                      color: theme.colors.text.primary,
+                      cursor: 'pointer',
+                      fontSize: theme.typography.sizes.sm
+                    }}
+                  >
+                    {app.label}
+                  </button>
+                ))}
               </div>
-            )}
-          </motion.button>
+            </div>
+
+            {/* Right: Submit */}
+            <motion.button
+              type="submit"
+              disabled={isSubmitting || registerClosed || paymentInProgress}
+              whileHover={!isSubmitting ? { scale: 1.01 } : {}}
+              whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+              style={{
+                flex: '1 1 50%',
+                minWidth: '260px',
+                backgroundColor: (isSubmitting || registerClosed) ? theme.colors.primary + 'aa' : theme.colors.primary,
+                color: theme.colors.text.light,
+                border: 'none',
+                borderRadius: theme.borderRadius.md,
+                padding: theme.spacing.lg,
+                fontSize: theme.typography.sizes.md,
+                fontWeight: theme.typography.fontWeights.semibold,
+                cursor: (isSubmitting || registerClosed || paymentInProgress) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: theme.transitions.fast,
+                boxShadow: theme.shadows.md,
+                width: '100%'
+              }}
+            >
+              {isSubmitting ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <>
+                    <div style={{ 
+                      width: '20px', 
+                      height: '20px', 
+                      borderRadius: '50%',
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      borderTopColor: 'white',
+                      animation: 'spin 1s linear infinite',
+                    }} />
+                    {paymentInProgress ? 'Starting Payment...' : 'Processing Order...'}
+                  </>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  {registerClosed ? (
+                    <>
+                      <span className="material-icons">pause_circle</span>
+                      Ordering paused
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-icons">shopping_cart_checkout</span>
+                      {'Pay & Place Order • '}<CurrencyDisplay amount={cartTotal + calculateTax(cartTotal)} />
+                    </>
+                  )}
+                </div>
+              )}
+            </motion.button>
+          </div>
          
       </form>
     </motion.div>

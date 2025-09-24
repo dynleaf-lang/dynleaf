@@ -8,6 +8,7 @@ import { useOrderNotifications } from '../../hooks/useOrderNotifications';
 import { useNotifications } from '../../context/NotificationContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
+import api from '../../utils/apiClient';
 
 // Import enhanced components
 import EmptyCart from './EmptyCart';
@@ -792,6 +793,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
   const [error, setError] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   
   // Check if cart is empty
   const isCartEmpty = cartItems.length === 0;
@@ -901,7 +903,9 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
           const orderResponse = await placeOrder({
             customerInfo: orderData.customerInfo,
             orderType: orderData.orderType,
-            note: orderData.note
+            note: orderData.note,
+            paymentMethod: orderData.paymentMethod,
+            paymentStatus: orderData.paymentStatus
           });
           
           console.log('[ENHANCED CART] Order response:', orderResponse);
@@ -1149,8 +1153,65 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
     };
     
     // Add event listeners
-    document.addEventListener('proceedToCheckout', handleProceedToCheckout);
+  document.addEventListener('proceedToCheckout', handleProceedToCheckout);
     document.addEventListener('placeOrder', handlePlaceOrderEvent);
+
+    // Handler for starting payment processing (from CheckoutForm)
+    const handlePaymentStart = async (event) => {
+      const { cfOrderId, orderData } = event.detail || {};
+      if (!cfOrderId) return;
+      try {
+        setIsPaymentProcessing(true);
+        setIsLoading(true);
+        // Ensure we're on checkout step while verifying
+        setCheckoutStep('checkout');
+
+        // Poll Cashfree for payment success up to ~60s
+        let paid = false;
+        for (let i = 0; i < 12; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          try {
+            const payList = await api.public.payments.cashfree.getPayments(cfOrderId);
+            const arr = payList?.data || [];
+            const success = arr.find(p => (p.payment_status || '').toLowerCase() === 'success');
+            if (success) { paid = true; break; }
+          } catch (err) {
+            // Continue polling on transient errors
+            console.warn('[ENHANCED CART] Payment poll error:', err?.message || err);
+          }
+        }
+
+        if (!paid) {
+          setIsPaymentProcessing(false);
+          setIsLoading(false);
+          setError('Payment not confirmed yet. If the amount was debited, please wait or contact support.');
+          setTimeout(() => setError(null), 5000);
+          return;
+        }
+
+        // Payment succeeded → place order
+        document.dispatchEvent(
+          new CustomEvent('placeOrder', {
+            detail: {
+              orderData: {
+                ...orderData,
+                paymentMethod: 'upi',
+                paymentStatus: 'paid',
+                cfOrderId
+              }
+            }
+          })
+        );
+      } catch (err) {
+        console.error('[ENHANCED CART] Payment processing error:', err);
+        setIsPaymentProcessing(false);
+        setIsLoading(false);
+        setError('Failed to verify payment. Please try again.');
+        setTimeout(() => setError(null), 4000);
+      }
+    };
+
+    document.addEventListener('paymentStart', handlePaymentStart);
     document.addEventListener('resetCart', handleResetCart);
     document.addEventListener('goToMenu', handleGoToMenu);
     document.addEventListener('forceConfirmation', handleForceConfirmation);
@@ -1158,7 +1219,8 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
     // Clean up when component unmounts
     return () => {
       document.removeEventListener('proceedToCheckout', handleProceedToCheckout);
-      document.removeEventListener('placeOrder', handlePlaceOrderEvent);
+  document.removeEventListener('placeOrder', handlePlaceOrderEvent);
+  document.removeEventListener('paymentStart', handlePaymentStart);
       document.removeEventListener('resetCart', handleResetCart);
       document.removeEventListener('goToMenu', handleGoToMenu);
       document.removeEventListener('forceConfirmation', handleForceConfirmation);
@@ -1569,7 +1631,9 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                         marginBottom: theme.spacing.sm
                       }}>
                         {checkoutStep === 'cart' ? 'Preparing your cart...' :
-                         checkoutStep === 'checkout' ? 'Setting up checkout...' : 
+                         checkoutStep === 'checkout' ? (
+                           isPaymentProcessing ? 'Please wait while your payment is being verified. You will be redirected automatically' : 'Setting up checkout...'
+                         ) : 
                          'Processing your order...'}
                       </p>
                       

@@ -2,15 +2,37 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Start All Servers",
+			"label": "Backend: dev",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
+				"-NoExit",
 				"-Command",
-				"Start-Process powershell -ArgumentList '-NoExit', '-Command', 'Set-Location \"d:\\NodeJs\\food-menu-order-managment\\backend\"; npm run dev' -WindowStyle Normal; Start-Sleep 2; Start-Process powershell -ArgumentList '-NoExit', '-Command', 'Set-Location \"d:\\NodeJs\\food-menu-order-managment\\frontend\\customer\"; npm run dev' -WindowStyle Normal"
+				"Set-Location 'd:\\NodeJs\\food-menu-order-managment\\backend'; npm run dev"
 			],
-			"group": "build",
-			"isBackground": false
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Customer: dev",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoExit",
+				"-Command",
+				"Set-Location 'd:\\NodeJs\\food-menu-order-managment\\frontend\\customer'; npm start"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Start All Servers",
+			"dependsOn": [
+				"Backend: dev",
+				"Customer: dev"
+			],
+			"dependsOrder": "parallel",
+			"group": "build"
 		}
 	]
 }
