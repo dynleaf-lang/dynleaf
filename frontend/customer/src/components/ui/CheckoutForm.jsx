@@ -60,13 +60,63 @@ const CheckoutForm = memo(() => {
 
   // Load Cashfree SDK on mount
   useEffect(() => {
-    try {
-      if (typeof window !== 'undefined' && window.Cashfree) return;
-      const script = document.createElement('script');
-      script.src = 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.js';
-      script.async = true;
-      document.body.appendChild(script);
-    } catch (_) {}
+    const loadCashfreeSDK = () => {
+      return new Promise((resolve, reject) => {
+        // Check if already loaded
+        if (typeof window !== 'undefined' && window.Cashfree) {
+          console.log('[CHECKOUT FORM] Cashfree SDK already available');
+          resolve();
+          return;
+        }
+
+        // Check if script already exists
+        const existingScript = document.querySelector('script[src*="cashfree.js"]');
+        if (existingScript) {
+          console.log('[CHECKOUT FORM] SDK script exists, waiting for load...');
+          // Wait for it to load
+          const checkSDK = () => {
+            if (window.Cashfree) {
+              resolve();
+            } else {
+              setTimeout(checkSDK, 100);
+            }
+          };
+          setTimeout(checkSDK, 100);
+          return;
+        }
+
+        console.log('[CHECKOUT FORM] Loading Cashfree SDK...');
+        const script = document.createElement('script');
+        script.src = 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.js';
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+        
+        script.onload = () => {
+          console.log('[CHECKOUT FORM] Cashfree SDK script loaded');
+          // Wait for SDK to be available on window
+          setTimeout(() => {
+            if (window.Cashfree && typeof window.Cashfree === 'function') {
+              console.log('[CHECKOUT FORM] Cashfree SDK available on window');
+              resolve();
+            } else {
+              console.error('[CHECKOUT FORM] SDK loaded but Cashfree not available');
+              reject(new Error('SDK loaded but Cashfree not available'));
+            }
+          }, 200);
+        };
+        
+        script.onerror = (error) => {
+          console.error('[CHECKOUT FORM] Failed to load Cashfree SDK:', error);
+          reject(new Error('Failed to load Cashfree SDK'));
+        };
+        
+        document.head.appendChild(script);
+      });
+    };
+
+    loadCashfreeSDK().catch(err => {
+      console.warn('[CHECKOUT FORM] SDK loading error:', err);
+    });
   }, []);
 
   // On mount: check register status once to initialize disabled state
@@ -405,22 +455,67 @@ const CheckoutForm = memo(() => {
         } catch (_) {}
 
         // Use Cashfree Checkout JS v2 if available on window
+        console.log('[CHECKOUT FORM] Checking Cashfree SDK availability:', typeof window.Cashfree);
         if (window && window.Cashfree && typeof window.Cashfree === 'function') {
+          console.log('[CHECKOUT FORM] Using Cashfree SDK');
           const cashfree = window.Cashfree({ mode: (import.meta.env.VITE_CASHFREE_ENV || 'test') === 'prod' ? 'production' : 'sandbox' });
 
           await new Promise((resolve, reject) => {
             cashfree.checkout({
-              paymentSessionId: sessionId
-              // For UPI intent, avoid forcing a page redirect; let the SDK trigger the UPI app
+              paymentSessionId: sessionId,
+              redirectTarget: '_modal' // Use modal instead of redirect
             }).then(resolve).catch(reject);
           });
         } else {
-          // Fallback: redirect to Cashfree hosted page
-          const env = (import.meta.env.VITE_CASHFREE_ENV || 'test').toLowerCase();
-          const base = env === 'prod' ? 'https://payments.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
-          // Hosted checkout URL format
-          window.location.href = `${base}/orders/${cfOrderId}`;
-          return; // Don't proceed locally; user will return via redirect
+          // SDK not available - create UPI intent for selected app
+          console.log('[CHECKOUT FORM] SDK not available, creating UPI intent for:', selectedUpiApp);
+          
+          // Create UPI intent URL for the selected app
+          try {
+            const amount = Number(totalAmount.toFixed(2));
+            const merchantName = 'OrderEase';
+            const transactionNote = `Order ${cfOrderId}`;
+            
+            // Use a generic merchant UPI VPA (replace with your actual UPI VPA)
+            const merchantVPA = 'merchant@paytm'; // Replace with your actual UPI VPA
+            
+            // Create UPI URLs based on selected app
+            let upiUrl = `upi://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+            let intentUrl = '';
+            
+            switch (selectedUpiApp) {
+              case 'gpay':
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
+                break;
+              case 'phonepe':
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.phonepe.app;end`;
+                break;
+              case 'paytm':
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=net.one97.paytm;end`;
+                break;
+              default:
+                intentUrl = upiUrl;
+            }
+            
+            console.log('[CHECKOUT FORM] Generated UPI URL:', upiUrl);
+            console.log('[CHECKOUT FORM] Attempting to open UPI app:', selectedUpiApp);
+            
+            // Try to open the UPI app based on device
+            if (navigator.userAgent.match(/Android/i)) {
+              // Android: Use intent URL to open specific app
+              window.location.href = intentUrl;
+            } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+              // iOS: Use universal UPI URL
+              window.location.href = upiUrl;
+            } else {
+              // Desktop: Log for now, could show QR code in future
+              console.log('[CHECKOUT FORM] Desktop detected - UPI intent not applicable');
+            }
+            
+          } catch (upiError) {
+            console.log('[CHECKOUT FORM] UPI intent creation failed:', upiError.message);
+            // Continue with polling anyway
+          }
         }
         // From here, processing overlay will continue polling and place the order when verified
       } catch (err) {

@@ -41,6 +41,16 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
   // Sanitize customer_id for Cashfree: only alphanumeric, underscore, hyphen
   let rawId = customer?.id || `guest_${Date.now()}`;
   let safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  
+  // Validate and sanitize phone number for Cashfree
+  let phone = customer?.phone || '';
+  // Remove all non-digit characters
+  phone = phone.replace(/\D/g, '');
+  // If phone is empty or less than 10 digits, use valid default
+  if (!phone || phone.length < 10) {
+    phone = '9876543210'; // Valid 10-digit Indian number
+  }
+  
   const payload = {
     order_id: orderId,
     order_amount: Number(amount),
@@ -48,7 +58,7 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
     customer_details: {
       customer_id: safeId,
       customer_email: customer?.email || 'guest@example.com',
-      customer_phone: customer?.phone || '9999999999',
+      customer_phone: phone,
       customer_name: customer?.name || 'Guest'
     },
     order_meta: {
@@ -60,7 +70,9 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
           capture_payment: true,
           intent_flow: 'intent'
         }
-      }
+      },
+      // Add notification URL for webhook
+      notify_url: process.env.CASHFREE_WEBHOOK_URL || undefined
     }
   };
 
