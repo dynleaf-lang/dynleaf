@@ -17,8 +17,8 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',   // Listen on all network interfaces
-    port: 5173,        // Default Vite port
-    strictPort: true,   // Always use port 5173, fail if in use
+    port: 5175,        // Use an alternative Vite port to avoid conflicts
+    strictPort: true,   // Always use port 5175, fail if in use
     proxy: {
       // Proxy API requests to the backend server on port 5001
       '/api': {

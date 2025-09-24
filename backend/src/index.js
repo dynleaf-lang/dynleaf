@@ -209,6 +209,7 @@ app.use('/api/public/inventory', require('./routes/publicInventoryRoutes'));
 app.use('/api/public/suppliers', require('./routes/publicSupplierRoutes'));
 app.use('/api/public/purchases', require('./routes/publicPurchaseRoutes'));
 app.use('/api/public/recipes', require('./routes/publicRecipeRoutes'));
+app.use('/api/public/payments', require('./routes/publicPaymentRoutes'));
 // WhatsApp integration routes
 app.use('/api/integrations/whatsapp', whatsappRoutes);
 // Top-level short redirect for magic links: /r/:code -> long portal URL

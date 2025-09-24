@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": { 
-    "start": "vite",
+    "start": "vite --port 5175",
     "build": "NODE_OPTIONS='--max-old-space-size=4096' vite build",
     "lint": "eslint .",
     "preview": "vite preview"

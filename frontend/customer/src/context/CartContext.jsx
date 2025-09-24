@@ -405,7 +405,7 @@ export const CartProvider = ({ children }) => {
     // Note: We don't reset cartLoaded here because the cart is still "loaded", just empty
   };
   // Submit order using the real API
-  const placeOrder = async ({ customerInfo = {}, orderType: providedOrderType, note } = {}) => {
+  const placeOrder = async ({ customerInfo = {}, orderType: providedOrderType, note, paymentMethod, paymentStatus } = {}) => {
     if (cartItems.length === 0) {
       setOrderError('Your cart is empty');
       return null;
@@ -584,8 +584,9 @@ export const CartProvider = ({ children }) => {
           email: customerInfo.email || '',
           phone: customerInfo.phone || ''
         },
-        orderType: finalOrderType,
-        paymentMethod: 'cash', // Default to cash payment
+  orderType: finalOrderType,
+  paymentMethod: paymentMethod || 'cash',
+  paymentStatus: paymentStatus || undefined,
         status: 'pending',
         notes: note || orderNote || '',
         taxAmount: taxAmount,

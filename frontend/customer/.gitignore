@@ -11,6 +11,7 @@ lerna-debug.log*
 .env.production 
 .env.local
 .env.development.local
+/.env
 
 node_modules
 dist
@@ -27,3 +28,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+

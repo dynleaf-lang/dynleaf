@@ -364,6 +364,44 @@ export const api = {
       }).then(data => mapCategoryToFrontend(data)),
   },
   
+  // Payments endpoints (public)
+  payments: {
+    cashfree: {
+      createOrder: async ({ amount, currency = 'INR', customer = {}, orderMeta = {} }) => {
+        try {
+          const response = await apiClient.post(`${PUBLIC_API_PATH}/payments/cashfree/order`, {
+            amount,
+            currency,
+            customer,
+            orderMeta
+          });
+          return response.data;
+        } catch (error) {
+          console.error('[API CLIENT] Cashfree create order error:', error);
+          throw error;
+        }
+      },
+      getOrder: async (cfOrderId) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/payments/cashfree/order/${cfOrderId}`);
+          return response.data;
+        } catch (error) {
+          console.error('[API CLIENT] Cashfree get order error:', error);
+          throw error;
+        }
+      },
+      getPayments: async (cfOrderId) => {
+        try {
+          const response = await apiClient.get(`${PUBLIC_API_PATH}/payments/cashfree/order/${cfOrderId}/payments`);
+          return response.data;
+        } catch (error) {
+          console.error('[API CLIENT] Cashfree get payments error:', error);
+          throw error;
+        }
+      }
+    }
+  },
+  
   // Order endpoints
   orders: {
     create: (orderData) => 
@@ -656,6 +694,43 @@ export const api = {
         } catch (error) {
           console.error('Error searching menu items:', error);
           throw error;
+        }
+      }
+    },
+    // Payments (public)
+    payments: {
+      cashfree: {
+        createOrder: async ({ amount, currency = 'INR', customer = {}, orderMeta = {} }) => {
+          try {
+            const response = await apiClient.post(`${PUBLIC_API_PATH}/payments/cashfree/order`, {
+              amount,
+              currency,
+              customer,
+              orderMeta
+            });
+            return response.data;
+          } catch (error) {
+            console.error('[API CLIENT] (public) Cashfree create order error:', error);
+            throw error;
+          }
+        },
+        getOrder: async (cfOrderId) => {
+          try {
+            const response = await apiClient.get(`${PUBLIC_API_PATH}/payments/cashfree/order/${cfOrderId}`);
+            return response.data;
+          } catch (error) {
+            console.error('[API CLIENT] (public) Cashfree get order error:', error);
+            throw error;
+          }
+        },
+        getPayments: async (cfOrderId) => {
+          try {
+            const response = await apiClient.get(`${PUBLIC_API_PATH}/payments/cashfree/order/${cfOrderId}/payments`);
+            return response.data;
+          } catch (error) {
+            console.error('[API CLIENT] (public) Cashfree get payments error:', error);
+            throw error;
+          }
         }
       }
     },
