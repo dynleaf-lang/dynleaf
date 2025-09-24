@@ -939,3 +939,83 @@
 .split-table .fw-medium {
   text-transform: capitalize;
 }
+
+/* Quick Tags Styles */
+.quick-tags {
+  margin-top: 15px;
+}
+
+.quick-tag-btn {
+  border: 1px solid #dee2e6 !important;
+  background-color: #fff !important;
+  color: #495057 !important;
+  border-radius: 6px !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  margin: 2px !important;
+}
+
+.quick-tag-btn:hover {
+  border-color: #007bff !important;
+  background-color: #e7f3ff !important;
+  color: #007bff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.15) !important;
+}
+
+.quick-tag-btn:active {
+  transform: translateY(0) !important;
+  background-color: #007bff !important;
+  color: #fff !important;
+  border-color: #007bff !important;
+}
+
+.quick-tag-btn:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25) !important;
+}
+
+.quick-tag-btn span {
+  display: inline-block;
+  margin-right: 4px;
+}
+
+/* KOT Status Styles */
+.cart-item-row.fully-sent {
+  background-color: rgba(40, 167, 69, 0.1);
+  border-left: 3px solid #28a745;
+}
+
+.cart-item-row.partially-sent {
+  background-color: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid #ffc107;
+}
+
+.cart-item-row.fully-sent .item-name {
+  color: #155724;
+}
+
+.cart-item-row.partially-sent .item-name {
+  color: #856404;
+}
+
+/* KOT Badge Styles */
+.cart-item-row .badge {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.cart-item-row .badge svg {
+  margin-right: 2px;
+}
+
+/* KOT Status Text */
+.cart-item-row small.text-muted {
+  font-size: 11px;
+  display: block;
+  margin-top: 2px;
+}

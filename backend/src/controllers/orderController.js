@@ -10,6 +10,51 @@ const { emitOrderUpdate, emitStatusUpdate, emitNewOrder } = require('../utils/so
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const PosSession = require('../models/PosSession');
+const User = require('../models/User');
+const OrderTokenCounter = require('../models/OrderTokenCounter');
+
+// Helper: generate a simple per-branch daily token number (resets each day)
+async function generateBranchDailyToken(branchId) {
+  try {
+    if (!branchId) return '';
+    const d = new Date();
+    const yyyymmdd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+    const ctr = await OrderTokenCounter.findOneAndUpdate(
+      { branchId, date: yyyymmdd },
+      { $inc: { seq: 1 } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return String(ctr.seq);
+  } catch (e) { return ''; }
+}
+
+// Helper: resolve cashier from sessionId or explicit user in payload
+async function resolveCashierInfo(orderData) {
+  try {
+    // If cashier already provided, use it
+    if (orderData.cashierId || orderData.cashierName || orderData.createdBy || orderData.createdByName) {
+      // Try to fetch a name if only id present
+      if (!orderData.cashierName && orderData.cashierId) {
+        const u = await User.findById(orderData.cashierId).select('name username');
+        if (u) orderData.cashierName = u.name || u.username || '';
+      }
+      if (!orderData.createdBy && orderData.cashierId) orderData.createdBy = orderData.cashierId;
+      if (!orderData.createdByName && orderData.cashierName) orderData.createdByName = orderData.cashierName;
+      return { cashierId: orderData.cashierId || orderData.createdBy || undefined, cashierName: orderData.cashierName || orderData.createdByName || '' };
+    }
+    // If session provided, pull cashier from session
+    if (orderData.sessionId) {
+      const session = await PosSession.findById(orderData.sessionId).populate('cashierId', 'name username');
+      if (session && session.cashierId) {
+        const name = session.cashierId.name || session.cashierId.username || '';
+        return { cashierId: session.cashierId._id, cashierName: name };
+      }
+    }
+    // As a fallback, if req.user exists, use it (will be wired at route layer if available)
+    return { cashierId: undefined, cashierName: '' };
+  } catch { return { cashierId: undefined, cashierName: '' }; }
+}
 
 // Get all orders
 exports.getAllOrders = async (req, res) => {
@@ -130,8 +175,21 @@ exports.createOrder = async (req, res) => {
     const totalAmount = subtotal + tax;
     
     // Create the complete order with tax information
+    // Resolve cashier info
+    const { cashierId, cashierName } = await resolveCashierInfo(orderData);
+    // Resolve token number if not provided
+    let tokenNumber = orderData.tokenNumber || orderData.token || '';
+    if (!tokenNumber) {
+      tokenNumber = await generateBranchDailyToken(orderData.branchId);
+    }
+
     const order = await Order.create({
       ...orderData,
+      tokenNumber,
+      cashierId,
+      cashierName,
+      createdBy: orderData.createdBy || cashierId,
+      createdByName: orderData.createdByName || cashierName,
       subtotal,
       tax,
       taxDetails,
@@ -200,7 +258,20 @@ exports.updateOrder = async (req, res) => {
       req.body.taxDetails = taxDetails;
       req.body.totalAmount = totalAmount;
     }
-    
+    // Map alternate token/cashier fields if provided by clients
+    if (req.body.token !== undefined && req.body.tokenNumber === undefined) {
+      req.body.tokenNumber = req.body.token;
+    }
+    if (req.body.cashierId || req.body.cashierName) {
+      // Keep createdBy* in sync when present
+      if (!req.body.createdBy && req.body.cashierId) req.body.createdBy = req.body.cashierId;
+      if (!req.body.createdByName && req.body.cashierName) req.body.createdByName = req.body.cashierName;
+    }
+    if (req.body.createdBy || req.body.createdByName) {
+      if (!req.body.cashierId && req.body.createdBy) req.body.cashierId = req.body.createdBy;
+      if (!req.body.cashierName && req.body.createdByName) req.body.cashierName = req.body.createdByName;
+    }
+
     const order = await Order.findByIdAndUpdate(
       req.params.id,
       req.body,

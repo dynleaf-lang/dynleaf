@@ -82,7 +82,7 @@ const PaymentModal = ({
 
   const { createOrder, updatePaymentStatus } = useOrder();
   const { clearCart, replaceCart, updateCustomerInfo } = useCart();
-  const { updateTableStatus, clearSelectedTable } = usePOS();
+  const { updateTableStatus, clearSelectedTable, restaurant, branch, taxInfo } = usePOS();
   const { emitNewOrder } = useSocket();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
 
@@ -489,23 +489,33 @@ const PaymentModal = ({
       };
 
       const restaurantInfo = {
-        name: printable?.brandName || printable?.restaurantName || 'Restaurant',
-        brandName: printable?.brandName || undefined,
-        logo: printable?.logo || undefined,
-        address: printable?.branchAddress || 'Address',
-        phone: printable?.branchPhone || 'Phone',
-        email: '',
-        gst: printable?.gstNumber || ''
+        name: printable?.brandName || printable?.restaurantName || restaurant?.name || restaurant?.brandName || 'Restaurant',
+        brandName: printable?.brandName || restaurant?.brandName || undefined,
+        logo: printable?.logo || restaurant?.logo || undefined,
+        address: printable?.branchAddress || branch?.address || 'Address',
+        phone: printable?.branchPhone || branch?.phone || 'Phone',
+        email: restaurant?.email || '',
+        country: restaurant?.country || branch?.country || undefined,
+        gst: printable?.gstNumber || branch?.gst || branch?.gstNumber || restaurant?.gstNumber || ''
       };
 
       let result;
+      const receiptSettings = {
+        showQRCode: printerConfig.showQRCode !== false,
+        showFooterMessage: printerConfig.showFooterMessage !== false,
+        paymentUPIVPA: printerConfig.paymentUPIVPA || '',
+        paymentUPIName: printerConfig.paymentUPIName || '',
+        dynamicTaxPercent: taxInfo?.percentage || null
+      };
       if (printType === 'thermal' || (printType === 'auto' && printerConfig.printerType === 'network')) {
         // Print to thermal printer
-        const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo);
-        result = await printThermalReceipt(thermalReceipt, printerConfig);
+  const thermalReceipt = generateThermalReceipt(orderData, restaurantInfo, receiptSettings);
+  // Wrap with meta so routing picks cashier printer
+  const payload = Object.assign(new String(thermalReceipt), { _meta: { destination: 'cashier', type: 'receipt' } });
+  result = await printThermalReceipt(payload, printerConfig);
       } else {
         // Print using browser
-        const htmlReceipt = generateHTMLReceipt(orderData, restaurantInfo);
+        const htmlReceipt = generateHTMLReceipt(orderData, restaurantInfo, receiptSettings);
         result = printHTMLReceipt(htmlReceipt);
       }
 

@@ -18,6 +18,12 @@ const branchSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    // State/Province (useful for countries like India with state-specific taxes)
+    state: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     postalCode: {
         type: String,
         required: false,
@@ -39,6 +45,13 @@ const branchSchema = new mongoose.Schema({
         type: String,
         required: true,
     }, 
+    // Compliance fields
+    // Optional FSSAI license number for India (branch/outlet specific)
+    fssaiLicense: {
+        type: String,
+        required: false,
+        trim: true,
+    },
     createdAt: {
         type: Date,
         default: Date.now,
@@ -46,6 +59,12 @@ const branchSchema = new mongoose.Schema({
     // Settings
     settings: {
         whatsappUpdatesEnabled: { type: Boolean, default: false },
+        printerConfig: {
+            paymentUPIVPA: { type: String, default: '' },
+            paymentUPIName: { type: String, default: '' },
+            showQRCode: { type: Boolean, default: true },
+            showFooterMessage: { type: Boolean, default: true },
+        },
     },
 });
 

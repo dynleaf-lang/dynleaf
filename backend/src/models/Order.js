@@ -72,6 +72,13 @@ const orderSchema = new mongoose.Schema({
                 required: true,
                 min: 0,
             },
+            // Full customizations payload (size/variants/addons/notes, etc.)
+            // This preserves selection details for KOT and billing displays
+            customizations: {
+                type: mongoose.Schema.Types.Mixed,
+                required: false,
+                default: {}
+            },
             notes: {
                 type: String,
                 trim: true,
@@ -101,6 +108,37 @@ const orderSchema = new mongoose.Schema({
             },
         },
     ],
+    // Token/KOT number for quick pickup identification
+    tokenNumber: {
+        type: String,
+        required: false,
+        trim: true,
+        index: true
+    },
+    // POS staff responsible for the order (denormalized for quick display)
+    cashierId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: false,
+        index: true
+    },
+    cashierName: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    // Creator metadata (compatible with existing frontends expecting createdBy fields)
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: false,
+        index: true
+    },
+    createdByName: {
+        type: String,
+        required: false,
+        trim: true
+    },
     subtotal: {
         type: Number,
         required: true,
@@ -215,6 +253,13 @@ orderSchema.add({
 
 // Pre-save middleware to generate orderId
 orderSchema.pre('save', function(next) {
+    // Ensure cashier and POS user (createdBy) are the same when one side is provided
+    try {
+        if (!this.cashierId && this.createdBy) this.cashierId = this.createdBy;
+        if (!this.cashierName && this.createdByName) this.cashierName = this.createdByName;
+        if (!this.createdBy && this.cashierId) this.createdBy = this.cashierId;
+        if (!this.createdByName && this.cashierName) this.createdByName = this.cashierName;
+    } catch (_) {}
     if (!this.orderId) {
         // Generate a unique order ID like ORD-20241213-001
         const today = new Date().toISOString().split('T')[0].replace(/-/g, '');

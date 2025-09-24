@@ -35,6 +35,7 @@ import { RestaurantContext } from "../../context/RestaurantContext";
 import { AuthContext } from "../../context/AuthContext";
 import { useParams, useNavigate } from "react-router-dom";
 import { countries } from "../../utils/countryList"; // Import countries list
+import { indiaStates } from "../../utils/indiaStates";
 
 const BranchManagement = () => {
   const [modalOpen, setModalOpen] = useState(false);
@@ -57,11 +58,13 @@ const BranchManagement = () => {
     name: '',
     address: '',
     city: '',
+  state: '',
     postalCode: '',
     country: '',
     phone: '',
     email: '',
-    openingHours: ''
+  openingHours: '',
+  fssaiLicense: ''
   });
   
   // Form validation errors
@@ -131,11 +134,13 @@ const BranchManagement = () => {
       name: '',
       address: '',
       city: '',
+  state: '',
       postalCode: '',
       country: '',
       phone: '',
       email: '',
-      openingHours: ''
+  openingHours: '',
+  fssaiLicense: ''
     });
   };
   
@@ -153,11 +158,13 @@ const BranchManagement = () => {
       name: branch.name || '',
       address: branch.address || '',
       city: branch.city || '',
+  state: branch.state || '',
       postalCode: branch.postalCode || '',
       country: branch.country || '',
       phone: branch.phone || '',
       email: branch.email || '',
-      openingHours: branch.openingHours || ''
+  openingHours: branch.openingHours || '',
+  fssaiLicense: branch.fssaiLicense || ''
     });
     setModalOpen(true);
   };
@@ -203,6 +210,12 @@ const BranchManagement = () => {
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
+
+  // Soft validation helpers (non-blocking)
+  const isValidFssai = (val) => {
+    if (!val) return true; // optional
+    return /^\d{14}$/.test(String(val).trim());
+  };
   
   // Function to handle saving a branch
   const handleSaveBranch = async () => {
@@ -247,6 +260,22 @@ const BranchManagement = () => {
        
       return id.name || 'Unknown Restaurant';
     }
+  };
+
+  // Find restaurant object by ID
+  const getRestaurantById = (id) => {
+    if (!id) return null;
+    return restaurants.find(r => r._id === id) || null;
+  };
+
+  // Compute applicable GSTIN for India based on selected state and restaurant registrations
+  const getApplicableGstin = () => {
+    if (formData.country !== 'India') return '';
+    const rid = currentEditItem ? currentEditItem.restaurantId : (formData.restaurantId || selectedRestaurantId);
+    const rest = getRestaurantById(rid);
+    if (!rest || !Array.isArray(rest.gstRegistrations) || !formData.state) return '';
+    const match = rest.gstRegistrations.find(g => g && g.state === formData.state && (g.active === undefined || g.active === true));
+    return match?.gstin || '';
   };
 
   // Only Super_Admin should be able to access this page
@@ -303,6 +332,34 @@ const BranchManagement = () => {
                         value={selectedRestaurantId}
                         onChange={(e) => setSelectedRestaurantId(e.target.value)}
                       >
+                          <Col md={6}>
+                            <FormGroup>
+                              <Label for="state">State</Label>
+                              {formData.country === 'India' ? (
+                                <Input
+                                  type="select"
+                                  name="state"
+                                  id="state"
+                                  value={formData.state}
+                                  onChange={handleInputChange}
+                                >
+                                  <option value="">Select State</option>
+                                  {indiaStates.map((st) => (
+                                    <option key={st} value={st}>{st}</option>
+                                  ))}
+                                </Input>
+                              ) : (
+                                <Input
+                                  type="text"
+                                  name="state"
+                                  id="state"
+                                  placeholder="State/Province"
+                                  value={formData.state}
+                                  onChange={handleInputChange}
+                                />
+                              )}
+                            </FormGroup>
+                          </Col>
                         <option value="">All Restaurants</option>
                         {restaurants.map(restaurant => (
                           <option key={restaurant._id} value={restaurant._id}>
@@ -325,23 +382,24 @@ const BranchManagement = () => {
                   <tr>
                     <th scope="col">Branch Name</th> 
                     <th scope="col">Address</th>
-                    <th scope="col">City/Country</th>
+                    <th scope="col">City/State/Country</th>
                     <th scope="col">Phone</th>
                     <th scope="col">Email</th>
                     <th scope="col">Opening Hours</th>
+                    <th scope="col">Compliance</th>
                     <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   { (loading || (restaurantId && localLoading)) ? (
                     <tr>
-                      <td colSpan="7" className="text-center py-4">
+                      <td colSpan="8" className="text-center py-4">
                         <p className="font-italic text-muted mb-0">Loading branches...</p>
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan="7" className="text-center py-4">
+                      <td colSpan="8" className="text-center py-4">
                         <p className="text-danger mb-0">Error loading branches: {error}</p>
                       </td>
                     </tr>
@@ -356,13 +414,22 @@ const BranchManagement = () => {
                         </td> 
                         <td>{branch.address}</td>
                         <td>
-                          {branch.city && branch.country ? `${branch.city}, ${branch.country}` : 
-                           branch.city ? branch.city : 
-                           branch.country ? branch.country : '-'}
+                          {[
+                            branch.city || null,
+                            branch.state || null,
+                            branch.country || null
+                          ].filter(Boolean).join(', ') || '-'}
                         </td>
                         <td>{branch.phone}</td>
                         <td>{branch.email}</td>
                         <td>{branch.openingHours}</td>
+                        <td>
+                          {branch.country === 'India' && branch.fssaiLicense ? (
+                            <span title="FSSAI License">FSSAI: {branch.fssaiLicense}</span>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
                         <td className="text-right">
                           <UncontrolledDropdown>
                             <DropdownToggle
@@ -406,7 +473,7 @@ const BranchManagement = () => {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="7" className="text-center py-4">
+                        <td colSpan="8" className="text-center py-4">
                           <p className="font-italic text-muted mb-0">No branches available</p>
                         </td>
                       </tr>
@@ -423,13 +490,22 @@ const BranchManagement = () => {
                         </td>
                         <td>{branch.address}</td>
                         <td>
-                          {branch.city && branch.country ? `${branch.city}, ${branch.country}` : 
-                           branch.city ? branch.city : 
-                           branch.country ? branch.country : '-'}
+                          {[
+                            branch.city || null,
+                            branch.state || null,
+                            branch.country || null
+                          ].filter(Boolean).join(', ') || '-'}
                         </td>
                         <td>{branch.phone}</td>
                         <td>{branch.email}</td>
                         <td>{branch.openingHours}</td>
+                        <td>
+                          {branch.country === 'India' && branch.fssaiLicense ? (
+                            <span title="FSSAI License">FSSAI: {branch.fssaiLicense}</span>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
                         <td className="text-right">
                           <UncontrolledDropdown>
                             <DropdownToggle
@@ -473,7 +549,7 @@ const BranchManagement = () => {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan="7" className="text-center py-4">
+                        <td colSpan="8" className="text-center py-4">
                           <p className="font-italic text-muted mb-0">No branches available</p>
                         </td>
                       </tr>
@@ -642,6 +718,35 @@ const BranchManagement = () => {
               </Input>
               {formErrors.country && <FormFeedback>{formErrors.country}</FormFeedback>}
             </FormGroup>
+            {formData.country === 'India' && (
+              <FormGroup>
+                <Label for="fssaiLicense">FSSAI License (Branch/Outlet specific, optional)</Label>
+                <Input
+                  type="text"
+                  name="fssaiLicense"
+                  id="fssaiLicense"
+                  placeholder="e.g., 12345678901234"
+                  value={formData.fssaiLicense}
+                  onChange={handleInputChange}
+                  invalid={!!formData.fssaiLicense && !isValidFssai(formData.fssaiLicense)}
+                />
+                {!!formData.fssaiLicense && !isValidFssai(formData.fssaiLicense) && (
+                  <FormFeedback>FSSAI should be a 14-digit number.</FormFeedback>
+                )}
+              </FormGroup>
+            )}
+            {formData.country === 'India' && (
+              <FormGroup>
+                <Label>Applicable GSTIN (by restaurant's state registration)</Label>
+                <Input
+                  type="text"
+                  value={getApplicableGstin()}
+                  disabled
+                  className="bg-light"
+                  placeholder="Will auto-match the restaurant's GST registration for the selected state"
+                />
+              </FormGroup>
+            )}
             <FormGroup>
               <Label for="phone">Phone</Label>
               <Input

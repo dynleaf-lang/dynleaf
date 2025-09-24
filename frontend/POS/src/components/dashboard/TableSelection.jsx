@@ -52,7 +52,7 @@ import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 import toast from '../../utils/notify';
 import './TableSelection.css';
-import { generateHTMLReceipt, printHTMLReceipt } from '../../utils/thermalPrinter';
+import { generateHTMLReceipt, generateHTMLReceiptReference, printHTMLReceipt } from '../../utils/thermalPrinter';
 import axios from 'axios';
 import QRCode from 'react-qr-code';
 import TableQRBatchPOS from './TableQRBatchPOS';
@@ -73,6 +73,8 @@ const TableSelection = () => {
     clearSelectedTable,
     updateTableStatus,
   refreshData,
+  restaurant,
+  branch,
   // reservation APIs
   getTableReservations,
   createReservation: apiCreateReservation,
@@ -668,51 +670,172 @@ const TableSelection = () => {
   const canActOnTable = Boolean(actionTableId || selectedTable?._id);
   const actionSelectedTable = tables.find(t => t._id === actionTableId);
 
-  // Print helper: builds a minimal orderData and prints via browser
+  // Print helper: prefer local KOT batches (sidebar view) so printed items match cart exactly
   const handlePrintForTable = (table, activeOrderCandidate = null) => {
     try {
-      const tableOrders = getTableOrders(table._id) || [];
-      // Prefer active order else pick most recent by createdAt
-      let order = activeOrderCandidate;
-      if (!order) {
-        order = [...tableOrders].sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
+      // Helper: normalized string for customizations to avoid merging different add-ons
+      const normalize = (v) => (String(v || '')).trim().toLowerCase();
+      const stableCust = (cust) => {
+        try {
+          if (!cust || typeof cust !== 'object') return JSON.stringify(cust || {});
+          const sorted = Object.keys(cust).sort().reduce((acc, k) => { acc[k] = cust[k]; return acc; }, {});
+          return JSON.stringify(sorted);
+        } catch { return JSON.stringify(cust || {}); }
+      };
+
+      // 1) Try to build from local batches so bill matches sidebar exactly
+      const batchesKey = 'pos_table_batches';
+      const map = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+      const savedForTable = map[table._id] || (table.tableId ? map[table.tableId] : null);
+
+      let mergedItems = [];
+      let subtotal = 0;
+      let sumTax = 0;
+      let sumTotal = 0;
+      let lastOrderMeta = null;
+      // Helper to extract a token value from a variety of possible fields
+      const extractToken = (obj) => {
+        try {
+          if (!obj) return '';
+          const candidates = [
+            obj.tokenNumber,
+            obj.token,
+            obj.token_no,
+            obj.tokenNo,
+            obj.kotToken,
+            obj.kot_number,
+            obj.kotNumber
+          ];
+          const found = candidates.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+          return found !== undefined ? String(found) : '';
+        } catch { return ''; }
+      };
+      let tokenCandidate = '';
+
+      if (savedForTable && Array.isArray(savedForTable.batches) && savedForTable.batches.length) {
+        const mergeMap = new Map();
+        savedForTable.batches.forEach(batch => {
+          const items = Array.isArray(batch?.items) ? batch.items : [];
+          items.forEach(it => {
+            const displayName = it?.name || it?.itemName || it?.title || 'Item';
+            const price = Number(it?.price) || 0;
+            const qty = Number(it?.quantity) || 1;
+            const cust = it?.customizations || {};
+            const key = JSON.stringify({ n: normalize(displayName), p: price, c: stableCust(cust) });
+            const prev = mergeMap.get(key) || { name: displayName, price, quantity: 0, customizations: cust };
+            prev.quantity += qty;
+            mergeMap.set(key, prev);
+          });
+        });
+        mergedItems = [...mergeMap.values()];
+        subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+
+  // Try to obtain some meta (payment/tax) from the most recent order on this table, if available
+        const tableOrders = getTableOrders(table._id) || [];
+        lastOrderMeta = tableOrders.slice().sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0] || null;
+        sumTax = Number(lastOrderMeta?.tax) || 0;
+        sumTotal = Number(lastOrderMeta?.totalAmount) || 0;
+  // Derive token from latest order that has it
+  tokenCandidate = extractToken(lastOrderMeta) || (tableOrders.slice().reverse().map(extractToken).find(Boolean) || '');
+      } else {
+        // 2) Fallback: merge from active/placed orders (legacy behavior)
+        const tableOrders = getTableOrders(table._id) || [];
+        const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+        const legacyStatuses = ['pending','processing','completed'];
+        const placedOrders = tableOrders.filter(o => {
+          const s = (o?.status || '').toLowerCase();
+          const ls = (o?.orderStatus || '').toLowerCase();
+          return o?.kotPrinted === true || kotPlacedStatuses.includes(s) || kotPlacedStatuses.includes(ls) || legacyStatuses.includes(ls);
+        });
+        const ordersToPrint = placedOrders.length > 0 ? placedOrders : (activeOrderCandidate ? [activeOrderCandidate] : []);
+        if (ordersToPrint.length === 0) {
+          toast.error('No orders found for this table to print.');
+          return;
+        }
+        const mergeMap = new Map();
+        ordersToPrint.forEach(o => {
+          const items = Array.isArray(o.items) ? o.items : (Array.isArray(o.orderItems) ? o.orderItems : []);
+          items.forEach(it => {
+            const displayName = it?.name || it?.itemName || it?.title || 'Item';
+            const price = Number(it?.price) || 0;
+            const qty = Number(it?.quantity) || 1;
+            const cust = it?.customizations || {};
+            const key = JSON.stringify({ n: normalize(displayName), p: price, c: stableCust(cust) });
+            const prev = mergeMap.get(key) || { name: displayName, price, quantity: 0, customizations: cust };
+            prev.quantity += qty;
+            mergeMap.set(key, prev);
+          });
+          sumTax += Number(o?.tax) || 0;
+          sumTotal += Number(o?.totalAmount) || 0;
+          lastOrderMeta = o;
+        });
+        mergedItems = [...mergeMap.values()];
+        subtotal = mergedItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+        // Prefer the most recent order that contains a token
+        tokenCandidate = (ordersToPrint.slice().reverse().map(extractToken).find(Boolean)) || extractToken(lastOrderMeta) || '';
       }
 
-      if (!order) {
-        toast.error('No orders found for this table to print.');
-        return;
-      }
-
-      const safeItems = Array.isArray(order.items) ? order.items : [];
-      const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
       const orderData = {
         order: {
-          orderNumber: order.orderNumber || order._id || 'N/A',
-          createdAt: order.createdAt || new Date().toISOString(),
-          items: safeItems.map(it => ({
-            name: it.name || it.itemName || 'Item',
-            price: Number(it.price) || 0,
-            quantity: Number(it.quantity) || 1,
-            customizations: it.customizations || []
-          })),
+          // Use the most recent orderNumber for display; merged content below
+          orderNumber: lastOrderMeta?.orderNumber || lastOrderMeta?._id || 'N/A',
+          createdAt: lastOrderMeta?.createdAt || new Date().toISOString(),
+          items: mergedItems,
           subtotal,
-          tax: Number(order.tax) || 0,
-          discount: Number(order.discount) || 0,
-          totalAmount: Number(order.totalAmount) || subtotal
+          // Provide tax/total hints; template will infer if missing
+          tax: sumTax || 0,
+          discount: Number(lastOrderMeta?.discount) || 0,
+          totalAmount: sumTotal || subtotal,
+          // Forward Token No. and Cashier so reference receipt can render them
+          tokenNumber: (tokenCandidate || lastOrderMeta?.tokenNumber
+            || lastOrderMeta?.token
+            || lastOrderMeta?.token_no
+            || lastOrderMeta?.tokenNo
+            || lastOrderMeta?.kotToken
+            || lastOrderMeta?.kot_number
+            || lastOrderMeta?.kotNumber
+          ),
+          // Also set alias for older templates
+          token: tokenCandidate || undefined,
+          cashierName: (lastOrderMeta?.createdByName
+            || lastOrderMeta?.cashierName
+            || lastOrderMeta?.createdBy?.name
+            || lastOrderMeta?.createdBy?.username
+            || lastOrderMeta?.user?.name
+            || lastOrderMeta?.userName
+            || lastOrderMeta?.staffName
+            || user?.name
+            || user?.username
+          ),
+          createdByName: (lastOrderMeta?.createdByName
+            || lastOrderMeta?.cashierName
+            || lastOrderMeta?.createdBy?.name
+            || lastOrderMeta?.createdBy?.username
+            || user?.name
+            || user?.username
+          ),
+          // If we have a createdBy object/id, forward as-is (helps resolver fallbacks)
+          createdBy: lastOrderMeta?.createdBy || undefined,
+        },
+        // Provide branch metadata for receipt resolvers (GSTIN/FSSAI)
+        branch: {
+          name: branch?.name || branch?.branchName || undefined,
+          state: branch?.state || undefined,
+          fssaiLicense: branch?.fssaiLicense || undefined
         },
         paymentDetails: {
-          method: (order.paymentMethod || order.paymentMode || 'cash').toString(),
-          amountReceived: Number(order.amountReceived) || Number(order.totalAmount) || subtotal,
-          change: Number(order.change) || 0,
-          cardNumber: order.cardNumber || '',
-          cardHolder: order.cardHolder || '',
-          upiId: order.upiId || '',
-          transactionId: order.transactionId || ''
+          method: (lastOrderMeta?.paymentMethod || lastOrderMeta?.paymentMode || 'cash').toString(),
+          amountReceived: Number(lastOrderMeta?.amountReceived) || Number(lastOrderMeta?.totalAmount) || subtotal,
+          change: Number(lastOrderMeta?.change) || 0,
+          cardNumber: lastOrderMeta?.cardNumber || '',
+          cardHolder: lastOrderMeta?.cardHolder || '',
+          upiId: lastOrderMeta?.upiId || '',
+          transactionId: lastOrderMeta?.transactionId || ''
         },
-        customerInfo: order.customerInfo || {
-          name: order.customerName || 'Walk-in Customer',
-          phone: order.customerPhone || '',
-          orderType: order.orderType || 'dine-in'
+        customerInfo: lastOrderMeta?.customerInfo || {
+          name: lastOrderMeta?.customerName || 'Walk-in Customer',
+          phone: lastOrderMeta?.customerPhone || '',
+          orderType: lastOrderMeta?.orderType || 'dine-in'
         },
         tableInfo: {
           name: table.TableName || table.name || table.tableNumber || 'Table',
@@ -720,19 +843,33 @@ const TableSelection = () => {
         }
       };
 
+      // Prefer selected restaurant/branch context for header fields
       const restaurantInfo = {
-        name: (order.brandName || order.restaurantName || 'Restaurant'),
-        brandName: order.brandName || undefined,
-        logo: order.logo || undefined,
-        address: order.branchAddress || 'Address',
-        phone: order.branchPhone || 'Phone',
-        email: '',
-        gst: order.gstNumber || ''
+        name: (restaurant?.brandName || restaurant?.name || user?.restaurantName || 'Restaurant'),
+        brandName: restaurant?.brandName || restaurant?.name || user?.restaurantName || undefined,
+        branchName: branch?.name || branch?.branchName || user?.branchName || undefined,
+        logo: restaurant?.logo || user?.restaurantLogo || undefined,
+        address: branch?.address || branch?.addressLine || 'Address',
+        phone: branch?.phone || branch?.contactNumber || '',
+        email: restaurant?.email || '',
+        // Critical: Include country for tax breakdown (CGST/SGST for India)
+        country: restaurant?.country || branch?.country || undefined,
+        // Optional fields to help GST/FSSAI resolution
+        state: restaurant?.state || undefined,
+        gstRegistrations: Array.isArray(restaurant?.gstRegistrations) ? restaurant.gstRegistrations : undefined,
+        // Only set gst if we truly have a value; avoid empty string which blocks fallback
+        gst: (branch?.gst || branch?.gstNumber || restaurant?.gstNumber) || undefined,
+        // Surface branch-level FSSAI if present (also passed via order.branch)
+        fssaiLicense: branch?.fssaiLicense || undefined
       };
 
-      const html = generateHTMLReceipt(orderData, restaurantInfo, { duplicateReceipt: false });
+  // Use reference-style bill layout matching the attached receipt
+  const html = generateHTMLReceiptReference(orderData, restaurantInfo, { 
+    duplicateReceipt: false,
+    dynamicTaxPercent: null // Will be added when POSContext provides tax info
+  });
       const result = printHTMLReceipt(html);
-      if (result?.success) {
+  if (result?.success) {
         toast.success('Printing started');
         // Mark this table as printed locally for UI highlighting and filters
         markTablePrinted(table._id);
@@ -1210,8 +1347,8 @@ const TableSelection = () => {
 
   const FloorPlanTable = ({ table, index }) => {
   const tableOrders = getTableOrders(table._id);
-    // Show print only when KOT has been placed (or later in the flow)
-    const kotPlacedStatuses = ['accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
+  // Show print when a KOT exists (includes freshly placed/pending states)
+  const kotPlacedStatuses = ['pending','confirmed','accepted','placed','in_progress','preparing','ready','served','delivered','completed'];
     const placedOrders = (tableOrders || []).filter(order => {
       const s = (order?.status || '').toLowerCase();
       return order?.kotPrinted === true || kotPlacedStatuses.includes(s);
@@ -1220,7 +1357,9 @@ const TableSelection = () => {
     const activeOrder = placedOrders
       .slice()
       .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))[0];
-    const shouldShowPrint = placedOrders.length > 0 && ((table?.status || '').toLowerCase() !== 'available');
+  // Show print icon only when there are KOT/orders AND table is not currently 'available'
+  // Requirement: "Print icon should not show for available tables, only for KOT sent tables"
+  const shouldShowPrint = placedOrders.length > 0 && (table.status || '').toLowerCase() !== 'available';
 
     // Printed state highlighting
     const isPrinted = tableHasPrinted(table._id);

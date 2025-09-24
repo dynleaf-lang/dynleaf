@@ -8,6 +8,8 @@ const InventoryItem = require('../models/InventoryItem');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const mongoose = require('mongoose');
 const { publicAccess } = require('../middleware/authMiddleware');
+const User = require('../models/User');
+const OrderTokenCounter = require('../models/OrderTokenCounter');
 const { emitNewOrder } = require('../utils/socketUtils');
 
 // Simple in-memory cache to track recent order requests
@@ -103,7 +105,7 @@ router.get('/', async (req, res) => {
         console.log('[PUBLIC ORDERS] Applying filters:', filter);
 
         // Execute the query
-        const orders = await Order.find(filter)
+    const orders = await Order.find(filter)
             .sort({ createdAt: -1 })
             .limit(Number(limit))
             .populate('restaurantId', 'name')
@@ -152,6 +154,13 @@ router.post('/', async (req, res) => {
             // stock control flags (optional)
             enforceStock,
             allowInsufficientOverride,
+            // cashier/token hints (optional)
+            tokenNumber: tokenIn,
+            token: tokenAlt,
+            cashierId: cashierIdIn,
+            cashierName: cashierNameIn,
+            createdBy: createdByIn,
+            createdByName: createdByNameIn,
             // Legacy fields for backward compatibility
             customerName,
             customerPhone,
@@ -427,6 +436,41 @@ router.post('/', async (req, res) => {
             }
         }
 
+        // Resolve token number (atomic per-branch daily)
+        let tokenNumber = tokenIn || tokenAlt || '';
+        if (!tokenNumber) {
+            try {
+                const d = new Date();
+                const yyyymmdd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+                const ctr = await OrderTokenCounter.findOneAndUpdate(
+                    { branchId, date: yyyymmdd },
+                    { $inc: { seq: 1 } },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+                tokenNumber = String(ctr.seq);
+            } catch (e) { tokenNumber = ''; }
+        }
+
+        // Resolve cashier
+    // POS user and cashier are the same: prefer createdBy fields from POS
+    let cashierId = createdByIn || cashierIdIn;
+    let cashierName = createdByNameIn || cashierNameIn;
+        if (!cashierId && sessionId) {
+            try {
+                const session = await PosSession.findById(sessionId).populate('cashierId', 'name username');
+                if (session?.cashierId) {
+                    cashierId = session.cashierId._id;
+                    cashierName = cashierName || session.cashierId.name || session.cashierId.username || '';
+                }
+            } catch {}
+        }
+        if (cashierId && !cashierName) {
+            try {
+                const u = await User.findById(cashierId).select('name username');
+                if (u) cashierName = u.name || u.username || '';
+            } catch {}
+        }
+
         // Create a new order
         const order = new Order({
             restaurantId,
@@ -438,9 +482,16 @@ router.post('/', async (req, res) => {
                 name: String(item.name).trim(),
                 price: Number(item.price),
                 quantity: Number(item.quantity),
+                // keep full customizations so size/variant/addons survive post-KOT
+                customizations: (item && typeof item.customizations === 'object') ? item.customizations : {},
                 notes: item.notes ? String(item.notes).trim() : '',
                 subtotal: Number(item.subtotal) || Number(item.price) * Number(item.quantity)
             })),
+            tokenNumber,
+            cashierId,
+            cashierName,
+            createdBy: cashierId || undefined,
+            createdByName: cashierName || undefined,
             status: status || 'pending',
             orderType: orderType || (tableId ? 'dine-in' : 'takeaway'),
             customerName: finalCustomerName,
@@ -1251,8 +1302,8 @@ router.patch('/:id', async (req, res) => {
             return res.status(404).json({ message: 'Order not found' });
         }
 
-        const updates = {};
-        const { tableId: newTableId, status: modernStatusInput, paymentStatus, notes } = req.body || {};
+    const updates = {};
+    const { tableId: newTableId, status: modernStatusInput, paymentStatus, notes, cashierId, cashierName, createdBy, createdByName, token, tokenNumber } = req.body || {};
 
         // Handle status mapping similar to /:id/status endpoint
         if (modernStatusInput) {
@@ -1282,6 +1333,19 @@ router.patch('/:id', async (req, res) => {
 
         if (typeof notes === 'string') {
             updates.notes = String(notes).trim();
+        }
+
+        // Sync cashier and POS user identity if provided
+        if (cashierId || cashierName || createdBy || createdByName) {
+            updates.cashierId = cashierId || createdBy || current.cashierId;
+            updates.cashierName = cashierName || createdByName || current.cashierName;
+            updates.createdBy = updates.cashierId;
+            updates.createdByName = updates.cashierName;
+        }
+
+        // Map token alias
+        if (tokenNumber || token) {
+            updates.tokenNumber = tokenNumber || token;
         }
 
         // If table move is requested, perform move workflow including table occupancy updates

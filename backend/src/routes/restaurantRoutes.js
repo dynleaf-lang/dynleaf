@@ -53,18 +53,20 @@ router.get('/:restaurantId/branches', async (req, res) => {
 
 // Create a new restaurant
 router.post('/', async (req, res) => {
-    const { name, brandName, logo, address, city, postalCode, country, phone, email, openingHours } = req.body;
+    const { name, brandName, logo, address, city, state, postalCode, country, phone, email, openingHours, gstRegistrations } = req.body;
     const restaurant = new Restaurant({
         name,
         brandName,
         logo,
         address,
         city,
+        state,
         postalCode,
         country,
         phone,
         email,
-        openingHours
+        openingHours,
+        gstRegistrations
     });
     try {
         const newRestaurant = await restaurant.save();
@@ -76,7 +78,7 @@ router.post('/', async (req, res) => {
 
 // Update a restaurant (with old logo cleanup if changed/cleared)
 router.put('/:id', async (req, res) => {
-    const { name, brandName, logo, address, city, postalCode, country, phone, email, openingHours } = req.body;
+    const { name, brandName, logo, address, city, state, postalCode, country, phone, email, openingHours, gstRegistrations } = req.body;
     try {
         const existing = await Restaurant.findById(req.params.id);
         if (!existing) return res.status(404).json({ message: 'Restaurant not found' });
@@ -92,11 +94,15 @@ router.put('/:id', async (req, res) => {
         existing.logo = (logo === undefined) ? existing.logo : logo; // allow clearing with empty string
         existing.address = address ?? existing.address;
         existing.city = city ?? existing.city;
+        existing.state = state ?? existing.state;
         existing.postalCode = postalCode ?? existing.postalCode;
         existing.country = country ?? existing.country;
         existing.phone = phone ?? existing.phone;
         existing.email = email ?? existing.email;
         existing.openingHours = openingHours ?? existing.openingHours;
+        if (gstRegistrations !== undefined) {
+            existing.gstRegistrations = Array.isArray(gstRegistrations) ? gstRegistrations : [];
+        }
 
         const updated = await existing.save();
 

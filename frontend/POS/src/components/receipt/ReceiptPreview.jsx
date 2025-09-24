@@ -40,6 +40,7 @@ const ReceiptPreview = ({
     address: 'Address',
     phone: 'Phone',
     email: '',
+    country: undefined,
     gst: ''
   };
 
@@ -57,11 +58,21 @@ const ReceiptPreview = ({
 
       if (printType === 'thermal') {
         // Generate thermal receipt
-        const thermalReceipt = generateThermalReceipt(orderData, restaurantData);
+        const cfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config')||'{}'); } catch { return {}; } })();
+        const thermalReceipt = generateThermalReceipt(orderData, restaurantData, {
+          showQRCode: cfg.showQRCode !== false,
+          showFooterMessage: cfg.showFooterMessage !== false,
+          paymentUPIVPA: cfg.paymentUPIVPA || '',
+          paymentUPIName: cfg.paymentUPIName || ''
+        });
         result = await printThermalReceipt(thermalReceipt, printerConfig);
       } else {
         // Generate HTML receipt for browser printing
-        const htmlReceipt = generateHTMLReceipt(orderData, restaurantData);
+        const cfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config')||'{}'); } catch { return {}; } })();
+        const htmlReceipt = generateHTMLReceipt(orderData, restaurantData, {
+          paymentUPIVPA: cfg.paymentUPIVPA || '',
+          paymentUPIName: cfg.paymentUPIName || ''
+        });
         result = printHTMLReceipt(htmlReceipt);
       }
 
@@ -132,11 +143,21 @@ const ReceiptPreview = ({
 
     if (previewMode === 'thermal') {
       // Show thermal receipt as plain text
-      const thermalReceipt = generateThermalReceipt(orderData, restaurantData);
+      const cfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config')||'{}'); } catch { return {}; } })();
+      const thermalReceipt = generateThermalReceipt(orderData, restaurantData, {
+        showQRCode: cfg.showQRCode !== false,
+        showFooterMessage: cfg.showFooterMessage !== false,
+        paymentUPIVPA: cfg.paymentUPIVPA || '',
+        paymentUPIName: cfg.paymentUPIName || ''
+      });
       return `<pre style="font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap;">${thermalReceipt.replace(/\x1B\[[0-9;]*m/g, '').replace(/\x1B[@-_]/g, '')}</pre>`;
     } else {
       // Show HTML receipt
-      return generateHTMLReceipt(orderData, restaurantData);
+      const cfg = (() => { try { return JSON.parse(localStorage.getItem('pos_printer_config')||'{}'); } catch { return {}; } })();
+      return generateHTMLReceipt(orderData, restaurantData, {
+        paymentUPIVPA: cfg.paymentUPIVPA || '',
+        paymentUPIName: cfg.paymentUPIName || ''
+      });
     }
   };
 
