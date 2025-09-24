@@ -37,6 +37,7 @@ const CheckoutForm = memo(() => {
   const { addNotification } = useNotifications();
   // Payment selection (UPI only) and app preference
   const [selectedUpiApp, setSelectedUpiApp] = useState('gpay'); // gpay | phonepe | paytm | other
+  const [showUpiDropdown, setShowUpiDropdown] = useState(false);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   
@@ -217,6 +218,52 @@ const CheckoutForm = memo(() => {
     const t = setInterval(check, 30000);
     return () => { cancelled = true; clearInterval(t); };
   }, [registerClosed, branch?._id]);
+  
+  // UPI Apps Configuration
+  const upiApps = [
+    { 
+      key: 'gpay', 
+      label: 'Google Pay UPI',
+      icon: '🟡', // You can replace with actual icons/images
+      recommended: true
+    },
+    { 
+      key: 'phonepe', 
+      label: 'PhonePe UPI',
+      icon: '🟣'
+    },
+    { 
+      key: 'paytm', 
+      label: 'Paytm UPI',
+      icon: '🔵'
+    },
+    { 
+      key: 'cred', 
+      label: 'CRED UPI',
+      icon: '⚫'
+    },
+    { 
+      key: 'amazonpay', 
+      label: 'Amazon Pay UPI',
+      icon: '🟠'
+    }
+  ];
+
+  const getSelectedUpiApp = () => upiApps.find(app => app.key === selectedUpiApp) || upiApps[0];
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showUpiDropdown && !event.target.closest('[data-upi-dropdown]')) {
+        setShowUpiDropdown(false);
+      }
+    };
+
+    if (showUpiDropdown) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showUpiDropdown]);
   
   // Handle input changes and validation on blur
   const handleInputChange = (e) => {
@@ -492,6 +539,12 @@ const CheckoutForm = memo(() => {
                 break;
               case 'paytm':
                 intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=net.one97.paytm;end`;
+                break;
+              case 'cred':
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.dreamplug.androidapp;end`;
+                break;
+              case 'amazonpay':
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;end`;
                 break;
               default:
                 intentUrl = upiUrl;
@@ -1167,45 +1220,178 @@ const CheckoutForm = memo(() => {
             marginBottom: theme.spacing.lg,
             flexWrap: 'wrap'
           }}>
-            {/* Left: UPI apps */}
-            <div style={{
-              flex: '1 1 45%',
-              minWidth: '240px',
-              backgroundColor: 'white',
-              border: `1px solid ${theme.colors.border}`,
-              borderRadius: theme.borderRadius.md,
-              padding: theme.spacing.md,
-              boxShadow: theme.shadows.sm
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}>
-                <img src="https://static.cashfree.com/images/upi.png" alt="UPI" style={{ width: 20, height: 20 }} />
-                <div style={{ fontWeight: 600 }}>Pay using</div>
-              </div>
-              <div style={{ display: 'flex', gap: theme.spacing.sm, flexWrap: 'wrap' }}>
-                {[
-                  { key: 'gpay', label: 'Google Pay' },
-                  { key: 'phonepe', label: 'PhonePe' },
-                  { key: 'paytm', label: 'Paytm UPI' },
-                  { key: 'other', label: 'Other UPI' },
-                ].map(app => (
-                  <button
-                    key={app.key}
-                    type="button"
-                    onClick={() => setSelectedUpiApp(app.key)}
-                    style={{
-                      padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
-                      borderRadius: theme.borderRadius.pill,
-                      border: `1px solid ${selectedUpiApp === app.key ? theme.colors.primary : theme.colors.border}`,
-                      backgroundColor: selectedUpiApp === app.key ? theme.colors.primary + '10' : 'white',
-                      color: theme.colors.text.primary,
-                      cursor: 'pointer',
-                      fontSize: theme.typography.sizes.sm
+            {/* Left: UPI Payment Selection */}
+            <div 
+              data-upi-dropdown
+              style={{
+                flex: '1 1 45%',
+                minWidth: '240px',
+                position: 'relative'
+              }}
+            >
+              {/* Pay Using Dropdown */}
+              <div 
+                onClick={() => setShowUpiDropdown(!showUpiDropdown)}
+                style={{
+                  backgroundColor: 'white',
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: theme.borderRadius.md,
+                  padding: theme.spacing.md,
+                  boxShadow: theme.shadows.sm,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <div style={{ 
+                    fontSize: theme.typography.sizes.sm, 
+                    color: theme.colors.text.secondary,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    fontWeight: 500
+                  }}>
+                    PAY USING
+                  </div> 
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <span style={{ fontSize: '18px' }}>{getSelectedUpiApp().icon}</span>
+                  <span style={{ fontWeight: 600, fontSize: theme.typography.sizes.md }}>
+                    {getSelectedUpiApp().label}
+                  </span>
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: '20px', 
+                      color: theme.colors.text.secondary,
+                      transform: showUpiDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s ease'
                     }}
                   >
-                    {app.label}
-                  </button>
-                ))}
+                    expand_more
+                  </span>
+                </div>
               </div>
+
+              {/* UPI Apps Dropdown */}
+              {showUpiDropdown && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  backgroundColor: 'white',
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: theme.borderRadius.md,
+                  boxShadow: theme.shadows.lg,
+                  zIndex: 1000,
+                  marginTop: '4px',
+                  overflow: 'hidden'
+                }}>
+                  {/* Recommended Section */}
+                  <div style={{
+                    padding: `${theme.spacing.xs} ${theme.spacing.md}`,
+                    backgroundColor: '#f8f9fa',
+                    borderBottom: `1px solid ${theme.colors.border}`,
+                    fontSize: theme.typography.sizes.sm,
+                    color: theme.colors.text.secondary,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    fontWeight: 500
+                  }}>
+                    RECOMMENDED
+                  </div>
+                  
+                  {/* UPI Apps List */}
+                  {upiApps.map(app => (
+                    <div
+                      key={app.key}
+                      onClick={() => {
+                        setSelectedUpiApp(app.key);
+                        setShowUpiDropdown(false);
+                      }}
+                      style={{
+                        padding: theme.spacing.md,
+                        borderBottom: `1px solid ${theme.colors.border}`,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: selectedUpiApp === app.key ? theme.colors.primary + '10' : 'white',
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (selectedUpiApp !== app.key) {
+                          e.target.style.backgroundColor = '#f8f9fa';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (selectedUpiApp !== app.key) {
+                          e.target.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
+                        <span style={{ fontSize: '24px' }}>{app.icon}</span>
+                        <span style={{ 
+                          fontWeight: 500, 
+                          fontSize: theme.typography.sizes.md,
+                          color: theme.colors.text.primary
+                        }}>
+                          {app.label}
+                        </span>
+                      </div>
+                      {selectedUpiApp === app.key && (
+                        <span className="material-icons" style={{ color: theme.colors.primary, fontSize: '20px' }}>
+                          check
+                        </span>
+                      )}
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          color: theme.colors.text.secondary, 
+                          fontSize: '18px' 
+                        }}
+                      >
+                        chevron_right
+                      </span>
+                    </div>
+                  ))}
+                  
+                  {/* Add new UPI ID option */}
+                  <div
+                    style={{
+                      padding: theme.spacing.md,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: 'white',
+                      color: theme.colors.primary
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#f8f9fa';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'white';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
+                      <img src="https://static.cashfree.com/images/upi.png" alt="UPI" style={{ width: 24, height: 24 }} />
+                      <span style={{ 
+                        fontWeight: 500, 
+                        fontSize: theme.typography.sizes.md 
+                      }}>
+                        Add new UPI ID
+                      </span>
+                    </div>
+                    <span className="material-icons" style={{ fontSize: '24px', color: theme.colors.primary }}>
+                      add
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right: Submit */}
