@@ -1355,7 +1355,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                   color: theme.colors.text.primary
                 }}>
                   {checkoutStep === 'cart' && 'Your Cart'}
-                  {checkoutStep === 'checkout' && 'Checkout'}
+                  {checkoutStep === 'checkout' && (isPaymentProcessing ? 'Payment Processing' : 'Checkout')}
                   {checkoutStep === 'confirmation' && 'Order Confirmation'}
                 </h2>
               </div>
@@ -1640,8 +1640,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                       <p style={{ 
                         color: theme.colors.text.secondary,
                         fontSize: theme.typography.sizes.sm,
-                        margin: 0,
-                        maxWidth: '280px',
+                        margin: 0, 
                         lineHeight: 1.4
                       }}>
                         {checkoutStep === 'cart' ? 'Loading your items and calculating totals' :
