@@ -10,6 +10,13 @@ import TaxInfo from './TaxInfo';
 import { useNotifications } from '../../context/NotificationContext';
 import api from '../../utils/apiClient';
 import { useRestaurant } from '../../context/RestaurantContext';
+import amazonLogo from '../../assets/Payments-Icons/Amazon-Pay-icon.png';
+import googlePay from '../../assets/Payments-Icons/google-pay.png';
+import phonePe from '../../assets/Payments-Icons/phonepe-icon.png';
+import paytmLogo from '../../assets/Payments-Icons/paytm.png';
+import credLogo from '../../assets/Payments-Icons/credApp.jpg';
+import upiLogo from '../../assets/Payments-Icons/upi-ar21~bgwhite.svg';
+
 
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
@@ -224,28 +231,28 @@ const CheckoutForm = memo(() => {
     { 
       key: 'gpay', 
       label: 'Google Pay UPI',
-      icon: '🟡', // You can replace with actual icons/images
+      icon: googlePay,
       recommended: true
     },
     { 
       key: 'phonepe', 
       label: 'PhonePe UPI',
-      icon: '🟣'
+      icon: phonePe
     },
     { 
       key: 'paytm', 
       label: 'Paytm UPI',
-      icon: '🔵'
+      icon: paytmLogo
     },
     { 
       key: 'cred', 
       label: 'CRED UPI',
-      icon: '⚫'
+      icon: credLogo
     },
     { 
       key: 'amazonpay', 
       label: 'Amazon Pay UPI',
-      icon: '🟠'
+      icon: amazonLogo
     }
   ];
 
@@ -1256,7 +1263,16 @@ const CheckoutForm = memo(() => {
                   </div> 
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                  <span style={{ fontSize: '18px' }}>{getSelectedUpiApp().icon}</span>
+                  <img 
+                    src={getSelectedUpiApp().icon} 
+                    alt={getSelectedUpiApp().label}
+                    style={{ 
+                      width: '24px', 
+                      height: '24px', 
+                      objectFit: 'contain',
+                      borderRadius: '4px'
+                    }} 
+                  />
                   <span style={{ fontWeight: 600, fontSize: theme.typography.sizes.md }}>
                     {getSelectedUpiApp().label}
                   </span>
@@ -1333,7 +1349,16 @@ const CheckoutForm = memo(() => {
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
-                        <span style={{ fontSize: '24px' }}>{app.icon}</span>
+                        <img 
+                          src={app.icon} 
+                          alt={app.label}
+                          style={{ 
+                            width: '32px', 
+                            height: '32px', 
+                            objectFit: 'contain',
+                            borderRadius: '6px'
+                          }} 
+                        />
                         <span style={{ 
                           fontWeight: 500, 
                           fontSize: theme.typography.sizes.md,
@@ -1378,7 +1403,7 @@ const CheckoutForm = memo(() => {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
-                      <img src="https://static.cashfree.com/images/upi.png" alt="UPI" style={{ width: 24, height: 24 }} />
+                      <img src={upiLogo} alt="UPI" style={{ width: 24, height: 24 }} />
                       <span style={{ 
                         fontWeight: 500, 
                         fontSize: theme.typography.sizes.md 
