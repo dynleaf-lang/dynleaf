@@ -48,6 +48,11 @@ const CheckoutForm = memo(() => {
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   
+  // Debug logging for UPI app selection
+  useEffect(() => {
+    console.log('[CHECKOUT FORM] Selected UPI App changed to:', selectedUpiApp);
+  }, [selectedUpiApp]);
+  
   // For authenticated users, use their account info
   const effectiveCustomerInfo = isAuthenticated && user ? {
     name: user.name,
@@ -533,44 +538,106 @@ const CheckoutForm = memo(() => {
             // Use a generic merchant UPI VPA (replace with your actual UPI VPA)
             const merchantVPA = 'merchant@paytm'; // Replace with your actual UPI VPA
             
-            // Create UPI URLs based on selected app
+            // Create UPI URLs based on selected app with correct package names
             let upiUrl = `upi://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
             let intentUrl = '';
+            let appUrl = '';
             
             switch (selectedUpiApp) {
               case 'gpay':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;S.browser_fallback_url=https%3A%2F%2Fpay.google.com;end`;
+                appUrl = `gpay://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
                 break;
               case 'phonepe':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.phonepe.app;end`;
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.phonepe.app;S.browser_fallback_url=https%3A%2F%2Fwww.phonepe.com;end`;
+                appUrl = `phonepe://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
                 break;
               case 'paytm':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=net.one97.paytm;end`;
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=net.one97.paytm;S.browser_fallback_url=https%3A%2F%2Fpaytm.com;end`;
+                appUrl = `paytmmp://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
                 break;
               case 'cred':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.dreamplug.androidapp;end`;
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.dreamplug.androidapp;S.browser_fallback_url=https%3A%2F%2Fcred.club;end`;
+                appUrl = `cred://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
                 break;
               case 'amazonpay':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;end`;
+                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;S.browser_fallback_url=https%3A%2F%2Fwww.amazon.in;end`;
+                appUrl = `amazonpay://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
                 break;
               default:
                 intentUrl = upiUrl;
+                appUrl = upiUrl;
             }
             
             console.log('[CHECKOUT FORM] Generated UPI URL:', upiUrl);
+            console.log('[CHECKOUT FORM] Generated Intent URL:', intentUrl);
+            console.log('[CHECKOUT FORM] Generated App URL:', appUrl);
             console.log('[CHECKOUT FORM] Attempting to open UPI app:', selectedUpiApp);
             
-            // Try to open the UPI app based on device
-            if (navigator.userAgent.match(/Android/i)) {
-              // Android: Use intent URL to open specific app
-              window.location.href = intentUrl;
-            } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
-              // iOS: Use universal UPI URL
-              window.location.href = upiUrl;
-            } else {
-              // Desktop: Log for now, could show QR code in future
-              console.log('[CHECKOUT FORM] Desktop detected - UPI intent not applicable');
-            }
+            // Function to attempt opening UPI app with fallbacks
+            const openUpiApp = () => {
+              return new Promise((resolve) => {
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                const tryOpenApp = () => {
+                  attempts++;
+                  
+                  try {
+                    if (navigator.userAgent.match(/Android/i)) {
+                      // Android: Try multiple approaches
+                      if (attempts === 1 && appUrl !== upiUrl) {
+                        // First try: App-specific scheme
+                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using app-specific URL`);
+                        window.location.href = appUrl;
+                      } else if (attempts === 2) {
+                        // Second try: Intent URL with package specification
+                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using intent URL`);
+                        window.location.href = intentUrl;
+                      } else {
+                        // Third try: Generic UPI URL
+                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using generic UPI URL`);
+                        window.location.href = upiUrl;
+                      }
+                    } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+                      // iOS: Try app-specific URL first, then generic
+                      if (attempts === 1 && appUrl !== upiUrl) {
+                        console.log(`[CHECKOUT FORM] iOS attempt ${attempts}: Using app-specific URL`);
+                        window.location.href = appUrl;
+                      } else {
+                        console.log(`[CHECKOUT FORM] iOS attempt ${attempts}: Using generic UPI URL`);
+                        window.location.href = upiUrl;
+                      }
+                    } else {
+                      // Desktop: Log for now, could show QR code in future
+                      console.log('[CHECKOUT FORM] Desktop detected - UPI intent not applicable');
+                      return resolve();
+                    }
+                    
+                    // Set a timeout to try next method if current one fails
+                    if (attempts < maxAttempts) {
+                      setTimeout(() => {
+                        tryOpenApp();
+                      }, 1000);
+                    } else {
+                      resolve();
+                    }
+                  } catch (error) {
+                    console.log(`[CHECKOUT FORM] Attempt ${attempts} failed:`, error.message);
+                    if (attempts < maxAttempts) {
+                      tryOpenApp();
+                    } else {
+                      resolve();
+                    }
+                  }
+                };
+                
+                tryOpenApp();
+              });
+            };
+            
+            // Execute the UPI app opening
+            await openUpiApp();
             
           } catch (upiError) {
             console.log('[CHECKOUT FORM] UPI intent creation failed:', upiError.message);
@@ -1088,6 +1155,21 @@ const CheckoutForm = memo(() => {
           </div>
         </div>
         
+        {/* Debug info - remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{
+            backgroundColor: '#f0f0f0',
+            padding: theme.spacing.sm,
+            borderRadius: theme.borderRadius.sm,
+            marginBottom: theme.spacing.md,
+            fontSize: theme.typography.sizes.sm,
+            fontFamily: 'monospace'
+          }}>
+            <div>Selected UPI App: {selectedUpiApp}</div>
+            <div>User Agent: {navigator.userAgent.includes('Android') ? 'Android' : navigator.userAgent.includes('iPhone') ? 'iOS' : 'Other'}</div>
+          </div>
+        )}
+        
         {/* Order summary section with enhanced styling */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -1261,6 +1343,15 @@ const CheckoutForm = memo(() => {
                   }}>
                     PAY USING
                   </div> 
+                  {selectedUpiApp && (
+                    <div style={{
+                      width: '6px',
+                      height: '6px',
+                      backgroundColor: theme.colors.success,
+                      borderRadius: '50%',
+                      marginLeft: theme.spacing.xs
+                    }} />
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
                   <img 
@@ -1324,8 +1415,14 @@ const CheckoutForm = memo(() => {
                     <div
                       key={app.key}
                       onClick={() => {
+                        console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
                         setSelectedUpiApp(app.key);
                         setShowUpiDropdown(false);
+                        
+                        // Clear any previous payment errors when user changes app
+                        if (paymentError) {
+                          setPaymentError('');
+                        }
                       }}
                       style={{
                         padding: theme.spacing.md,
@@ -1418,6 +1515,26 @@ const CheckoutForm = memo(() => {
                 </div>
               )}
             </div>
+            
+            {/* Payment instruction */}
+            {selectedUpiApp && (
+              <div style={{
+                backgroundColor: theme.colors.primary + '10',
+                padding: theme.spacing.sm,
+                borderRadius: theme.borderRadius.sm,
+                fontSize: theme.typography.sizes.sm,
+                color: theme.colors.primary,
+                textAlign: 'center',
+                marginTop: theme.spacing.sm,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: theme.spacing.xs
+              }}>
+                <span className="material-icons" style={{ fontSize: '16px' }}>info</span>
+                {getSelectedUpiApp().label} will open for payment when you place your order
+              </div>
+            )}
 
             {/* Right: Submit */}
             <motion.button
