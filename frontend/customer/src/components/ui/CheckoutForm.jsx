@@ -20,6 +20,21 @@ import upiLogo from '../../assets/Payments-Icons/upi-ar21~bgwhite.svg';
 
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
+  
+  // UPI Configuration - Update these with your actual business details
+  // IMPORTANT: Replace 'orderease@paytm' with your actual business UPI ID
+  // To get a business UPI ID:
+  // 1. For Paytm Business: Register at paytm.com/business 
+  // 2. For Google Pay Business: Register at pay.google.com/business
+  // 3. For PhonePe Business: Register at business.phonepe.com
+  // 4. For Bank UPI: Contact your business banking partner
+  const UPI_CONFIG = {
+    merchantVPA: 'harifsuhailp@okicici', // Replace with your actual business UPI ID
+    merchantName: 'DynLeaf Restaurants',
+    merchantCode: 'DynLeaf', // Your merchant category code
+    businessName: 'DynLeaf Food Services' // Your registered business name
+  };
+  
   const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
   const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
@@ -532,46 +547,84 @@ const CheckoutForm = memo(() => {
           // Create UPI intent URL for the selected app
           try {
             const amount = Number(totalAmount.toFixed(2));
-            const merchantName = 'OrderEase';
-            const transactionNote = `Order ${cfOrderId}`;
+            const transactionNote = `Food Order ${cfOrderId}`;
+            const transactionId = cfOrderId; // Use the order ID as transaction reference
             
-            // Use a generic merchant UPI VPA (replace with your actual UPI VPA)
-            const merchantVPA = 'merchant@paytm'; // Replace with your actual UPI VPA
+            // Create standardized UPI URL with all required parameters
+            const baseUpiParams = {
+              pa: UPI_CONFIG.merchantVPA,         // Payee Address (UPI ID)
+              pn: UPI_CONFIG.merchantName,        // Payee Name  
+              am: amount.toString(),              // Amount
+              cu: 'INR',                         // Currency
+              tn: transactionNote,               // Transaction Note
+              tr: transactionId,                 // Transaction Reference
+              mc: UPI_CONFIG.merchantCode,       // Merchant Code
+              tid: Date.now().toString(),        // Transaction ID (timestamp)
+              url: '',                          // Reference URL (optional)
+              mode: '02',                       // UPI collect mode
+              purpose: '00'                     // Purpose code for merchant payment
+            };
             
-            // Create UPI URLs based on selected app with correct package names
-            let upiUrl = `upi://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+            // Build URL parameters string
+            const buildUpiUrl = (baseUrl = 'upi://pay') => {
+              const params = new URLSearchParams();
+              Object.entries(baseUpiParams).forEach(([key, value]) => {
+                if (value) params.append(key, value);
+              });
+              return `${baseUrl}?${params.toString()}`;
+            };
+            
+            const upiUrl = buildUpiUrl();
             let intentUrl = '';
             let appUrl = '';
             
+            // Generate app-specific URLs with proper formatting
             switch (selectedUpiApp) {
               case 'gpay':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;S.browser_fallback_url=https%3A%2F%2Fpay.google.com;end`;
-                appUrl = `gpay://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+                // Google Pay uses standard UPI URL for both intent and app schemes
+                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;S.browser_fallback_url=https%3A%2F%2Fpay.google.com;end`;
+                appUrl = buildUpiUrl('tez://upi/pay'); // Google Pay's UPI scheme
                 break;
               case 'phonepe':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.phonepe.app;S.browser_fallback_url=https%3A%2F%2Fwww.phonepe.com;end`;
-                appUrl = `phonepe://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.phonepe.app;S.browser_fallback_url=https%3A%2F%2Fwww.phonepe.com;end`;
+                appUrl = buildUpiUrl('phonepe://upi/pay'); // PhonePe's UPI scheme
                 break;
               case 'paytm':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=net.one97.paytm;S.browser_fallback_url=https%3A%2F%2Fpaytm.com;end`;
-                appUrl = `paytmmp://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=net.one97.paytm;S.browser_fallback_url=https%3A%2F%2Fpaytm.com;end`;
+                appUrl = buildUpiUrl('paytmmp://upi/pay'); // Paytm's UPI scheme
                 break;
               case 'cred':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=com.dreamplug.androidapp;S.browser_fallback_url=https%3A%2F%2Fcred.club;end`;
-                appUrl = `cred://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.dreamplug.androidapp;S.browser_fallback_url=https%3A%2F%2Fcred.club;end`;
+                appUrl = upiUrl; // CRED uses standard UPI URL
                 break;
               case 'amazonpay':
-                intentUrl = `intent://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;S.browser_fallback_url=https%3A%2F%2Fwww.amazon.in;end`;
-                appUrl = `amazonpay://pay?pa=${merchantVPA}&pn=${encodeURIComponent(merchantName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
+                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;S.browser_fallback_url=https%3A%2F%2Fwww.amazon.in;end`;
+                appUrl = upiUrl; // Amazon Pay uses standard UPI URL
                 break;
               default:
                 intentUrl = upiUrl;
                 appUrl = upiUrl;
             }
             
-            console.log('[CHECKOUT FORM] Generated UPI URL:', upiUrl);
-            console.log('[CHECKOUT FORM] Generated Intent URL:', intentUrl);
-            console.log('[CHECKOUT FORM] Generated App URL:', appUrl);
+            console.log('[CHECKOUT FORM] Payment Details:');
+            console.log('- Amount:', amount);
+            console.log('- Merchant VPA:', UPI_CONFIG.merchantVPA);
+            console.log('- Transaction ID:', transactionId);
+            console.log('- Selected UPI App:', selectedUpiApp);
+            console.log('- Generated UPI URL:', upiUrl);
+            console.log('- Generated Intent URL:', intentUrl);
+            console.log('- Generated App URL:', appUrl);
+            
+            // Validate URLs
+            if (!UPI_CONFIG.merchantVPA.includes('@') || !UPI_CONFIG.merchantVPA.includes('.')) {
+              console.warn('[CHECKOUT FORM] Warning: Invalid merchant UPI ID format');
+            }
+            
+            if (amount <= 0) {
+              console.error('[CHECKOUT FORM] Error: Invalid amount');
+              throw new Error('Invalid payment amount');
+            }
+            
             console.log('[CHECKOUT FORM] Attempting to open UPI app:', selectedUpiApp);
             
             // Function to attempt opening UPI app with fallbacks
@@ -1165,8 +1218,12 @@ const CheckoutForm = memo(() => {
             fontSize: theme.typography.sizes.sm,
             fontFamily: 'monospace'
           }}>
+            <div><strong>Payment Debug Info:</strong></div>
             <div>Selected UPI App: {selectedUpiApp}</div>
-            <div>User Agent: {navigator.userAgent.includes('Android') ? 'Android' : navigator.userAgent.includes('iPhone') ? 'iOS' : 'Other'}</div>
+            <div>Total Amount: ₹{(cartTotal + calculateTax(cartTotal)).toFixed(2)}</div>
+            <div>User Agent: {navigator.userAgent.includes('Android') ? 'Android' : navigator.userAgent.includes('iPhone') ? 'iOS' : 'Desktop'}</div>
+            <div>Merchant VPA: {UPI_CONFIG.merchantVPA}</div>
+            <div>Merchant Name: {UPI_CONFIG.merchantName}</div>
           </div>
         )}
         
