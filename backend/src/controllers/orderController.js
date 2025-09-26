@@ -195,7 +195,11 @@ exports.createOrder = async (req, res) => {
       taxDetails,
       totalAmount,
       status: orderData.status || 'pending',  // Ensure new status field is set
-      orderStatus: orderData.orderStatus || 'Pending'  // Ensure legacy status field is set
+      orderStatus: orderData.orderStatus || 'Pending',  // Ensure legacy status field is set
+      // Initialize payment details if payment method is online
+      paymentDetails: orderData.paymentMethod === 'online' || orderData.paymentMethod === 'upi' ? {
+        cfOrderId: orderData.cfOrderId || null // Store Cashfree order ID if provided
+      } : undefined
     });
 
     // Emit real-time notification for new order
