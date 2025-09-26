@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { createOrder, getOrder, getOrderPayments } = require('../services/cashfreeService');
+const { cashfreeWebhook } = require('../controllers/cashfreeWebhookController');
 
 // Create Cashfree order and return payment_session_id for Drop-in/SDK
 router.post('/cashfree/order', async (req, res) => {
@@ -42,5 +43,60 @@ router.get('/cashfree/order/:id/payments', async (req, res) => {
     return res.status(500).json({ message: 'Failed to fetch payments' });
   }
 });
+
+// Cashfree webhook endpoint for payment notifications
+// This endpoint receives notifications from Cashfree about payment status changes
+router.post('/cashfree/webhook', cashfreeWebhook);
+
+// Test webhook endpoint (development only)
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/cashfree/webhook/test', async (req, res) => {
+    console.log('[WEBHOOK TEST] Received test webhook:', req.body);
+    
+    // Simulate different webhook events for testing
+    const testEvents = {
+      success: {
+        type: 'PAYMENT_SUCCESS_WEBHOOK',
+        data: {
+          order_id: req.body.order_id || 'OE-TEST-001',
+          order_amount: req.body.amount || 100,
+          payment_status: 'SUCCESS',
+          payment_method: 'UPI',
+          payment_time: new Date().toISOString(),
+          cf_payment_id: 'CF_TEST_' + Date.now(),
+          payment_message: 'Transaction Successful'
+        }
+      },
+      failed: {
+        type: 'PAYMENT_FAILED_WEBHOOK',
+        data: {
+          order_id: req.body.order_id || 'OE-TEST-001',
+          payment_status: 'FAILED',
+          payment_method: 'UPI',
+          payment_message: 'Transaction Failed',
+          error_details: { code: 'PAYMENT_DECLINED', message: 'Insufficient Balance' }
+        }
+      },
+      dropped: {
+        type: 'PAYMENT_USER_DROPPED_WEBHOOK',
+        data: {
+          order_id: req.body.order_id || 'OE-TEST-001',
+          payment_method: 'UPI'
+        }
+      }
+    };
+
+    const eventType = req.body.event_type || 'success';
+    const webhookData = testEvents[eventType];
+    
+    if (!webhookData) {
+      return res.status(400).json({ error: 'Invalid event_type. Use: success, failed, or dropped' });
+    }
+
+    // Process the webhook
+    req.body = webhookData;
+    return await cashfreeWebhook(req, res);
+  });
+}
 
 module.exports = router;

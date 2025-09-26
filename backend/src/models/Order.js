@@ -212,13 +212,39 @@ const orderSchema = new mongoose.Schema({
     // Payment information
     paymentMethod: {
         type: String,
-        enum: ['cash', 'card', 'online', 'other'],
+        enum: ['cash', 'card', 'online', 'upi', 'netbanking', 'wallet', 'emi', 'paylater', 'other'],
         default: 'cash',
     },
     paymentStatus: {
         type: String,
-        enum: ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial'],
+        enum: ['unpaid', 'paid', 'pending', 'failed', 'refunded', 'partial', 'refund_pending'],
         default: 'unpaid',
+    },
+    // Payment details (for webhook and transaction tracking)
+    paymentDetails: {
+        cfOrderId: { type: String }, // Cashfree order ID
+        cfPaymentId: { type: String }, // Cashfree payment ID
+        paymentTime: { type: Date },
+        amount: { type: Number },
+        status: { type: String },
+        method: { type: String },
+        message: { type: String },
+        errorDetails: { type: mongoose.Schema.Types.Mixed },
+        webhookProcessedAt: { type: Date },
+        failedAt: { type: Date },
+        lastAttempt: {
+            method: { type: String },
+            status: { type: String },
+            droppedAt: { type: Date }
+        }
+    },
+    // Refund details (for refund tracking)
+    refundDetails: {
+        refundId: { type: String },
+        status: { type: String },
+        amount: { type: Number },
+        note: { type: String },
+        processedAt: { type: Date }
     },
     // Order notes
     notes: {

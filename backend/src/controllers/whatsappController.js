@@ -79,11 +79,243 @@ exports.redirectShortLink = async (req, res) => {
     const { code } = req.params;
     const entry = shortLinkStore.get(code);
     if (!entry) {
-      return res.status(404).send('Link expired or not found');
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Link Not Found - OrderEase</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 20px;
+            }
+            .container {
+              background: white;
+              padding: 40px 30px;
+              border-radius: 12px;
+              box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+              text-align: center;
+              max-width: 500px;
+              width: 100%;
+            }
+            .icon {
+              font-size: 64px;
+              margin-bottom: 20px;
+              color: #ff6b6b;
+            }
+            h1 {
+              color: #333;
+              margin-bottom: 15px;
+              font-size: 24px;
+              font-weight: 600;
+            }
+            p {
+              color: #666;
+              line-height: 1.6;
+              margin-bottom: 15px;
+              font-size: 16px;
+            }
+            .instructions {
+              background: #f8f9fa;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 25px 0;
+              border-left: 4px solid #28a745;
+            }
+            .instructions h3 {
+              color: #28a745;
+              margin-bottom: 12px;
+              font-size: 18px;
+            }
+            .steps {
+              text-align: left;
+              color: #555;
+            }
+            .steps li {
+              margin: 8px 0;
+              padding-left: 10px;
+            }
+            .brand {
+              color: #667eea;
+              font-weight: bold;
+            }
+            .footer {
+              margin-top: 25px;
+              font-size: 14px;
+              color: #999;
+            }
+            @media (max-width: 480px) {
+              .container { padding: 30px 20px; }
+              h1 { font-size: 20px; }
+              .icon { font-size: 48px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="icon">🔗❌</div>
+            <h1>Link Not Found</h1>
+            <p>The link you're trying to access doesn't exist or may have been mistyped.</p>
+            
+            <div class="instructions">
+              <h3>🎯 Get Your Ordering Link</h3>
+              <div class="steps">
+                <strong>Option 1: Scan QR Code Again</strong>
+                <ul>
+                  <li>📱 Find the QR code on your table</li>
+                  <li>🔍 Scan it with your phone camera</li>
+                  <li>📲 Follow the WhatsApp prompt</li>
+                </ul>
+                <br>
+                <strong>Option 2: WhatsApp Message</strong>
+                <ul>
+                  <li>💬 Send "Order Now" to the restaurant's WhatsApp</li>
+                  <li>📋 Include your table code (e.g., "T: T4722")</li>
+                  <li>⚡ Get an instant ordering link</li>
+                </ul>
+              </div>
+            </div>
+            
+            <p>Need help? Look for a staff member or check the QR code on your table for WhatsApp details.</p>
+            
+            <div class="footer">
+              Powered by <span class="brand">OrderEase</span> 🍽️
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
     }
     if (isExpired(entry)) {
       shortLinkStore.delete(code);
-      return res.status(410).send('Link expired');
+      return res.status(410).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Link Expired - OrderEase</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 20px;
+            }
+            .container {
+              background: white;
+              padding: 40px 30px;
+              border-radius: 12px;
+              box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+              text-align: center;
+              max-width: 500px;
+              width: 100%;
+            }
+            .icon {
+              font-size: 64px;
+              margin-bottom: 20px;
+              color: #ffc107;
+            }
+            h1 {
+              color: #333;
+              margin-bottom: 15px;
+              font-size: 24px;
+              font-weight: 600;
+            }
+            p {
+              color: #666;
+              line-height: 1.6;
+              margin-bottom: 15px;
+              font-size: 16px;
+            }
+            .instructions {
+              background: #f8f9fa;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 25px 0;
+              border-left: 4px solid #28a745;
+            }
+            .instructions h3 {
+              color: #28a745;
+              margin-bottom: 12px;
+              font-size: 18px;
+            }
+            .steps {
+              text-align: left;
+              color: #555;
+            }
+            .steps li {
+              margin: 8px 0;
+              padding-left: 10px;
+            }
+            .highlight {
+              background: #fff3cd;
+              padding: 15px;
+              border-radius: 6px;
+              margin: 20px 0;
+              border-left: 4px solid #ffc107;
+            }
+            .brand {
+              color: #667eea;
+              font-weight: bold;
+            }
+            .footer {
+              margin-top: 25px;
+              font-size: 14px;
+              color: #999;
+            }
+            @media (max-width: 480px) {
+              .container { padding: 30px 20px; }
+              h1 { font-size: 20px; }
+              .icon { font-size: 48px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="icon">⏰</div>
+            <h1>Link Expired</h1>
+            <p>This ordering link has expired for security reasons. Don't worry - getting a new one is quick and easy!</p>
+            
+            <div class="highlight">
+              <strong>⚡ Links expire after ${SHORTLINK_TTL_MINUTES} minutes</strong><br>
+              This keeps your orders secure and ensures you get the latest menu.
+            </div>
+            
+            <div class="instructions">
+              <h3>🚀 Get a Fresh Link</h3>
+              <div class="steps">
+                <strong>Quick Options:</strong>
+                <ul>
+                  <li>📱 <strong>Scan the QR code</strong> on your table again</li>
+                  <li>💬 <strong>Send "Order Now"</strong> to the restaurant's WhatsApp</li>
+                  <li>📋 <strong>Include your table code</strong> (e.g., "T: T4722")</li>
+                  <li>⚡ <strong>Get your new link instantly!</strong></li>
+                </ul>
+              </div>
+            </div>
+            
+            <p><strong>💡 Pro Tip:</strong> Save time by bookmarking the new link once you get it, but remember it will expire in ${SHORTLINK_TTL_MINUTES} minutes.</p>
+            
+            <div class="footer">
+              Powered by <span class="brand">OrderEase</span> 🍽️
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
     }
     const { token, restaurantId, branchId, tableId } = entry;
     const longUrl = buildPortalLink(token, { restaurantId, branchId, tableId });
@@ -92,7 +324,114 @@ exports.redirectShortLink = async (req, res) => {
     }
     return res.redirect(302, longUrl);
   } catch (e) {
-    return res.status(500).send('Redirect error');
+    console.error('[WhatsApp] Redirect error:', e);
+    return res.status(500).send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Service Error - OrderEase</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+          }
+          .container {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+          }
+          .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            color: #dc3545;
+          }
+          h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 24px;
+            font-weight: 600;
+          }
+          p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 15px;
+            font-size: 16px;
+          }
+          .instructions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border-left: 4px solid #28a745;
+          }
+          .instructions h3 {
+            color: #28a745;
+            margin-bottom: 12px;
+            font-size: 18px;
+          }
+          .steps {
+            text-align: left;
+            color: #555;
+          }
+          .steps li {
+            margin: 8px 0;
+            padding-left: 10px;
+          }
+          .brand {
+            color: #667eea;
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 25px;
+            font-size: 14px;
+            color: #999;
+          }
+          @media (max-width: 480px) {
+            .container { padding: 30px 20px; }
+            h1 { font-size: 20px; }
+            .icon { font-size: 48px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="icon">⚠️</div>
+          <h1>Service Temporarily Unavailable</h1>
+          <p>We're experiencing a temporary issue with this link. Please try getting a new ordering link.</p>
+          
+          <div class="instructions">
+            <h3>🔄 Get a New Link</h3>
+            <div class="steps">
+              <ul>
+                <li>📱 <strong>Scan the QR code</strong> on your table again</li>
+                <li>💬 <strong>Send "Order Now"</strong> via WhatsApp</li>
+                <li>📋 <strong>Include your table code</strong> (found on table QR)</li>
+                <li>🆘 <strong>Ask a staff member</strong> for assistance</li>
+              </ul>
+            </div>
+          </div>
+          
+          <p>We apologize for the inconvenience and appreciate your patience.</p>
+          
+          <div class="footer">
+            Powered by <span class="brand">OrderEase</span> 🍽️
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
   }
 };
 
