@@ -46,6 +46,19 @@ router.get('/cashfree/order/:id/payments', async (req, res) => {
 
 // Cashfree webhook endpoint for payment notifications
 // This endpoint receives notifications from Cashfree about payment status changes
+// Also handles GET requests for endpoint testing
+router.get('/cashfree/webhook', (req, res) => {
+  console.log('[WEBHOOK GET] Cashfree endpoint test request received');
+  res.status(200).json({
+    status: 'success',
+    message: 'Cashfree webhook endpoint is active and ready',
+    endpoint: '/api/public/payments/cashfree/webhook',
+    methods: ['GET', 'POST'],
+    timestamp: new Date().toISOString(),
+    server: 'OrderEase Backend'
+  });
+});
+
 router.post('/cashfree/webhook', cashfreeWebhook);
 
 // Test webhook endpoint (development only)

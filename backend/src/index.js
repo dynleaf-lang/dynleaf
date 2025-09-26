@@ -149,6 +149,8 @@ const publicOrderRoutes = require('./routes/publicOrderRoutes');
 const publicTaxRoutes = require('./routes/publicTaxRoutes');
 const publicCategoryRoutes = require('./routes/publicCategoryRoutes');
 const publicFloorRoutes = require('./routes/publicFloorRoutes');
+const publicPaymentRoutes = require('./routes/publicPaymentRoutes');
+// Force restart of nodemon
 // Import diagnostic routes
 const diagnosticRoutes = require('./routes/diagnosticRoutes');
 const schemaInfoRoutes = require('./routes/schemaInfoRoutes');
@@ -209,7 +211,7 @@ app.use('/api/public/inventory', require('./routes/publicInventoryRoutes'));
 app.use('/api/public/suppliers', require('./routes/publicSupplierRoutes'));
 app.use('/api/public/purchases', require('./routes/publicPurchaseRoutes'));
 app.use('/api/public/recipes', require('./routes/publicRecipeRoutes'));
-app.use('/api/public/payments', require('./routes/publicPaymentRoutes'));
+app.use('/api/public/payments', publicPaymentRoutes);
 // WhatsApp integration routes
 app.use('/api/integrations/whatsapp', whatsappRoutes);
 // Top-level short redirect for magic links: /r/:code -> long portal URL
