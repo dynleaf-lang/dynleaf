@@ -44,7 +44,7 @@ const CheckoutForm = memo(() => {
   // 3. For PhonePe Business: Register at business.phonepe.com
   // 4. For Bank UPI: Contact your business banking partner
   const UPI_CONFIG = {
-    merchantVPA: '9567529848@pthdfc', // Replace with your actual business UPI ID
+    merchantVPA: 'anything@payu', // Replace with your actual business UPI ID
     merchantName: 'DynLeaf Restaurants',
     merchantCode: 'DynLeaf', // Your merchant category code
     businessName: 'DynLeaf Food Services' // Your registered business name
