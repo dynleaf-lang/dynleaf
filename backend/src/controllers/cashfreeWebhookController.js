@@ -10,9 +10,14 @@ exports.cashfreeWebhook = async (req, res) => {
     // Log all incoming requests for debugging
     console.log('[CASHFREE WEBHOOK] Received request:', {
       method: req.method,
-      headers: req.headers,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'x-webhook-signature': req.headers['x-webhook-signature'],
+        'x-webhook-timestamp': req.headers['x-webhook-timestamp'],
+        'x-webhook-version': req.headers['x-webhook-version'],
+        'x-idempotency-key': req.headers['x-idempotency-key']
+      },
       body: req.body,
-      query: req.query,
       timestamp: new Date().toISOString()
     });
 
@@ -21,7 +26,9 @@ exports.cashfreeWebhook = async (req, res) => {
       console.log('[CASHFREE WEBHOOK] Responding to test request');
       return res.status(200).json({ 
         status: 'success',
-        message: 'Webhook endpoint is active and ready to receive notifications',
+        message: 'Cashfree webhook endpoint is active and ready',
+        endpoint: '/api/public/payments/cashfree/webhook',
+        methods: ['GET', 'POST'],
         timestamp: new Date().toISOString()
       });
     }
@@ -29,8 +36,18 @@ exports.cashfreeWebhook = async (req, res) => {
     // Verify webhook signature for security (production)
     if (process.env.CASHFREE_WEBHOOK_SECRET) {
       const signature = req.headers['x-webhook-signature'];
+      const timestamp = req.headers['x-webhook-timestamp'];
+      const version = req.headers['x-webhook-version'];
+      
+      console.log('[CASHFREE WEBHOOK] Signature verification:', {
+        hasSignature: !!signature,
+        timestamp,
+        version,
+        secretConfigured: !!process.env.CASHFREE_WEBHOOK_SECRET
+      });
       
       if (signature) {
+        // Use raw body for signature verification (important for decimal precision)
         const rawBody = JSON.stringify(req.body);
         const computedSignature = crypto
           .createHmac('sha256', process.env.CASHFREE_WEBHOOK_SECRET)
@@ -40,7 +57,8 @@ exports.cashfreeWebhook = async (req, res) => {
         if (signature !== computedSignature) {
           console.error('[CASHFREE WEBHOOK] Invalid signature:', {
             received: signature,
-            computed: computedSignature
+            computed: computedSignature,
+            bodyLength: rawBody.length
           });
           return res.status(401).json({ error: 'Invalid signature' });
         }
@@ -102,51 +120,71 @@ exports.cashfreeWebhook = async (req, res) => {
 async function handlePaymentSuccess(data) {
   console.log('[CASHFREE WEBHOOK] Processing payment success:', data);
   
+  // Extract data according to 2025-01-01 webhook version structure
+  const order = data?.order || {};
+  const payment = data?.payment || {};
+  const customerDetails = data?.customer_details || {};
+  const gatewayDetails = data?.payment_gateway_details || {};
+  
   const {
     order_id: cfOrderId,
     order_amount,
-    payment_status,
-    payment_method,
-    payment_time,
+    order_currency
+  } = order;
+
+  const {
     cf_payment_id,
-    payment_message
-  } = data;
+    payment_status,
+    payment_amount,
+    payment_currency,
+    payment_message,
+    payment_time,
+    bank_reference,
+    payment_method,
+    payment_group
+  } = payment;
 
   try {
     // Find order by Cashfree order ID
-    // The cfOrderId should match our internal order reference or be stored in order metadata
-    const order = await findOrderByCfOrderId(cfOrderId);
+    const orderRecord = await findOrderByCfOrderId(cfOrderId);
     
-    if (!order) {
+    if (!orderRecord) {
       console.warn('[CASHFREE WEBHOOK] Order not found for cfOrderId:', cfOrderId);
       return;
     }
 
-    console.log('[CASHFREE WEBHOOK] Found order:', order.orderId, 'for cfOrderId:', cfOrderId);
+    console.log('[CASHFREE WEBHOOK] Found order:', orderRecord.orderId, 'for cfOrderId:', cfOrderId);
 
     // Update order payment status
-    const prevPaymentStatus = order.paymentStatus;
-    order.paymentStatus = 'paid';
-    order.paymentMethod = mapPaymentMethod(payment_method);
-    order.paymentDetails = {
+    const prevPaymentStatus = orderRecord.paymentStatus;
+    orderRecord.paymentStatus = 'paid';
+    orderRecord.paymentMethod = mapPaymentMethod(payment_method);
+    orderRecord.paymentDetails = {
       cfOrderId,
       cfPaymentId: cf_payment_id,
       paymentTime: payment_time,
-      amount: order_amount,
+      amount: payment_amount || order_amount,
+      currency: payment_currency || order_currency,
       status: payment_status,
       method: payment_method,
+      paymentGroup: payment_group,
       message: payment_message,
-      webhookProcessedAt: new Date()
+      bankReference: bank_reference,
+      gatewayDetails: gatewayDetails,
+      customerDetails: customerDetails,
+      webhookProcessedAt: new Date(),
+      webhookVersion: '2025-01-01'
     };
-    order.updatedAt = new Date();
+    orderRecord.updatedAt = new Date();
 
-    await order.save();
+    await orderRecord.save();
 
     console.log('[CASHFREE WEBHOOK] Order payment status updated:', {
-      orderId: order.orderId,
+      orderId: orderRecord.orderId,
       previousStatus: prevPaymentStatus,
       newStatus: 'paid',
-      amount: order_amount
+      amount: payment_amount || order_amount,
+      paymentId: cf_payment_id
     });
 
     // Emit real-time update to connected clients
@@ -217,48 +255,73 @@ async function handlePaymentSuccess(data) {
 async function handlePaymentFailed(data) {
   console.log('[CASHFREE WEBHOOK] Processing payment failure:', data);
   
+  // Extract data according to 2025-01-01 webhook version structure
+  const order = data?.order || {};
+  const payment = data?.payment || {};
+  const errorDetails = data?.error_details || {};
+  const customerDetails = data?.customer_details || {};
+  
   const {
     order_id: cfOrderId,
+    order_amount,
+    order_currency
+  } = order;
+
+  const {
+    cf_payment_id,
     payment_status,
-    payment_method,
+    payment_amount,
+    payment_currency,
     payment_message,
-    error_details
-  } = data;
+    payment_time,
+    payment_method,
+    payment_group
+  } = payment;
 
   try {
-    const order = await findOrderByCfOrderId(cfOrderId);
+    const orderRecord = await findOrderByCfOrderId(cfOrderId);
     
-    if (!order) {
+    if (!orderRecord) {
       console.warn('[CASHFREE WEBHOOK] Order not found for failed payment:', cfOrderId);
       return;
     }
 
-    const prevPaymentStatus = order.paymentStatus;
-    order.paymentStatus = 'failed';
-    order.paymentDetails = {
+    const prevPaymentStatus = orderRecord.paymentStatus;
+    orderRecord.paymentStatus = 'failed';
+    orderRecord.paymentDetails = {
       cfOrderId,
+      cfPaymentId: cf_payment_id,
+      paymentTime: payment_time,
+      amount: payment_amount || order_amount,
+      currency: payment_currency || order_currency,
       status: payment_status,
       method: payment_method,
+      paymentGroup: payment_group,
       message: payment_message,
-      errorDetails: error_details,
-      failedAt: new Date()
+      errorDetails: errorDetails,
+      customerDetails: customerDetails,
+      failedAt: new Date(),
+      webhookProcessedAt: new Date(),
+      webhookVersion: '2025-01-01'
     };
-    order.updatedAt = new Date();
+    orderRecord.updatedAt = new Date();
 
-    await order.save();
+    await orderRecord.save();
 
     console.log('[CASHFREE WEBHOOK] Order payment failed:', {
-      orderId: order.orderId,
+      orderId: orderRecord.orderId,
       previousStatus: prevPaymentStatus,
-      reason: payment_message
+      reason: payment_message,
+      errorCode: errorDetails?.error_code,
+      errorReason: errorDetails?.error_reason
     });
 
     // Emit real-time update
     try {
       emitOrderUpdate({
         eventType: 'payment_failed',
-        order: order,
-        message: `Payment failed for order ${order.orderId}`,
+        order: orderRecord,
+        message: `Payment failed for order ${orderRecord.orderId}: ${payment_message}`,
         oldPaymentStatus: prevPaymentStatus,
         newPaymentStatus: 'failed',
         errorDetails: error_details
