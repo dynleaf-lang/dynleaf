@@ -1,7 +1,39 @@
 const express = require('express');
 const router = express.Router();
-const { createOrder, getOrder, getOrderPayments } = require('../services/cashfreeService');
+const { createOrder, getOrder, getOrderPayments, validateCredentials } = require('../services/cashfreeService');
 const { cashfreeWebhook } = require('../controllers/cashfreeWebhookController');
+
+// Debug route to validate Cashfree credentials
+router.get('/cashfree/validate', async (req, res) => {
+  try {
+    console.log('[PAYMENTS] Validating Cashfree credentials...');
+    
+    const result = await validateCredentials();
+    
+    return res.status(result.valid ? 200 : 401).json({
+      success: result.valid,
+      message: result.valid ? 'Credentials are valid' : 'Credentials validation failed',
+      error: result.error,
+      status: result.status,
+      environment: {
+        env: process.env.CASHFREE_ENV,
+        hasAppId: !!process.env.CASHFREE_APP_ID,
+        hasSecret: !!process.env.CASHFREE_SECRET_KEY,
+        appIdLength: process.env.CASHFREE_APP_ID?.length,
+        secretLength: process.env.CASHFREE_SECRET_KEY?.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[PAYMENTS] Validation error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Validation failed with exception',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Create Cashfree order and return payment_session_id for Drop-in/SDK
 router.post('/cashfree/order', async (req, res) => {
