@@ -54,6 +54,7 @@ router.get('/cashfree/webhook', (req, res) => {
     message: 'Cashfree webhook endpoint is active and ready',
     endpoint: '/api/public/payments/cashfree/webhook',
     methods: ['GET', 'POST'],
+    supportedVersions: ['2023-08-01', '2025-01-01'],
     timestamp: new Date().toISOString(),
     server: 'OrderEase Backend'
   });
