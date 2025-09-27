@@ -78,7 +78,7 @@ async function runTests(baseUrl) {
   
   // Test 3: UPI Test Order
   console.log('\n3️⃣ Testing UPI Order Creation...');
-  const upiResult = await testEndpoint(baseUrl, endpoints.testUPI, 'POST');
+  const upiResult = await testEndpoint(baseUrl, endpoints.testUPI, 'POST', {});
   
   // Test 4: Regular Order Creation
   console.log('\n4️⃣ Testing Regular Order Creation...');
