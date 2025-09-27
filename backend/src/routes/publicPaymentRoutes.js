@@ -6,19 +6,61 @@ const { cashfreeWebhook } = require('../controllers/cashfreeWebhookController');
 // Create Cashfree order and return payment_session_id for Drop-in/SDK
 router.post('/cashfree/order', async (req, res) => {
   try {
+    console.log('[PAYMENTS] Creating Cashfree order:', req.body);
+    
     const { amount, currency = 'INR', customer = {}, orderMeta = {} } = req.body || {};
+    
+    // Enhanced validation
     if (!amount || Number(amount) <= 0) {
-      return res.status(400).json({ message: 'Invalid amount' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid amount. Must be greater than 0',
+        received: amount
+      });
     }
 
+    // Log environment info for debugging
+    console.log('[PAYMENTS] Environment check:', {
+      appId: process.env.CASHFREE_APP_ID ? 'Set' : 'Missing',
+      secretKey: process.env.CASHFREE_SECRET_KEY ? 'Set' : 'Missing',
+      env: process.env.CASHFREE_ENV,
+      webhookUrl: process.env.CASHFREE_WEBHOOK_URL,
+      returnUrl: process.env.CASHFREE_RETURN_URL
+    });
+
     const data = await createOrder({ amount, currency, customer, orderMeta });
+    
+    console.log('[PAYMENTS] Order created successfully:', {
+      order_id: data.order_id,
+      order_status: data.order_status,
+      hasSessionId: !!data.payment_session_id
+    });
+    
     return res.status(200).json({
       success: true,
-      data
+      data,
+      debug: {
+        timestamp: new Date().toISOString(),
+        env: process.env.CASHFREE_ENV,
+        apiVersion: '2023-08-01'
+      }
     });
   } catch (err) {
-    console.error('[PAYMENTS] Cashfree create order error:', err?.response?.data || err?.message);
-    return res.status(500).json({ message: err?.response?.data?.message || err?.message || 'Payment init failed' });
+    console.error('[PAYMENTS] Cashfree create order error:', {
+      message: err?.message,
+      status: err?.response?.status,
+      data: err?.response?.data,
+      stack: err?.stack
+    });
+    
+    return res.status(500).json({ 
+      success: false,
+      message: err?.response?.data?.message || err?.message || 'Payment init failed',
+      error: {
+        type: err?.response?.data?.type || 'unknown',
+        code: err?.response?.status || 500
+      }
+    });
   }
 });
 
@@ -61,6 +103,64 @@ router.get('/cashfree/webhook', (req, res) => {
 });
 
 router.post('/cashfree/webhook', cashfreeWebhook);
+
+// UPI Payment Test Endpoint (for debugging production issues)
+router.post('/cashfree/test-upi', async (req, res) => {
+  try {
+    console.log('[UPI TEST] Testing UPI payment flow...');
+    
+    const testPayload = {
+      amount: 10, // Minimum test amount
+      currency: 'INR',
+      customer: {
+        name: 'Test User',
+        email: 'test@dynleaf.com',
+        phone: '9876543210',
+        id: 'test_user_001'
+      },
+      orderMeta: {
+        payment_methods: 'upi',
+        orderId: `TEST-UPI-${Date.now()}`
+      }
+    };
+    
+    console.log('[UPI TEST] Creating test order with:', testPayload);
+    
+    const data = await createOrder(testPayload);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'UPI test order created successfully',
+      data,
+      instructions: {
+        next_steps: [
+          '1. Use the payment_session_id with Cashfree SDK',
+          '2. Complete payment in UPI app',
+          '3. Check webhook logs for payment confirmation',
+          '4. Verify order status via GET /cashfree/order/{order_id}'
+        ]
+      }
+    });
+  } catch (err) {
+    console.error('[UPI TEST] Test failed:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'UPI test failed',
+      error: err.message,
+      troubleshooting: {
+        check_credentials: 'Verify CASHFREE_APP_ID and CASHFREE_SECRET_KEY',
+        check_environment: 'Ensure CASHFREE_ENV is set to "prod" for production',
+        check_webhook: 'Verify CASHFREE_WEBHOOK_URL is accessible',
+        common_issues: [
+          'Invalid credentials',
+          'Network connectivity issues', 
+          'Webhook URL not reachable',
+          'Amount validation failed'
+        ]
+      }
+    });
+  }
+});
 
 // Test webhook endpoint (development only)
 if (process.env.NODE_ENV !== 'production') {
@@ -112,5 +212,63 @@ if (process.env.NODE_ENV !== 'production') {
     return await cashfreeWebhook(req, res);
   });
 }
+
+// Payment Configuration Diagnostic Endpoint
+router.get('/cashfree/config-check', async (req, res) => {
+  try {
+    const config = {
+      environment: process.env.CASHFREE_ENV || 'Not Set',
+      appId: process.env.CASHFREE_APP_ID ? 'Configured' : 'Missing',
+      secretKey: process.env.CASHFREE_SECRET_KEY ? 'Configured' : 'Missing',
+      webhookUrl: process.env.CASHFREE_WEBHOOK_URL || 'Not Set',
+      webhookSecret: process.env.CASHFREE_WEBHOOK_SECRET ? 'Configured' : 'Missing',
+      returnUrl: process.env.CASHFREE_RETURN_URL || 'Not Set',
+      apiVersion: '2023-08-01',
+      baseUrl: process.env.CASHFREE_ENV === 'prod' 
+        ? 'https://api.cashfree.com/pg'
+        : 'https://sandbox.cashfree.com/pg'
+    };
+    
+    // Test basic connectivity to Cashfree
+    let connectivityTest = 'Not Tested';
+    try {
+      const axios = require('axios');
+      await axios.get(config.baseUrl, { timeout: 5000 });
+      connectivityTest = 'Success';
+    } catch (err) {
+      connectivityTest = `Failed: ${err.message}`;
+    }
+    
+    const issues = [];
+    if (!process.env.CASHFREE_APP_ID) issues.push('CASHFREE_APP_ID not configured');
+    if (!process.env.CASHFREE_SECRET_KEY) issues.push('CASHFREE_SECRET_KEY not configured');
+    if (!process.env.CASHFREE_WEBHOOK_URL) issues.push('CASHFREE_WEBHOOK_URL not configured');
+    if (process.env.CASHFREE_ENV !== 'prod' && process.env.CASHFREE_ENV !== 'test') {
+      issues.push('CASHFREE_ENV should be either "prod" or "test"');
+    }
+    
+    return res.status(200).json({
+      status: issues.length === 0 ? 'healthy' : 'issues_detected',
+      timestamp: new Date().toISOString(),
+      configuration: config,
+      connectivity: connectivityTest,
+      issues: issues,
+      recommendations: issues.length === 0 ? [
+        'Configuration looks good!',
+        'Test UPI payment using /cashfree/test-upi endpoint'
+      ] : [
+        'Fix the issues listed above',
+        'Verify credentials from Cashfree merchant dashboard',
+        'Ensure webhook URL is publicly accessible'
+      ]
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to check configuration',
+      error: err.message
+    });
+  }
+});
 
 module.exports = router;

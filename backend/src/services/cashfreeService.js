@@ -7,7 +7,7 @@ const axios = require('axios');
 // - CASHFREE_ENV (test|prod)
 // - CASHFREE_RETURN_URL (optional)
 
-const CF_API_VERSION = '2022-09-01';
+const CF_API_VERSION = '2023-08-01'; // Updated to stable version with better UPI support
 
 function getBaseUrl() {
   const env = (process.env.CASHFREE_ENV || 'test').toLowerCase();
@@ -35,6 +35,7 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
   const base = getBaseUrl();
   const headers = getHeaders();
 
+  // Generate unique order ID
   const orderId = orderMeta.orderId || `OE-${Date.now()}-${Math.floor(Math.random()*1000)}`;
   const returnUrl = orderMeta.returnUrl || process.env.CASHFREE_RETURN_URL || undefined;
 
@@ -51,9 +52,28 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
     phone = '9876543210'; // Valid 10-digit Indian number
   }
   
+  // Validate amount
+  const orderAmount = Number(amount);
+  if (orderAmount < 1) {
+    throw new Error('Amount must be at least ₹1 for UPI payments');
+  }
+  
+  console.log('[CASHFREE] Creating order:', {
+    orderId,
+    amount: orderAmount,
+    currency,
+    customer: {
+      id: safeId,
+      phone,
+      email: customer?.email || 'guest@example.com',
+      name: customer?.name || 'Guest'
+    },
+    env: process.env.CASHFREE_ENV
+  });
+  
   const payload = {
     order_id: orderId,
-    order_amount: Number(amount),
+    order_amount: orderAmount,
     order_currency: currency,
     customer_details: {
       customer_id: safeId,
@@ -63,12 +83,13 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
     },
     order_meta: {
       return_url: returnUrl ? returnUrl.replace('{order_id}', orderId) : undefined,
-      payment_methods: orderMeta.payment_methods || 'upi',
-      // Prefer UPI intent first for quick app selection
+      payment_methods: orderMeta.payment_methods || 'upi,nb,card',
+      // Optimize UPI configuration for production
       payment_method_config: {
         upi: {
           capture_payment: true,
-          intent_flow: 'intent'
+          intent_flow: 'intent', // Use intent for faster UPI app opening
+          collect_timeout: 120 // 2 minutes timeout for UPI collect
         }
       },
       // Add notification URL for webhook
@@ -79,9 +100,37 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
   // Clean undefineds
   Object.keys(payload.order_meta).forEach(k => payload.order_meta[k] === undefined && delete payload.order_meta[k]);
 
-  const { data } = await axios.post(`${base}/orders`, payload, { headers });
-  // data contains: order_id, order_status, payment_session_id
-  return data;
+  try {
+    console.log('[CASHFREE] Sending request to:', `${base}/orders`);
+    console.log('[CASHFREE] Request payload:', JSON.stringify(payload, null, 2));
+    
+    const { data } = await axios.post(`${base}/orders`, payload, { headers });
+    
+    console.log('[CASHFREE] Order created successfully:', {
+      order_id: data.order_id,
+      order_status: data.order_status,
+      payment_session_id: data.payment_session_id?.substring(0, 20) + '...'
+    });
+    
+    // data contains: order_id, order_status, payment_session_id
+    return data;
+  } catch (error) {
+    console.error('[CASHFREE] Order creation failed:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method
+      }
+    });
+    
+    // Re-throw with more specific error message
+    if (error.response?.data?.message) {
+      throw new Error(`Cashfree Error: ${error.response.data.message}`);
+    }
+    throw error;
+  }
 }
 
 // Get order status from Cashfree
