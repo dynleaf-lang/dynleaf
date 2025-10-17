@@ -677,7 +677,7 @@ exports.webhook = async (req, res) => {
   const bodyLines = [];
   bodyLines.push(`Hi *${customerName}*, please find the menu link as requested by you.`);
   bodyLines.push('');
-  bodyLines.push(`You can pay via Elite 'self checkout' by clicking the 'Pay Bill' button on the app to avoid waiting for the bill.`);
+  bodyLines.push(`You can pay via UPI 'self checkout' by clicking the 'Pay Now' button on the app to avoid waiting for the bill.`);
   bodyLines.push('');
   bodyLines.push(`⏰ Link valid for ${mins} minutes • Reply *HELP* for assistance`);
   const bodyText = bodyLines.join('\n');

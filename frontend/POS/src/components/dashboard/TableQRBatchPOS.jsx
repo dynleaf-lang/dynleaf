@@ -16,7 +16,7 @@ const TableQRBatchPOS = ({ tables = [], waNumber, setWaNumber, mode, setMode }) 
   const tableName = t.TableName || `Table ${tableCode}`;
     if (mode === 'whatsapp') {
       const number = (waNumber || '').replace(/\D/g, '');
-  const text = `Hi, I'd like to view the menu. Here's my reference id\n\nurn:explorex:restaurant_tables:${tableCode}`;
+  const text = `Hi, I'd like to view the menu. Here's my reference id\n\nurn:dynleaf:restaurant_tables:${tableCode}`;
       return number
         ? `https://wa.me/${number}?text=${encodeURIComponent(text)}`
         : `https://wa.me/?text=${encodeURIComponent(text)}`;
