@@ -50,7 +50,7 @@ const CheckoutForm = memo(() => {
     businessName: 'DynLeaf Food Services' // Your registered business name
   };
   
-  const { cartItems, cartTotal, orderNote, setOrderNote } = useCart();
+  const { cartItems, cartTotal, orderNote, setOrderNote, placeOrder } = useCart();
   const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
   const { branch } = useRestaurant();
@@ -85,6 +85,7 @@ const CheckoutForm = memo(() => {
   const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
   const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
   const [lastPaymentAmount, setLastPaymentAmount] = useState(0);
+  const [orderCreationAttempted, setOrderCreationAttempted] = useState(false);
   
   // Debug logging for UPI app selection
   useEffect(() => {
@@ -349,20 +350,64 @@ const CheckoutForm = memo(() => {
   };
 
   // Handle successful payment
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     console.log('[CHECKOUT FORM] Payment successful!');
-    setPaymentStatus('success');
     setPaymentInProgress(false);
-    setPaymentStatusMessage('Payment successful! Your order has been placed.');
     setShowPaymentStatusModal(true);
-    
-    // Clear current order
-    setCurrentOrder(null);
-    
-    // Trigger order success event
-    document.dispatchEvent(new CustomEvent('orderSuccess', { 
-      detail: { message: 'Order placed successfully!' }
-    }));
+    setPaymentStatus('pending');
+    setPaymentStatusMessage('Payment received. Finalizing your order...');
+
+    if (orderCreationAttempted) {
+      console.log('[CHECKOUT FORM] Order creation already attempted, skipping duplicate call.');
+      setPaymentStatus('success');
+      setPaymentStatusMessage('Payment successful! Your order has been placed.');
+      return;
+    }
+
+    setOrderCreationAttempted(true);
+
+    const cfOrderId = currentOrder?.cfOrderId;
+
+    try {
+      const createdOrder = await placeOrder({
+        customerInfo: effectiveCustomerInfo,
+        orderType,
+        note: orderNote,
+        paymentMethod: 'upi',
+        paymentStatus: 'paid',
+        cfOrderId
+      });
+
+      if (!createdOrder) {
+        throw new Error('Order creation returned no data');
+      }
+
+      setPaymentStatus('success');
+      setPaymentStatusMessage('Payment successful! Your order has been placed.');
+      setCurrentOrder(null);
+
+      document.dispatchEvent(new CustomEvent('orderSuccess', { 
+        detail: { 
+          message: 'Order placed successfully!',
+          order: createdOrder
+        }
+      }));
+    } catch (error) {
+      console.error('[CHECKOUT FORM] Order creation after payment failed:', error);
+      setPaymentStatus('success');
+      setPaymentStatusMessage(
+        `Payment received successfully. We could not finalize the order automatically. Please contact support with reference ${cfOrderId || 'N/A'}.`
+      );
+      try {
+        addNotification?.({
+          type: 'system',
+          title: 'Order confirmation pending',
+          message: `Payment captured but order confirmation is pending. Reference: ${cfOrderId || 'N/A'}. Please contact support if you do not receive a confirmation shortly.`,
+          icon: 'info',
+          priority: 'high'
+        });
+      } catch (_) {}
+    }
   };
 
   // Handle failed payment
@@ -373,6 +418,7 @@ const CheckoutForm = memo(() => {
     setPaymentStatusMessage(message);
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
+    setOrderCreationAttempted(false);
     
     // Increment retry count
     setPaymentRetryCount(prev => prev + 1);
@@ -420,6 +466,7 @@ const CheckoutForm = memo(() => {
     setPaymentStatus(null);
     setPaymentError('');
     setPaymentStatusMessage('');
+    setOrderCreationAttempted(false);
     
     // Re-trigger the form submission
     setTimeout(() => {
@@ -439,6 +486,7 @@ const CheckoutForm = memo(() => {
     setCurrentOrder(null);
     setIsSubmitting(false);
     setPaymentInProgress(false);
+    setOrderCreationAttempted(false);
     
     // Show UPI dropdown to let user select different app
     setShowUpiDropdown(true);
@@ -728,6 +776,7 @@ const CheckoutForm = memo(() => {
           amount: totalAmount,
           orderData
         });
+        setOrderCreationAttempted(false);
         setLastPaymentAmount(totalAmount);
         setPaymentStatus('pending');
 

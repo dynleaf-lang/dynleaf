@@ -13,9 +13,10 @@ const TableQRBatchPOS = ({ tables = [], waNumber, setWaNumber, mode, setMode }) 
   const restaurantId = t.restaurantId;
   const branchId = t.branchId;
   const tableCode = t.tableId || t.TableCode || t.TableName || t._id;
+  const tableName = t.TableName || `Table ${tableCode}`;
     if (mode === 'whatsapp') {
       const number = (waNumber || '').replace(/\D/g, '');
-  const text = `Order Now\nT: ${tableCode}`;
+  const text = `Hi, I'd like to view the menu. Here's my reference id\n\nurn:explorex:restaurant_tables:${tableCode}`;
       return number
         ? `https://wa.me/${number}?text=${encodeURIComponent(text)}`
         : `https://wa.me/?text=${encodeURIComponent(text)}`;
