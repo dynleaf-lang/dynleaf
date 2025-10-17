@@ -3,9 +3,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { theme } from "../../data/theme";
 import { useResponsive } from "../../context/ResponsiveContext";
 
-const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, tableNumber, profileSrc, onExpand }) => {
+const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, tableNumber, profileSrc, userName, onExpand }) => {
   const { isDesktop, isTablet } = useResponsive();
   const [isExpanded, setIsExpanded] = useState(true);
+  
+  // Use provided userName or fallback to 'Guest'
+  const displayName = userName || 'Guest';
   
   // More comprehensive navigation items for desktop/tablet
   const navItems = [
@@ -325,7 +328,7 @@ const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, 
           }}
         >
           <img
-            src={profileSrc || "https://ui-avatars.com/api/?name=Guest&background=FF4757&color=fff"}
+            src={profileSrc || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=FF4757&color=fff`}
             alt="User profile"
             style={{
               width: "100%",
@@ -344,13 +347,13 @@ const SideNav = ({ activeTab = "menu", onTabChange, restaurantName, branchName, 
               overflow: "hidden",
               textOverflow: "ellipsis"
             }}>
-              Guest User
+              {displayName}
             </div>
             <div style={{ 
               fontSize: theme.typography.sizes.xs,
               color: theme.colors.text.secondary
             }}>
-              Create account to save preferences
+              {userName ? 'Welcome back!' : 'Create account to save preferences'}
             </div>
           </div>
         )}

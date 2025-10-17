@@ -302,6 +302,7 @@ const OrderEaseApp = () => {
           // For tablet and desktop devices, use our new DesktopLayout
           <DesktopLayout
             profileSrc="https://randomuser.me/api/portraits/women/79.jpg"
+            userName={user?.name}
             restaurantName={restaurant?.name}
             branchName={branch?.name}
             tableNumber={branch?.tableNumber || "12"}

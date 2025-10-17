@@ -670,8 +670,18 @@ exports.webhook = async (req, res) => {
       } catch (_) {}
     }
 
-  // Build magic token regardless; you may enforce validations later
-  const token = createMagicToken({ phone: from, tableId, branchId, restaurantId }, '60m');
+  // Get customer name from contact profile if available (WhatsApp Business API feature)
+  const customerName = change?.contacts?.[0]?.profile?.name || null;
+  
+  // Build magic token with customer name included
+  const token = createMagicToken({ 
+    phone: from, 
+    name: customerName,
+    tableId, 
+    branchId, 
+    restaurantId 
+  }, '60m');
+  
   const longLink = buildPortalLink(token, { restaurantId, branchId, tableId });
   // Short link for customer-friendly message
   const code = makeShortCode();
@@ -699,13 +709,13 @@ exports.webhook = async (req, res) => {
     ? `${restaurantName} – ${branchName}` // en dash for professional look
     : (restaurantName || branchName || brand);
 
-  // Get customer name from contact profile if available (WhatsApp Business API feature)
-  const customerName = change?.contacts?.[0]?.profile?.name || 'Customer';
+  // Use customer name for greeting (fallback to 'Customer' if not available)
+  const displayName = customerName || 'Customer';
 
   // Professional, customer-friendly magic link message matching competitor's format
   const mins = SHORTLINK_TTL_MINUTES;
   const bodyLines = [];
-  bodyLines.push(`Hi *${customerName}*, please find the menu link as requested by you.`);
+  bodyLines.push(`Hi *${displayName}*, please find the menu link as requested by you.`);
   bodyLines.push('');
   bodyLines.push(`You can pay via UPI 'self checkout' by clicking the 'Pay Now' button on the app to avoid waiting for the bill.`);
   bodyLines.push('');
