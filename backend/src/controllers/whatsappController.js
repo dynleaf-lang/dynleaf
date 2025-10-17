@@ -222,8 +222,8 @@ exports.redirectShortLink = async (req, res) => {
                 <br>
                 <strong>Option 2: WhatsApp Message</strong>
                 <ul>
-                  <li>💬 Send "Order Now" to the restaurant's WhatsApp</li>
-                  <li>📋 Include your table code (e.g., "T: T4722")</li>
+                  <li>💬 Scan the table QR code to send via WhatsApp</li>
+                  <li>📋 Or send your table reference manually</li>
                   <li>⚡ Get an instant ordering link</li>
                 </ul>
               </div>
@@ -345,8 +345,8 @@ exports.redirectShortLink = async (req, res) => {
                 <strong>Quick Options:</strong>
                 <ul>
                   <li>📱 <strong>Scan the QR code</strong> on your table again</li>
-                  <li>💬 <strong>Send "Order Now"</strong> to the restaurant's WhatsApp</li>
-                  <li>📋 <strong>Include your table code</strong> (e.g., "T: T4722")</li>
+                  <li>💬 <strong>WhatsApp will open</strong> with a pre-filled message</li>
+                  <li>� <strong>Tap "Send"</strong> to request your menu link</li>
                   <li>⚡ <strong>Get your new link instantly!</strong></li>
                 </ul>
               </div>
@@ -461,8 +461,8 @@ exports.redirectShortLink = async (req, res) => {
             <div class="steps">
               <ul>
                 <li>📱 <strong>Scan the QR code</strong> on your table again</li>
-                <li>💬 <strong>Send "Order Now"</strong> via WhatsApp</li>
-                <li>📋 <strong>Include your table code</strong> (found on table QR)</li>
+                <li>💬 <strong>Send the WhatsApp message</strong> that appears</li>
+                <li>� <strong>Wait for your menu link</strong> (arrives in seconds)</li>
                 <li>🆘 <strong>Ask a staff member</strong> for assistance</li>
               </ul>
             </div>
@@ -590,38 +590,68 @@ exports.webhook = async (req, res) => {
     if (/^help$/i.test(text)) {
       const helpLines = [];
       helpLines.push(`*${brand} Support*`);
-  helpLines.push('• Send the QR text "Order Now" to get your ordering link.');
-  helpLines.push('• Include your table code: T: <code> (e.g., T: T4722).');
-  helpLines.push('• If the link expires, just send Order Now again.');
+      helpLines.push('');
+      helpLines.push('📱 *How to Order:*');
+      helpLines.push('1. Scan the QR code on your table');
+      helpLines.push('2. Send the pre-filled WhatsApp message');
+      helpLines.push('3. Click the "View Menu" button you receive');
+      helpLines.push('4. Browse and order from your phone');
+      helpLines.push('');
+      helpLines.push('⏰ *Note:* Links expire after 60 minutes for security');
+      helpLines.push('💳 *Payment:* Use UPI self-checkout on the app');
       const supportPhone = process.env.SUPPORT_PHONE || '';
-      if (supportPhone) helpLines.push(`• Call: ${supportPhone}`);
+      if (supportPhone) helpLines.push(`📞 *Support:* ${supportPhone}`);
       const helpMsg = helpLines.join('\n');
       try { await sendWhatsAppText(from, helpMsg); } catch (_) {}
       return res.sendStatus(200);
     }
 
-    // Expected text patterns: "Order Now" or legacy "JOIN" headers
-    // Accept variations like T:XYZ and common aliases
+    // Expected text patterns: New URN format or legacy formats
+    // New format: urn:dynleaf:restaurant_tables:TABLE_CODE
+    // Legacy format: T: TABLE_CODE
+    
+    // First, try to extract from URN format (new professional format)
+    let tableId = null;
+    let branchId = null;
+    let restaurantId = null;
+    
+    const urnMatch = text.match(/urn:(?:dynleaf|explorex):restaurant_tables:([A-Za-z0-9_-]+)/i);
+    if (urnMatch) {
+      tableId = urnMatch[1];
+      console.log('[WhatsApp webhook][POST] Extracted table code from URN:', tableId);
+    }
+    
+    // Fallback to legacy format parsing
     const findVal = (labels) => {
       const re = new RegExp(`(?:${labels})\\s*[:=]\\s*([A-Za-z0-9_-]+)`, 'i');
       const m = text.match(re);
       return m ? m[1] : null;
     };
-    // If user sent Order Now without a code, prompt for T: <code>
-    if (/^order\s*now$/i.test(text)) {
+    
+    // If URN didn't match, try legacy format
+    if (!tableId) {
+      tableId = findVal('T|TABLE|TABLEID');
+    }
+    
+    // Always try to extract branch and restaurant IDs from legacy format (if present)
+    if (!branchId) branchId = findVal('B|BRANCH|BRANCHID');
+    if (!restaurantId) restaurantId = findVal('R|REST|RESTAURANT|RESTAURANTID');
+    
+    console.log('[WhatsApp webhook][POST] parsed ids:', { tableId, branchId, restaurantId });
+    
+    // If user sent the greeting without a table code, prompt them
+    if (!tableId && /^hi.*view.*menu/i.test(text)) {
       const promptLines = [];
       const brand = process.env.BRAND_NAME || 'DynLeaf';
       promptLines.push(`*${brand}*`);
-      promptLines.push('Please reply with your table code:');
-      promptLines.push('T: <code>  (e.g., T: T4722)');
+      promptLines.push('Please scan the QR code on your table to get your personalized menu link.');
+      promptLines.push('');
+      promptLines.push('Or reply with your table reference:');
+      promptLines.push('urn:dynleaf:restaurant_tables:<code>');
       const promptMsg = promptLines.join('\n');
       try { await sendWhatsAppText(from, promptMsg); } catch (_) {}
       return res.sendStatus(200);
     }
-    let tableId = findVal('T|TABLE|TABLEID');
-    let branchId = findVal('B|BRANCH|BRANCHID');
-    let restaurantId = findVal('R|REST|RESTAURANT|RESTAURANTID');
-    console.log('[WhatsApp webhook][POST] parsed ids:', { tableId, branchId, restaurantId });
 
     // If only a human table code is provided (common for customer-friendly QR), look up table
     if (tableId && !mongoose.Types.ObjectId.isValid(tableId)) {
