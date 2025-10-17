@@ -8,6 +8,7 @@ import { useCart } from "../../context/CartContext";
 import { useCurrency } from "../../context/CurrencyContext";
 import { useAuth } from "../../context/AuthContext";
 import { useFavorites } from "../../context/FavoritesContext";
+import noImageFound from "../../assets/no-image-found.png";
 
 const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, isMobileCompact = false }) => {
   // Handle undefined product
@@ -40,7 +41,7 @@ const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, is
   const addBtnRef = useRef(null);
   
   // Default image URL for products without images
-  const defaultImage = 'https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png';
+  const defaultImage = noImageFound;
 
   // Handle image error
   const handleImageError = () => {

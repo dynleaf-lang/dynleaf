@@ -228,7 +228,7 @@ const getPlaceholderImage = (name = '') => {
 //   }
   
   // Default food image for anything else
-  return 'https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png';
+  return '../../assets/no-image-found.png';
 };
 
 /**

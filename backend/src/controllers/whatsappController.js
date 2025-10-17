@@ -67,6 +67,51 @@ async function sendWhatsAppText(to, body) {
   return res.data;
 }
 
+// Send WhatsApp message with URL button (for "View Menu" button)
+async function sendWhatsAppURLButton(to, bodyText, buttonText, buttonUrl) {
+  const token = getWhatsAppAccessToken();
+  if (!token || !WA_PHONE_NUMBER_ID) {
+    console.warn('[WhatsApp] Missing WA credentials. Falling back to text message.');
+    // Fallback to text message with URL
+    return sendWhatsAppText(to, `${bodyText}\n\n${buttonText}: ${buttonUrl}`);
+  }
+  
+  const url = `https://graph.facebook.com/v17.0/${WA_PHONE_NUMBER_ID}/messages`;
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'cta_url',
+      body: {
+        text: bodyText
+      },
+      action: {
+        name: 'cta_url',
+        parameters: {
+          display_text: buttonText,
+          url: buttonUrl
+        }
+      }
+    }
+  };
+  
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  };
+  
+  try {
+    const res = await axios.post(url, payload, { headers });
+    return res.data;
+  } catch (error) {
+    // If interactive message fails, fallback to text message
+    console.warn('[WhatsApp] Interactive message failed, using text fallback:', error.message);
+    return sendWhatsAppText(to, `${bodyText}\n\n${buttonText}: ${buttonUrl}`);
+  }
+}
+
 function isExpired(entry) {
   if (!entry?.createdAt) return true;
   const ageMs = Date.now() - entry.createdAt;
@@ -624,23 +669,27 @@ exports.webhook = async (req, res) => {
     ? `${restaurantName} – ${branchName}` // en dash for professional look
     : (restaurantName || branchName || brand);
 
-  // Professional, customer-friendly magic link message
+  // Get customer name from contact profile if available (WhatsApp Business API feature)
+  const customerName = change?.contacts?.[0]?.profile?.name || 'Customer';
+
+  // Professional, customer-friendly magic link message matching competitor's format
   const mins = SHORTLINK_TTL_MINUTES;
-  const lines = [];
-  lines.push(`👋 Welcome to *${title}*!`);
-  lines.push('');
-  lines.push('� Ready to enjoy your favorite meals?');
-  lines.push(`👉 Order your meal in just a click: ${shortLink}`);
-  lines.push('');
-  lines.push('ℹ️ Need help? Just reply *HELP* anytime.');
-  lines.push(`⏳ This link is valid for the next ${mins} minutes.`);
-  const message = lines.join('\n');
+  const bodyLines = [];
+  bodyLines.push(`Hi *${customerName}*, please find the menu link as requested by you.`);
+  bodyLines.push('');
+  bodyLines.push(`You can pay via UPI 'self checkout' by clicking the 'Pay Now' button on the app to avoid waiting for the bill.`);
+  bodyLines.push('');
+  bodyLines.push(`⏰ Link valid for ${mins} minutes • Reply *HELP* for assistance`);
+  const bodyText = bodyLines.join('\n');
+  
+  // Try to send with interactive URL button (View Menu button)
+  // If that fails, it will automatically fallback to text message with link
     try {
-      const sendRes = await sendWhatsAppText(from, message);
+      const sendRes = await sendWhatsAppURLButton(from, bodyText, '🍽️ View Menu', shortLink);
       if (sendRes?.skipped) {
         console.warn('[WhatsApp webhook] WA credentials missing; replied skipped. Set WA_ACCESS_TOKEN and WA_PHONE_NUMBER_ID to enable outbound replies.');
       } else {
-        console.log('[WhatsApp webhook] reply sent to %s', from);
+        console.log('[WhatsApp webhook] interactive reply sent to %s', from);
       }
     } catch (sendErr) {
       console.error('[WhatsApp webhook] send error:', sendErr?.response?.data || sendErr.message);

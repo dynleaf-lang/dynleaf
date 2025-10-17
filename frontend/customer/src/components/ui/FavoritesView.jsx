@@ -14,7 +14,7 @@ const FavoritesView = () => {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   // Default image URL for products without images
-  const defaultImage = 'https://png.pngtree.com/png-clipart/20231003/original/pngtree-tasty-burger-png-ai-generative-png-image_13245897.png';
+  const defaultImage = '../../assets/no-image-found.png';
 
   
 
