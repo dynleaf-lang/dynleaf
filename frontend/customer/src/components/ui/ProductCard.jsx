@@ -8,7 +8,7 @@ import { useCart } from "../../context/CartContext";
 import { useCurrency } from "../../context/CurrencyContext";
 import { useAuth } from "../../context/AuthContext";
 import { useFavorites } from "../../context/FavoritesContext";
-import noImageFound from "../../assets/no-image-found.png";
+import noImageFound from "../../assets/NO-image-found.png";
 
 const ProductCard = ({ product, isTablet, isDesktop, isFavoritesView = false, isMobileCompact = false }) => {
   // Handle undefined product
