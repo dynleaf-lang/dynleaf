@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { AuthContext } from './AuthContext'; 
+import { AuthContext } from './AuthContext';
+import { SocketContext } from './SocketContext';
 import api from '../utils/api';
 
 export const TableContext = createContext();
@@ -12,6 +13,65 @@ export const TableProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { user } = useContext(AuthContext);
+  const socket = useContext(SocketContext);
+
+  // Listen for real-time table status updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTableStatusUpdate = (data) => {
+      console.log('[TABLE CONTEXT] Received table status update:', data);
+      
+      // Update the specific table in the tables array
+      setTables((prevTables) => 
+        prevTables.map((table) => {
+          if (table._id === data.tableId) {
+            console.log(`[TABLE CONTEXT] Updating table ${table.tableNumber} from ${table.status} to ${data.status}`);
+            return {
+              ...table,
+              status: data.status,
+              isOccupied: data.status === 'occupied',
+              currentOrderId: data.currentOrderId,
+              currentOrder: data.currentOrderId // Also update currentOrder field
+            };
+          }
+          return table;
+        })
+      );
+    };
+
+    // Also listen for new orders to update table status
+    const handleNewOrder = (order) => {
+      console.log('[TABLE CONTEXT] Received new order:', order._id);
+      
+      // If order has a tableId, update that table's status
+      if (order.tableId) {
+        setTables((prevTables) => 
+          prevTables.map((table) => {
+            if (table._id === order.tableId) {
+              console.log(`[TABLE CONTEXT] New order for table ${table.tableNumber}, setting to occupied`);
+              return {
+                ...table,
+                status: 'occupied',
+                isOccupied: true,
+                currentOrderId: order._id,
+                currentOrder: order._id
+              };
+            }
+            return table;
+          })
+        );
+      }
+    };
+
+    socket.on('tableStatusUpdate', handleTableStatusUpdate);
+    socket.on('newOrder', handleNewOrder);
+
+    return () => {
+      socket.off('tableStatusUpdate', handleTableStatusUpdate);
+      socket.off('newOrder', handleNewOrder);
+    };
+  }, [socket]);
 
   // Get all tables for a restaurant/branch
   const getTables = async (filters = {}) => {

@@ -36,20 +36,6 @@ if (typeof document !== 'undefined' && !document.querySelector('#payment-spinner
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(() => {
   
-  // UPI Configuration - Update these with your actual business details
-  // IMPORTANT: Replace 'orderease@paytm' with your actual business UPI ID
-  // To get a business UPI ID:
-  // 1. For Paytm Business: Register at paytm.com/business 
-  // 2. For Google Pay Business: Register at pay.google.com/business
-  // 3. For PhonePe Business: Register at business.phonepe.com
-  // 4. For Bank UPI: Contact your business banking partner
-  const UPI_CONFIG = {
-    merchantVPA: '9567529848-2@axl', // Replace with your actual business UPI ID
-    merchantName: 'DynLeaf Restaurants',
-    merchantCode: 'DynLeaf', // Your merchant category code
-    businessName: 'DynLeaf Food Services' // Your registered business name
-  };
-  
   const { cartItems, cartTotal, orderNote, setOrderNote, placeOrder } = useCart();
   const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
@@ -86,6 +72,10 @@ const CheckoutForm = memo(() => {
   const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
   const [lastPaymentAmount, setLastPaymentAmount] = useState(0);
   const [orderCreationAttempted, setOrderCreationAttempted] = useState(false);
+  
+  // Order confirmation state
+  const [showOrderConfirmation, setShowOrderConfirmation] = useState(false);
+  const [confirmedOrder, setConfirmedOrder] = useState(null);
   
   // Debug logging for UPI app selection
   useEffect(() => {
@@ -134,67 +124,6 @@ const CheckoutForm = memo(() => {
       }));
     }
   }, [orderType]);
-
-  // Load Cashfree SDK on mount
-  useEffect(() => {
-    const loadCashfreeSDK = () => {
-      return new Promise((resolve, reject) => {
-        // Check if already loaded
-        if (typeof window !== 'undefined' && window.Cashfree) {
-          console.log('[CHECKOUT FORM] Cashfree SDK already available');
-          resolve();
-          return;
-        }
-
-        // Check if script already exists
-        const existingScript = document.querySelector('script[src*="cashfree.js"]');
-        if (existingScript) {
-          console.log('[CHECKOUT FORM] SDK script exists, waiting for load...');
-          // Wait for it to load
-          const checkSDK = () => {
-            if (window.Cashfree) {
-              resolve();
-            } else {
-              setTimeout(checkSDK, 100);
-            }
-          };
-          setTimeout(checkSDK, 100);
-          return;
-        }
-
-        console.log('[CHECKOUT FORM] Loading Cashfree SDK...');
-        const script = document.createElement('script');
-        script.src = 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.js';
-        script.async = true;
-        script.crossOrigin = 'anonymous';
-        
-        script.onload = () => {
-          console.log('[CHECKOUT FORM] Cashfree SDK script loaded');
-          // Wait for SDK to be available on window
-          setTimeout(() => {
-            if (window.Cashfree && typeof window.Cashfree === 'function') {
-              console.log('[CHECKOUT FORM] Cashfree SDK available on window');
-              resolve();
-            } else {
-              console.error('[CHECKOUT FORM] SDK loaded but Cashfree not available');
-              reject(new Error('SDK loaded but Cashfree not available'));
-            }
-          }, 200);
-        };
-        
-        script.onerror = (error) => {
-          console.error('[CHECKOUT FORM] Failed to load Cashfree SDK:', error);
-          reject(new Error('Failed to load Cashfree SDK'));
-        };
-        
-        document.head.appendChild(script);
-      });
-    };
-
-    loadCashfreeSDK().catch(err => {
-      console.warn('[CHECKOUT FORM] SDK loading error:', err);
-    });
-  }, []);
 
   // On mount: check register status once to initialize disabled state
   useEffect(() => {
@@ -304,9 +233,12 @@ const CheckoutForm = memo(() => {
       
       // Call backend to check payment status using existing API method
       const response = await api.public.payments.cashfree.getOrder(currentOrder.cfOrderId);
-      const { order_status, payment_status } = response || {};
       
-      console.log('[CHECKOUT FORM] Payment status response:', { order_status, payment_status });
+      // Response structure: { success: true, data: { order_status, payment_status, ... } }
+      const orderData = response?.data || response;
+      const { order_status, payment_status } = orderData;
+      
+      console.log('[CHECKOUT FORM] Payment status response:', { order_status, payment_status, fullResponse: orderData });
 
       // Handle different payment statuses
       switch (payment_status) {
@@ -367,14 +299,20 @@ const CheckoutForm = memo(() => {
     setOrderCreationAttempted(true);
 
     const cfOrderId = currentOrder?.cfOrderId;
+    const orderData = currentOrder?.orderData;
+
+    if (!orderData) {
+      console.error('[CHECKOUT FORM] No order data found in currentOrder');
+      setPaymentStatus('error');
+      setPaymentStatusMessage('Order data not found. Please contact support.');
+      return;
+    }
 
     try {
+      console.log('[CHECKOUT FORM] Creating order in database after successful payment...');
       const createdOrder = await placeOrder({
-        customerInfo: effectiveCustomerInfo,
-        orderType,
-        note: orderNote,
-        paymentMethod: 'upi',
-        paymentStatus: 'paid',
+        ...orderData,
+        paymentStatus: 'paid', // Mark as paid since payment succeeded
         cfOrderId
       });
 
@@ -382,22 +320,50 @@ const CheckoutForm = memo(() => {
         throw new Error('Order creation returned no data');
       }
 
+      console.log('[CHECKOUT FORM] Order created successfully:', createdOrder.orderId);
+      
+      // Store confirmed order details
+      setConfirmedOrder({
+        ...createdOrder,
+        orderType,
+        items: cartItems,
+        total: totalAmount,
+        paymentMethod: 'UPI',
+        cfOrderId
+      });
+      
       setPaymentStatus('success');
       setPaymentStatusMessage('Payment successful! Your order has been placed.');
       setCurrentOrder(null);
+      setIsSubmitting(false);
+      setPaymentInProgress(false);
 
+      // Trigger success event
       document.dispatchEvent(new CustomEvent('orderSuccess', { 
         detail: { 
           message: 'Order placed successfully!',
           order: createdOrder
         }
       }));
+
+      // Close payment status modal and show order confirmation
+      setTimeout(() => {
+        setShowPaymentStatusModal(false);
+        setShowOrderConfirmation(true); // Show professional confirmation screen
+        // Reset payment states but keep order confirmation visible
+        setPaymentStatus('idle');
+        setCurrentOrder(null);
+        setOrderCreationAttempted(false);
+      }, 1500);
+
     } catch (error) {
       console.error('[CHECKOUT FORM] Order creation after payment failed:', error);
       setPaymentStatus('success');
       setPaymentStatusMessage(
         `Payment received successfully. We could not finalize the order automatically. Please contact support with reference ${cfOrderId || 'N/A'}.`
       );
+      setIsSubmitting(false);
+      
       try {
         addNotification?.({
           type: 'system',
@@ -740,256 +706,551 @@ const CheckoutForm = memo(() => {
     
     console.log('[CHECKOUT FORM] Submitting order with data:', orderData);
 
-    // Always UPI: initiate Cashfree payment first
-    {
-      try {
-        setPaymentError('');
-        setPaymentInProgress(true);
-        const totalAmount = cartTotal + calculateTax(cartTotal);
-        // Create CF order via backend
-        // Sanitize customer_id for Cashfree: only alphanumeric, underscore, hyphen
-        const rawId = `${effectiveCustomerInfo.email || effectiveCustomerInfo.phone || 'guest'}_${Date.now()}`;
-        const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
-        const cfResp = await api.public.payments.cashfree.createOrder({
-          amount: Number(totalAmount.toFixed(2)),
-          currency: 'INR',
-          customer: {
-            name: effectiveCustomerInfo.name,
-            email: effectiveCustomerInfo.email || 'guest@example.com',
-            phone: effectiveCustomerInfo.phone || '9999999999',
-            id: safeId
-          },
-          orderMeta: {
-            payment_methods: 'upi',
-            preferred_upi_app: selectedUpiApp
-          }
-        });
-
-        const sessionId = cfResp?.data?.payment_session_id;
-        const cfOrderId = cfResp?.data?.order_id;
-        if (!sessionId) throw new Error('Payment session not created');
-
-        // Store current order details for status tracking
-        setCurrentOrder({
-          cfOrderId,
-          sessionId,
-          amount: totalAmount,
-          orderData
-        });
-        setOrderCreationAttempted(false);
-        setLastPaymentAmount(totalAmount);
-        setPaymentStatus('pending');
-
-        // Show processing overlay in cart and start backend polling there
-        try {
-          document.dispatchEvent(new CustomEvent('paymentStart', { detail: { cfOrderId, orderData } }));
-        } catch (_) {}
-
-        // Use Cashfree Checkout JS v2 if available on window
-        console.log('[CHECKOUT FORM] Checking Cashfree SDK availability:', typeof window.Cashfree);
-        if (window && window.Cashfree && typeof window.Cashfree === 'function') {
-          console.log('[CHECKOUT FORM] Using Cashfree SDK');
-          const cashfree = window.Cashfree({ mode: (import.meta.env.VITE_CASHFREE_ENV || 'test') === 'prod' ? 'production' : 'sandbox' });
-
-          await new Promise((resolve, reject) => {
-            cashfree.checkout({
-              paymentSessionId: sessionId,
-              redirectTarget: '_modal' // Use modal instead of redirect
-            }).then((result) => {
-              console.log('[CHECKOUT FORM] Cashfree SDK result:', result);
-              
-              // Handle the result from Cashfree SDK
-              if (result?.redirect === true) {
-                console.log('[CHECKOUT FORM] User redirected to payment app');
-                // User was redirected to payment app, we'll check status when they return
-              } else if (result?.error) {
-                console.log('[CHECKOUT FORM] Cashfree SDK error:', result.error);
-                handlePaymentFailure('Payment initialization failed. Please try again.');
-                reject(result.error);
-              } else {
-                console.log('[CHECKOUT FORM] Payment completed via SDK');
-                // Payment completed, check status
-                setTimeout(() => checkPaymentStatus(), 1000);
-              }
-              resolve(result);
-            }).catch((error) => {
-              console.error('[CHECKOUT FORM] Cashfree SDK error:', error);
-              handlePaymentFailure('Payment failed. Please try again.');
-              reject(error);
-            });
-          });
-        } else {
-          // SDK not available - create UPI intent for selected app
-          console.log('[CHECKOUT FORM] SDK not available, creating UPI intent for:', selectedUpiApp);
-          
-          // Create UPI intent URL for the selected app
-          try {
-            const amount = Number(totalAmount.toFixed(2));
-            const transactionNote = `Food Order ${cfOrderId}`;
-            const transactionId = cfOrderId; // Use the order ID as transaction reference
-            
-            // Create standardized UPI URL with all required parameters
-            const baseUpiParams = {
-              pa: UPI_CONFIG.merchantVPA,         // Payee Address (UPI ID)
-              pn: UPI_CONFIG.merchantName,        // Payee Name  
-              am: amount.toString(),              // Amount
-              cu: 'INR',                         // Currency
-              tn: transactionNote,               // Transaction Note
-              tr: transactionId,                 // Transaction Reference
-              mc: UPI_CONFIG.merchantCode,       // Merchant Code
-              tid: Date.now().toString(),        // Transaction ID (timestamp)
-              url: '',                          // Reference URL (optional)
-              mode: '02',                       // UPI collect mode
-              purpose: '00'                     // Purpose code for merchant payment
-            };
-            
-            // Build URL parameters string
-            const buildUpiUrl = (baseUrl = 'upi://pay') => {
-              const params = new URLSearchParams();
-              Object.entries(baseUpiParams).forEach(([key, value]) => {
-                if (value) params.append(key, value);
-              });
-              return `${baseUrl}?${params.toString()}`;
-            };
-            
-            const upiUrl = buildUpiUrl();
-            let intentUrl = '';
-            let appUrl = '';
-            
-            // Generate app-specific URLs with proper formatting
-            switch (selectedUpiApp) {
-              case 'gpay':
-                // Google Pay uses standard UPI URL for both intent and app schemes
-                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;S.browser_fallback_url=https%3A%2F%2Fpay.google.com;end`;
-                appUrl = buildUpiUrl('tez://upi/pay'); // Google Pay's UPI scheme
-                break;
-              case 'phonepe':
-                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.phonepe.app;S.browser_fallback_url=https%3A%2F%2Fwww.phonepe.com;end`;
-                appUrl = buildUpiUrl('phonepe://upi/pay'); // PhonePe's UPI scheme
-                break;
-              case 'paytm':
-                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=net.one97.paytm;S.browser_fallback_url=https%3A%2F%2Fpaytm.com;end`;
-                appUrl = buildUpiUrl('paytmmp://upi/pay'); // Paytm's UPI scheme
-                break;
-              case 'cred':
-                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=com.dreamplug.androidapp;S.browser_fallback_url=https%3A%2F%2Fcred.club;end`;
-                appUrl = upiUrl; // CRED uses standard UPI URL
-                break;
-              case 'amazonpay':
-                intentUrl = `intent://pay?${new URLSearchParams(baseUpiParams).toString()}#Intent;scheme=upi;package=in.amazon.mShop.android.shopping;S.browser_fallback_url=https%3A%2F%2Fwww.amazon.in;end`;
-                appUrl = upiUrl; // Amazon Pay uses standard UPI URL
-                break;
-              default:
-                intentUrl = upiUrl;
-                appUrl = upiUrl;
-            }
-            
-            console.log('[CHECKOUT FORM] Payment Details:');
-            console.log('- Amount:', amount);
-            console.log('- Merchant VPA:', UPI_CONFIG.merchantVPA);
-            console.log('- Transaction ID:', transactionId);
-            console.log('- Selected UPI App:', selectedUpiApp);
-            console.log('- Generated UPI URL:', upiUrl);
-            console.log('- Generated Intent URL:', intentUrl);
-            console.log('- Generated App URL:', appUrl);
-            
-            // Validate URLs
-            if (!UPI_CONFIG.merchantVPA.includes('@') || !UPI_CONFIG.merchantVPA.includes('.')) {
-              console.warn('[CHECKOUT FORM] Warning: Invalid merchant UPI ID format');
-            }
-            
-            if (amount <= 0) {
-              console.error('[CHECKOUT FORM] Error: Invalid amount');
-              throw new Error('Invalid payment amount');
-            }
-            
-            console.log('[CHECKOUT FORM] Attempting to open UPI app:', selectedUpiApp);
-            
-            // Function to attempt opening UPI app with fallbacks
-            const openUpiApp = () => {
-              return new Promise((resolve) => {
-                let attempts = 0;
-                const maxAttempts = 3;
-                
-                const tryOpenApp = () => {
-                  attempts++;
-                  
-                  try {
-                    if (navigator.userAgent.match(/Android/i)) {
-                      // Android: Try multiple approaches
-                      if (attempts === 1 && appUrl !== upiUrl) {
-                        // First try: App-specific scheme
-                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using app-specific URL`);
-                        window.location.href = appUrl;
-                      } else if (attempts === 2) {
-                        // Second try: Intent URL with package specification
-                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using intent URL`);
-                        window.location.href = intentUrl;
-                      } else {
-                        // Third try: Generic UPI URL
-                        console.log(`[CHECKOUT FORM] Android attempt ${attempts}: Using generic UPI URL`);
-                        window.location.href = upiUrl;
-                      }
-                    } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
-                      // iOS: Try app-specific URL first, then generic
-                      if (attempts === 1 && appUrl !== upiUrl) {
-                        console.log(`[CHECKOUT FORM] iOS attempt ${attempts}: Using app-specific URL`);
-                        window.location.href = appUrl;
-                      } else {
-                        console.log(`[CHECKOUT FORM] iOS attempt ${attempts}: Using generic UPI URL`);
-                        window.location.href = upiUrl;
-                      }
-                    } else {
-                      // Desktop: Log for now, could show QR code in future
-                      console.log('[CHECKOUT FORM] Desktop detected - UPI intent not applicable');
-                      return resolve();
-                    }
-                    
-                    // Set a timeout to try next method if current one fails
-                    if (attempts < maxAttempts) {
-                      setTimeout(() => {
-                        tryOpenApp();
-                      }, 1000);
-                    } else {
-                      resolve();
-                    }
-                  } catch (error) {
-                    console.log(`[CHECKOUT FORM] Attempt ${attempts} failed:`, error.message);
-                    if (attempts < maxAttempts) {
-                      tryOpenApp();
-                    } else {
-                      resolve();
-                    }
-                  }
-                };
-                
-                tryOpenApp();
-              });
-            };
-            
-            // Execute the UPI app opening
-            await openUpiApp();
-            
-          } catch (upiError) {
-            console.log('[CHECKOUT FORM] UPI intent creation failed:', upiError.message);
-            // Continue with polling anyway
-          }
+    // Create Cashfree payment session FIRST (before creating order)
+    try {
+      setPaymentError('');
+      setPaymentInProgress(true);
+      const totalAmount = cartTotal + calculateTax(cartTotal);
+      
+      // Step 1: Create Cashfree payment session
+      console.log('[CHECKOUT FORM] Creating Cashfree payment session...');
+      const rawId = `${effectiveCustomerInfo.email || effectiveCustomerInfo.phone || 'guest'}_${Date.now()}`;
+      const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      
+      const cfResp = await api.public.payments.cashfree.createOrder({
+        amount: Number(totalAmount.toFixed(2)),
+        currency: 'INR',
+        customer: {
+          name: effectiveCustomerInfo.name,
+          email: effectiveCustomerInfo.email || 'guest@example.com',
+          phone: effectiveCustomerInfo.phone || '9999999999',
+          id: safeId
+        },
+        orderMeta: {
+          return_url: `${window.location.origin}/?payment_return=true&order_id={order_id}`,
+          notify_url: `${import.meta.env.VITE_API_URL}/api/payments/cashfree/webhook`,
+          payment_methods: 'upi'
         }
-        // From here, processing overlay will continue polling and place the order when verified
-      } catch (err) {
-        console.error('[CHECKOUT FORM] UPI payment init error:', err);
-        setPaymentError(err?.message || 'Failed to start payment');
-        setIsSubmitting(false);
-        setPaymentInProgress(false);
-        return;
-      } finally {
-        setPaymentInProgress(false);
+      });
+
+      const sessionId = cfResp?.data?.payment_session_id;
+      const cfOrderId = cfResp?.data?.order_id;
+      
+      if (!sessionId) {
+        throw new Error('Payment session not created');
       }
+
+      console.log('[CHECKOUT FORM] Cashfree session created:', cfOrderId);
+
+      // Store order details for creating order after payment
+      setCurrentOrder({
+        cfOrderId,
+        sessionId,
+        amount: totalAmount,
+        orderData: {
+          customerInfo: effectiveCustomerInfo,
+          orderType,
+          note: orderNote,
+          paymentMethod: 'upi',
+          cfOrderId: cfOrderId
+        }
+      });
+      setOrderCreationAttempted(false); // Not created yet
+      setLastPaymentAmount(totalAmount);
+      setPaymentStatus('pending');
+
+      // Step 2: Launch Cashfree SDK payment
+      console.log('[CHECKOUT FORM] Checking for Cashfree SDK...');
+      console.log('[CHECKOUT FORM] window.Cashfree exists:', !!window.Cashfree);
+      console.log('[CHECKOUT FORM] SDK type:', typeof window.Cashfree);
+      console.log('[CHECKOUT FORM] SDK constructor:', window.Cashfree?.name);
+      console.log('[CHECKOUT FORM] Session ID to use:', sessionId);
+      
+      if (window.Cashfree) {
+        console.log('[CHECKOUT FORM] ✅ SDK LOADED - Launching Cashfree Drop Checkout (v2)');
+        
+        try {
+          // Determine environment mode
+          const cfMode = (import.meta.env.VITE_CASHFREE_ENV || 'sandbox') === 'prod' ? 'production' : 'sandbox';
+          
+          console.log('[CHECKOUT FORM] Initializing Cashfree with mode:', cfMode);
+          
+          // Initialize Cashfree SDK v2 - Try with 'new' keyword
+          let cashfree;
+          try {
+            // Method 1: With 'new' keyword (for class-based SDK)
+            cashfree = new window.Cashfree({
+              mode: cfMode
+            });
+            console.log('[CHECKOUT FORM] Initialized with new keyword');
+          } catch (classError) {
+            console.log('[CHECKOUT FORM] Class initialization failed, trying direct call');
+            // Method 2: Direct function call
+            cashfree = window.Cashfree({
+              mode: cfMode
+            });
+            console.log('[CHECKOUT FORM] Initialized with direct call');
+          }
+
+          console.log('[CHECKOUT FORM] Cashfree instance created:', !!cashfree);
+          console.log('[CHECKOUT FORM] Session ID:', sessionId);
+
+          // Checkout configuration for v2 SDK
+          const checkoutOptions = {
+            paymentSessionId: sessionId,
+            redirectTarget: '_modal', // Force modal mode
+            appearance: {
+              primaryColor: theme.colors.primary,
+            }
+          };
+
+          console.log('[CHECKOUT FORM] Starting checkout with options:', checkoutOptions);
+
+          // Launch checkout modal
+          const result = await cashfree.checkout(checkoutOptions);
+
+          console.log('[CHECKOUT FORM] Cashfree checkout completed, result:', result);
+
+          // Handle the result
+          if (result && result.error) {
+            console.error('[CHECKOUT FORM] Payment error:', result.error);
+            setPaymentInProgress(false);
+            setIsSubmitting(false);
+            handlePaymentFailure(result.error.message || 'Payment failed');
+          } else if (result && result.paymentDetails) {
+            console.log('[CHECKOUT FORM] Payment successful:', result.paymentDetails);
+            // Verify and create order
+            setTimeout(() => checkPaymentStatus(), 1000);
+          } else {
+            // User closed modal without completing payment
+            console.log('[CHECKOUT FORM] Payment cancelled or closed by user');
+            setPaymentStatus('idle');
+            setPaymentInProgress(false);
+            setIsSubmitting(false);
+            setCurrentOrder(null);
+          }
+
+        } catch (sdkError) {
+          console.error('[CHECKOUT FORM] Cashfree SDK error:', sdkError);
+          console.error('[CHECKOUT FORM] Error details:', {
+            message: sdkError.message,
+            name: sdkError.name,
+            stack: sdkError.stack
+          });
+          setPaymentInProgress(false);
+          setIsSubmitting(false);
+          handlePaymentFailure('Payment modal failed. Please try again.');
+        }
+
+      } else {
+        // Fallback: SDK not loaded - show error instead of redirect
+        console.error('[CHECKOUT FORM] ❌ SDK NOT LOADED!');
+        console.error('[CHECKOUT FORM] window.Cashfree is:', window.Cashfree);
+        console.error('[CHECKOUT FORM] Possible reasons:');
+        console.error('  1. Script tag not loaded from CDN');
+        console.error('  2. Content Security Policy blocking script');
+        console.error('  3. Network error downloading SDK');
+        console.error('  4. Ad blocker blocking Cashfree domain');
+        
+        // Show error to user instead of redirect
+        handlePaymentFailure('Payment system not ready. Please refresh the page and try again.');
+        setPaymentStatus('idle');
+        return;
+        
+        /* Disabled redirect fallback - should use modal
+        const checkoutUrl = `https://${(import.meta.env.VITE_CASHFREE_ENV || 'sandbox') === 'prod' ? 'payments' : 'sandbox'}.cashfree.com/pay/${sessionId}`;
+        
+        // Store order data in sessionStorage for after return
+        sessionStorage.setItem('pendingOrderData', JSON.stringify({
+          customerInfo: effectiveCustomerInfo,
+          orderType,
+          note: orderNote,
+          paymentMethod: 'upi',
+          cfOrderId: cfOrderId,
+          amount: totalAmount
+        }));
+        
+        window.location.href = checkoutUrl;
+        */
+      }
+
+    } catch (err) {
+      console.error('[CHECKOUT FORM] Payment initialization error:', err);
+      setPaymentError(err?.message || 'Failed to start payment');
+      handlePaymentFailure(err?.message || 'Failed to start payment');
+      setIsSubmitting(false);
+      setPaymentInProgress(false);
+      return;
     }
     
     // Note: Success/error handling is done by the parent component (EnhancedCart)
     // We don't set success message here because we don't know if the API call succeeded yet
   };
+
+  // If order confirmation should be shown, render that instead of checkout form
+  if (showOrderConfirmation && confirmedOrder) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4 }}
+        style={{
+          padding: theme.spacing.xl,
+          textAlign: 'center',
+          maxWidth: '600px',
+          margin: '0 auto'
+        }}
+      >
+        {/* Success Icon */}
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+          style={{
+            width: '100px',
+            height: '100px',
+            borderRadius: '50%',
+            backgroundColor: theme.colors.success + '15',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto ' + theme.spacing.xl,
+          }}
+        >
+          <span 
+            className="material-icons" 
+            style={{ 
+              fontSize: '60px', 
+              color: theme.colors.success 
+            }}
+          >
+            check_circle
+          </span>
+        </motion.div>
+
+        {/* Success Message */}
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          style={{
+            fontSize: '28px',
+            fontWeight: '700',
+            color: theme.colors.text,
+            marginBottom: theme.spacing.md,
+          }}
+        >
+          Payment Successful!
+        </motion.h2>
+
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          style={{
+            fontSize: '16px',
+            color: theme.colors.textLight,
+            marginBottom: theme.spacing.xl,
+            lineHeight: '1.6'
+          }}
+        >
+          Your order has been confirmed and is being prepared.
+        </motion.p>
+
+        {/* Order Details Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          style={{
+            backgroundColor: theme.colors.background,
+            borderRadius: theme.borderRadius.lg,
+            padding: theme.spacing.xl,
+            marginBottom: theme.spacing.xl,
+            border: `1px solid ${theme.colors.border}`,
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: theme.spacing.lg,
+            paddingBottom: theme.spacing.md,
+            borderBottom: `1px solid ${theme.colors.border}`
+          }}>
+            <div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                marginBottom: '4px'
+              }}>
+                Order ID
+              </div>
+              <div style={{ 
+                fontSize: '18px', 
+                fontWeight: '600',
+                color: theme.colors.text,
+                fontFamily: 'monospace'
+              }}>
+                {confirmedOrder.orderId || confirmedOrder.order_id}
+              </div>
+            </div>
+            <div style={{
+              padding: '8px 16px',
+              borderRadius: theme.borderRadius.md,
+              backgroundColor: orderType === 'dine-in' ? theme.colors.primary + '15' : theme.colors.warning + '15',
+              color: orderType === 'dine-in' ? theme.colors.primary : theme.colors.warning,
+              fontSize: '14px',
+              fontWeight: '600',
+              textTransform: 'capitalize'
+            }}>
+              <span className="material-icons" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '4px' }}>
+                {orderType === 'dine-in' ? 'restaurant' : 'takeout_dining'}
+              </span>
+              {orderType === 'dine-in' ? 'Dine In' : 'Takeaway'}
+            </div>
+          </div>
+
+          {/* Payment Info */}
+          <div style={{ marginBottom: theme.spacing.md }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              marginBottom: theme.spacing.sm,
+              fontSize: '14px'
+            }}>
+              <span style={{ color: theme.colors.textLight }}>Payment Method</span>
+              <span style={{ 
+                fontWeight: '600',
+                color: theme.colors.text,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <img src={upiLogo} alt="UPI" style={{ height: '16px' }} />
+                UPI
+              </span>
+            </div>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              fontSize: '14px'
+            }}>
+              <span style={{ color: theme.colors.textLight }}>Amount Paid</span>
+              <span style={{ fontWeight: '700', fontSize: '18px', color: theme.colors.success }}>
+                <CurrencyDisplay amount={confirmedOrder.total} />
+              </span>
+            </div>
+          </div>
+
+          {/* Expected Time (if dine-in) */}
+          {orderType === 'dine-in' && (
+            <div style={{
+              marginTop: theme.spacing.md,
+              padding: theme.spacing.md,
+              backgroundColor: theme.colors.primary + '08',
+              borderRadius: theme.borderRadius.md,
+              display: 'flex',
+              alignItems: 'center',
+              gap: theme.spacing.sm
+            }}>
+              <span className="material-icons" style={{ color: theme.colors.primary }}>schedule</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '12px', color: theme.colors.textLight }}>
+                  Estimated Preparation Time
+                </div>
+                <div style={{ fontSize: '16px', fontWeight: '600', color: theme.colors.primary }}>
+                  15-20 minutes
+                </div>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* What's Next Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          style={{
+            backgroundColor: theme.colors.background,
+            borderRadius: theme.borderRadius.lg,
+            padding: theme.spacing.lg,
+            marginBottom: theme.spacing.xl,
+            border: `1px solid ${theme.colors.border}`,
+            textAlign: 'left'
+          }}
+        >
+          <div style={{ 
+            fontSize: '16px', 
+            fontWeight: '600',
+            color: theme.colors.text,
+            marginBottom: theme.spacing.md,
+            display: 'flex',
+            alignItems: 'center',
+            gap: theme.spacing.sm
+          }}>
+            <span className="material-icons">info</span>
+            What's Next?
+          </div>
+          
+          {orderType === 'dine-in' ? (
+            <>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                marginBottom: theme.spacing.sm,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.primary }}>•</span>
+                <span>Your order is being prepared by our kitchen</span>
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                marginBottom: theme.spacing.sm,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.primary }}>•</span>
+                <span>Your food will be served to your table</span>
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.primary }}>•</span>
+                <span>Enjoy your meal!</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                marginBottom: theme.spacing.sm,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.warning }}>•</span>
+                <span>Your order is being prepared</span>
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                marginBottom: theme.spacing.sm,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.warning }}>•</span>
+                <span>Please wait at the counter</span>
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: theme.colors.textLight,
+                display: 'flex',
+                gap: theme.spacing.sm
+              }}>
+                <span style={{ color: theme.colors.warning }}>•</span>
+                <span>Show your order ID when collecting</span>
+              </div>
+            </>
+          )}
+        </motion.div>
+
+        {/* Action Buttons */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+          style={{
+            display: 'flex',
+            gap: theme.spacing.md,
+            flexDirection: window.innerWidth < 480 ? 'column' : 'row'
+          }}
+        >
+          <button
+            onClick={() => {
+              setShowOrderConfirmation(false);
+              setConfirmedOrder(null);
+              // Cart should already be cleared by the placeOrder function
+            }}
+            style={{
+              flex: 1,
+              padding: '16px 24px',
+              borderRadius: theme.borderRadius.md,
+              backgroundColor: theme.colors.primary,
+              color: 'white',
+              fontWeight: '600',
+              fontSize: '16px',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: theme.spacing.sm,
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => e.target.style.backgroundColor = theme.colors.primaryDark}
+            onMouseOut={(e) => e.target.style.backgroundColor = theme.colors.primary}
+          >
+            <span className="material-icons">home</span>
+            Continue Browsing
+          </button>
+          
+          <button
+            onClick={() => {
+              window.location.href = '/orders'; // Navigate to orders page if you have one
+            }}
+            style={{
+              flex: 1,
+              padding: '16px 24px',
+              borderRadius: theme.borderRadius.md,
+              backgroundColor: 'transparent',
+              color: theme.colors.primary,
+              fontWeight: '600',
+              fontSize: '16px',
+              border: `2px solid ${theme.colors.primary}`,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: theme.spacing.sm,
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.backgroundColor = theme.colors.primary + '10';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+            }}
+          >
+            <span className="material-icons">receipt_long</span>
+            View Order
+          </button>
+        </motion.div>
+
+        {/* Thank You Note */}
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          style={{
+            marginTop: theme.spacing.xl,
+            fontSize: '14px',
+            color: theme.colors.textLight,
+            fontStyle: 'italic'
+          }}
+        >
+          Thank you for your order! We hope you enjoy your meal. 🍽️
+        </motion.p>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -1776,11 +2037,10 @@ const CheckoutForm = memo(() => {
             <div>Selected UPI App: {selectedUpiApp}</div>
             <div>Total Amount: ₹{(cartTotal + calculateTax(cartTotal)).toFixed(2)}</div>
             <div>User Agent: {navigator.userAgent.includes('Android') ? 'Android' : navigator.userAgent.includes('iPhone') ? 'iOS' : 'Desktop'}</div>
-            <div>Merchant VPA: {UPI_CONFIG.merchantVPA}</div>
-            <div>Merchant Name: {UPI_CONFIG.merchantName}</div>
             <div>Payment Status: {paymentStatus || 'none'}</div>
             <div>Current Order ID: {currentOrder?.cfOrderId || 'none'}</div>
             <div>Retry Count: {paymentRetryCount}</div>
+            <div>Cashfree SDK: {window.Cashfree ? 'Loaded' : 'Not Loaded'}</div>
           </div>
         )}
         

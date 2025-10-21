@@ -15,6 +15,7 @@ import ServerStatusCheck from "./components/Utils/ServerStatusCheck";
 import SessionTimeoutManager from "./components/Utils/SessionTimeoutManager"; // Auto-logout after 1 hour of inactivity
 import CartAnimationEffect from "./components/ui/CartAnimationEffect";
 import NotificationToast from "./components/ui/NotificationToast";
+import PaymentReturn from "./components/payment/PaymentReturn"; // Handle Cashfree payment return
 import './App.css';
 
 // Bootstrap component to auto-consume magic token from URL and clean it up
@@ -118,6 +119,8 @@ const App = () => {
 												<ServerStatusCheck />
 												{/* Consume WhatsApp/direct magic token on load */}
 												<MagicTokenBootstrap />
+												{/* Handle Cashfree payment return */}
+												<PaymentReturn />
 												<ConnectionStatusModal />
 												<NetworkErrorHandler />
 												<SessionTimeoutManager />
