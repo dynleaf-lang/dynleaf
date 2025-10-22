@@ -10,6 +10,12 @@ import TaxInfo from './TaxInfo';
 import { useNotifications } from '../../context/NotificationContext';
 import api from '../../utils/apiClient';
 import { useRestaurant } from '../../context/RestaurantContext';
+import { useCashfreeSDK } from '../../hooks/useCashfreeSDK';
+import { PaymentService } from '../../services/PaymentService';
+import PaymentSDKLoader from './PaymentSDKLoader';
+import OrderSuccessModal from './OrderSuccessModal';
+import PaymentSuccessToast from './PaymentSuccessToast';
+import PaymentStatusTracker from './PaymentStatusTracker';
 import amazonLogo from '../../assets/Payments-Icons/Amazon-Pay-icon.png';
 import googlePay from '../../assets/Payments-Icons/google-pay.png';
 import phonePe from '../../assets/Payments-Icons/phonepe-icon.png';
@@ -41,6 +47,23 @@ const CheckoutForm = memo(() => {
   const { orderType } = useOrderType();
   const { branch } = useRestaurant();
   const { taxRate, taxName, formattedTaxRate, calculateTax } = useTax();
+  const { addNotification } = useNotifications();
+  
+  // Cashfree SDK management
+  const { 
+    sdkLoaded, 
+    sdkError, 
+    isLoading: sdkLoading, 
+    retryLoad, 
+    canRetry,
+    retryCount,
+    maxRetries,
+    initializeSDK,
+    getAnalytics: getSDKAnalytics
+  } = useCashfreeSDK();
+  
+  // Payment service instance
+  const [paymentService] = useState(() => new PaymentService());
   
   // Form state - only needed for non-authenticated users
   const [customerInfo, setCustomerInfo] = useState({
@@ -57,7 +80,7 @@ const CheckoutForm = memo(() => {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [registerClosed, setRegisterClosed] = useState(false);
-  const { addNotification } = useNotifications();
+  
   // Payment selection (UPI only) and app preference
   const [selectedUpiApp, setSelectedUpiApp] = useState('gpay'); // gpay | phonepe | paytm | other
   const [showUpiDropdown, setShowUpiDropdown] = useState(false);
@@ -76,6 +99,17 @@ const CheckoutForm = memo(() => {
   // Order confirmation state
   const [showOrderConfirmation, setShowOrderConfirmation] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
+  
+  // New professional UI state
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  
+  // Payment verification state
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [verificationProgress, setVerificationProgress] = useState(0);
+  const [verificationStep, setVerificationStep] = useState('');
+  const [verificationAttempts, setVerificationAttempts] = useState(0);
+  const maxVerificationAttempts = 6; // 30 seconds with 5-second intervals
   
   // Debug logging for UPI app selection
   useEffect(() => {
@@ -284,9 +318,12 @@ const CheckoutForm = memo(() => {
   // Handle successful payment
   const handlePaymentSuccess = async () => {
     console.log('[CHECKOUT FORM] Payment successful!');
+    
+    // Start the professional success flow
     setPaymentInProgress(false);
-    setShowPaymentStatusModal(true);
-    setPaymentStatus('pending');
+    setShowPaymentStatusModal(false); // Hide payment status modal
+    setShowSuccessToast(true); // Show success toast first
+    setPaymentStatus('success');
     setPaymentStatusMessage('Payment received. Finalizing your order...');
 
     if (orderCreationAttempted) {
@@ -300,12 +337,21 @@ const CheckoutForm = memo(() => {
 
     const cfOrderId = currentOrder?.cfOrderId;
     const orderData = currentOrder?.orderData;
+    const totalAmount = currentOrder?.amount || 0;
 
     if (!orderData) {
       console.error('[CHECKOUT FORM] No order data found in currentOrder');
       setPaymentStatus('error');
       setPaymentStatusMessage('Order data not found. Please contact support.');
       return;
+    }
+
+    // Try to get more payment information from Cashfree
+    console.log('[CHECKOUT FORM] Attempting to verify payment details...');
+    const verifiedPaymentId = await verifyPaymentStatus(cfOrderId);
+    
+    if (verifiedPaymentId) {
+      console.log('[CHECKOUT FORM] Successfully verified payment ID:', verifiedPaymentId);
     }
 
     try {
@@ -322,23 +368,34 @@ const CheckoutForm = memo(() => {
 
       console.log('[CHECKOUT FORM] Order created successfully:', createdOrder.orderId);
       
-      // Store confirmed order details
-      setConfirmedOrder({
+      // Store confirmed order details with all necessary info
+      const confirmedOrderData = {
         ...createdOrder,
+        orderId: createdOrder.orderId || createdOrder.order_id || cfOrderId,
+        order_id: createdOrder.orderId || createdOrder.order_id || cfOrderId,
         orderType,
         items: cartItems,
         total: totalAmount,
         paymentMethod: 'UPI',
-        cfOrderId
-      });
+        cfOrderId,
+        paymentId: currentOrder?.paymentId || `payment_${cfOrderId}_${Date.now()}`,
+        paymentReference: currentOrder?.paymentId || cfOrderId,
+        orderTime: new Date().toISOString(),
+        tax: calculateTax(cartTotal),
+        subtotal: cartTotal
+      };
       
+      setConfirmedOrder(confirmedOrderData);
       setPaymentStatus('success');
-      setPaymentStatusMessage('Payment successful! Your order has been placed.');
       setCurrentOrder(null);
       setIsSubmitting(false);
       setPaymentInProgress(false);
 
-      // Trigger success event
+      // Track successful payment in analytics
+      const analytics = paymentService.getAnalytics();
+      analytics.trackPaymentSuccess(createdOrder.orderId, totalAmount, Date.now() - paymentService.paymentStartTime);
+
+      // Trigger success event for parent components
       document.dispatchEvent(new CustomEvent('orderSuccess', { 
         detail: { 
           message: 'Order placed successfully!',
@@ -346,15 +403,11 @@ const CheckoutForm = memo(() => {
         }
       }));
 
-      // Close payment status modal and show order confirmation
+      // Professional success flow: Toast → Modal
       setTimeout(() => {
-        setShowPaymentStatusModal(false);
-        setShowOrderConfirmation(true); // Show professional confirmation screen
-        // Reset payment states but keep order confirmation visible
-        setPaymentStatus('idle');
-        setCurrentOrder(null);
-        setOrderCreationAttempted(false);
-      }, 1500);
+        setShowSuccessToast(false);
+        setShowSuccessModal(true);
+      }, 2500); // Show toast for 2.5 seconds, then show modal
 
     } catch (error) {
       console.error('[CHECKOUT FORM] Order creation after payment failed:', error);
@@ -364,6 +417,7 @@ const CheckoutForm = memo(() => {
       );
       setIsSubmitting(false);
       
+      // Show error notification
       try {
         addNotification?.({
           type: 'system',
@@ -373,6 +427,9 @@ const CheckoutForm = memo(() => {
           priority: 'high'
         });
       } catch (_) {}
+      
+      // Hide success toast and show error
+      setShowSuccessToast(false);
     }
   };
 
@@ -454,8 +511,177 @@ const CheckoutForm = memo(() => {
     setPaymentInProgress(false);
     setOrderCreationAttempted(false);
     
-    // Show UPI dropdown to let user select different app
+    // Reset payment service for new attempt
+    paymentService.resetRetries();
+    
+    // Show UPI dropdown to let user select different app preference
     setShowUpiDropdown(true);
+  };
+
+  // Handle success modal actions
+  const handleContinueShopping = () => {
+    setShowSuccessModal(false);
+    setConfirmedOrder(null);
+    setShowOrderConfirmation(false);
+    // Reset all payment states
+    setPaymentStatus('idle');
+    setCurrentOrder(null);
+    setOrderCreationAttempted(false);
+    setPaymentRetryCount(0);
+    // Cart should already be cleared by placeOrder function
+  };
+
+  const handleViewOrderHistory = () => {
+    // Navigate to orders page or open orders modal
+    if (window.location.pathname !== '/orders') {
+      window.location.href = '/orders';
+    } else {
+      // If already on orders page, just close the modal
+      handleContinueShopping();
+    }
+  };
+
+  const handleToastComplete = () => {
+    setShowSuccessToast(false);
+  };
+
+  const handlePaymentRetry = () => {
+    setPaymentRetryCount(prev => prev + 1);
+    setPaymentError('');
+    setShowPaymentStatusModal(false);
+    // Re-trigger payment process
+    handleSubmit(new Event('submit'));
+  };
+
+  // Enhanced verification process with progress tracking
+  const startVerificationProcess = async () => {
+    const startTime = Date.now();
+    let attempts = 0;
+    
+    const verificationSteps = [
+      'Confirming payment with bank...',
+      'Verifying transaction details...',
+      'Processing order confirmation...',
+      'Finalizing your order...'
+    ];
+    
+    const performVerification = async () => {
+      attempts++;
+      setVerificationAttempts(attempts);
+      
+      const stepIndex = Math.min(Math.floor((attempts - 1) / 2), verificationSteps.length - 1);
+      setVerificationStep(verificationSteps[stepIndex]);
+      setVerificationProgress((attempts / maxVerificationAttempts) * 100);
+      
+      console.log(`[CHECKOUT FORM] Verification attempt ${attempts}/${maxVerificationAttempts}`);
+      
+      try {
+        // Check payment status
+        const verified = await checkPaymentStatus();
+        
+        if (verified) {
+          setVerificationProgress(100);
+          setVerificationStep('Payment confirmed!');
+          setIsVerifyingPayment(false);
+          setShowPaymentStatusModal(false);
+          return true;
+        }
+        
+        // If not verified and we haven't reached max attempts, try again
+        if (attempts < maxVerificationAttempts) {
+          const timeElapsed = Date.now() - startTime;
+          const remainingTime = Math.max(30000 - timeElapsed, 0); // 30 seconds max
+          
+          if (remainingTime > 0) {
+            console.log(`[CHECKOUT FORM] Retrying verification in 5 seconds... (${attempts}/${maxVerificationAttempts})`);
+            setTimeout(performVerification, 5000);
+            return false;
+          }
+        }
+        
+        // Max attempts reached or timeout
+        console.log('[CHECKOUT FORM] Verification timeout or max attempts reached');
+        setIsVerifyingPayment(false);
+        setVerificationStep('Verification taking longer than expected...');
+        handleVerificationTimeout();
+        return false;
+        
+      } catch (error) {
+        console.error('[CHECKOUT FORM] Verification error:', error);
+        
+        if (attempts < maxVerificationAttempts) {
+          setTimeout(performVerification, 5000);
+          return false;
+        } else {
+          setIsVerifyingPayment(false);
+          handleVerificationTimeout();
+          return false;
+        }
+      }
+    };
+    
+    // Start the verification process
+    performVerification();
+  };
+
+  // Handle verification timeout
+  const handleVerificationTimeout = () => {
+    setPaymentStatus('pending_verification');
+    setPaymentStatusMessage(
+      'Payment received but verification is taking longer than expected. Your order is being processed and you will receive confirmation shortly.'
+    );
+    
+    // Show a helpful message to the user
+    try {
+      addNotification?.({
+        type: 'system',
+        title: 'Payment Being Verified',
+        message: 'Your payment was successful. We are confirming the details with your bank. You will receive order confirmation shortly.',
+        icon: 'hourglass_empty',
+        priority: 'medium',
+        duration: 10000
+      });
+    } catch (_) {}
+  };
+  const verifyPaymentStatus = async (cfOrderId) => {
+    try {
+      console.log('[CHECKOUT FORM] Verifying payment status for order:', cfOrderId);
+      
+      // Use existing getPayments endpoint to get payment details
+      const response = await api.public.payments.cashfree.getPayments(cfOrderId);
+      
+      console.log('[CHECKOUT FORM] Payment verification response:', response);
+      
+      if (response?.data && Array.isArray(response.data) && response.data.length > 0) {
+        const paymentData = response.data[0]; // Get the first (latest) payment
+        
+        // Extract payment ID from verification response
+        const verifiedPaymentId = paymentData.cf_payment_id || 
+                                 paymentData.payment_id || 
+                                 paymentData.txn_id ||
+                                 paymentData.transaction_id ||
+                                 paymentData.id;
+        
+        console.log('[CHECKOUT FORM] Verified payment ID:', verifiedPaymentId);
+        console.log('[CHECKOUT FORM] Payment data:', paymentData);
+        
+        if (verifiedPaymentId) {
+          // Update current order with verified payment ID
+          setCurrentOrder(prev => ({
+            ...prev,
+            paymentId: verifiedPaymentId,
+            verifiedPaymentData: paymentData
+          }));
+          
+          return verifiedPaymentId;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[CHECKOUT FORM] Payment verification failed:', error);
+      return null;
+    }
   };
   
   // UPI Apps Configuration
@@ -736,15 +962,26 @@ const CheckoutForm = memo(() => {
       const sessionId = cfResp?.data?.payment_session_id;
       const cfOrderId = cfResp?.data?.order_id;
       
+      console.log('[CHECKOUT FORM] Cashfree response:', cfResp?.data);
+      console.log('[CHECKOUT FORM] Extracted cfOrderId:', cfOrderId);
+      console.log('[CHECKOUT FORM] Extracted sessionId:', sessionId);
+      
       if (!sessionId) {
         throw new Error('Payment session not created');
       }
 
-      console.log('[CHECKOUT FORM] Cashfree session created:', cfOrderId);
+      if (!cfOrderId) {
+        console.warn('[CHECKOUT FORM] cfOrderId not found in response, this may cause issues');
+      }
+
+      // Generate a fallback order ID if cfOrderId is missing
+      const finalOrderId = cfOrderId || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      console.log('[CHECKOUT FORM] Using order ID:', finalOrderId);
 
       // Store order details for creating order after payment
       setCurrentOrder({
-        cfOrderId,
+        cfOrderId: finalOrderId,
         sessionId,
         amount: totalAmount,
         orderData: {
@@ -752,126 +989,71 @@ const CheckoutForm = memo(() => {
           orderType,
           note: orderNote,
           paymentMethod: 'upi',
-          cfOrderId: cfOrderId
+          cfOrderId: finalOrderId
         }
       });
       setOrderCreationAttempted(false); // Not created yet
       setLastPaymentAmount(totalAmount);
       setPaymentStatus('pending');
 
-      // Step 2: Launch Cashfree SDK payment
-      console.log('[CHECKOUT FORM] Checking for Cashfree SDK...');
-      console.log('[CHECKOUT FORM] window.Cashfree exists:', !!window.Cashfree);
-      console.log('[CHECKOUT FORM] SDK type:', typeof window.Cashfree);
-      console.log('[CHECKOUT FORM] SDK constructor:', window.Cashfree?.name);
-      console.log('[CHECKOUT FORM] Session ID to use:', sessionId);
+      // Step 2: Process payment using enhanced PaymentService
+      console.log('[CHECKOUT FORM] Processing payment with enhanced service...');
       
-      if (window.Cashfree) {
-        console.log('[CHECKOUT FORM] ✅ SDK LOADED - Launching Cashfree Drop Checkout (v2)');
-        
-        try {
-          // Determine environment mode
-          const cfMode = (import.meta.env.VITE_CASHFREE_ENV || 'sandbox') === 'prod' ? 'production' : 'sandbox';
-          
-          console.log('[CHECKOUT FORM] Initializing Cashfree with mode:', cfMode);
-          
-          // Initialize Cashfree SDK v2 - Try with 'new' keyword
-          let cashfree;
-          try {
-            // Method 1: With 'new' keyword (for class-based SDK)
-            cashfree = new window.Cashfree({
-              mode: cfMode
-            });
-            console.log('[CHECKOUT FORM] Initialized with new keyword');
-          } catch (classError) {
-            console.log('[CHECKOUT FORM] Class initialization failed, trying direct call');
-            // Method 2: Direct function call
-            cashfree = window.Cashfree({
-              mode: cfMode
-            });
-            console.log('[CHECKOUT FORM] Initialized with direct call');
+      // Reset payment service retry counter for new payment
+      paymentService.resetRetries();
+      
+      // Validate session data
+      paymentService.validateSessionData({ sessionId, amount: totalAmount, cfOrderId: finalOrderId });
+      
+      try {
+        const paymentResult = await paymentService.processPayment(
+          {
+            sessionId,
+            amount: totalAmount,
+            cfOrderId: finalOrderId
+          },
+          {
+            primaryColor: theme.colors.primary,
+            backgroundColor: '#ffffff',
+            theme: 'light'
           }
+        );
 
-          console.log('[CHECKOUT FORM] Cashfree instance created:', !!cashfree);
-          console.log('[CHECKOUT FORM] Session ID:', sessionId);
+        console.log('[CHECKOUT FORM] Payment processing completed:', paymentResult);
 
-          // Checkout configuration for v2 SDK
-          const checkoutOptions = {
-            paymentSessionId: sessionId,
-            redirectTarget: '_modal', // Force modal mode
-            appearance: {
-              primaryColor: theme.colors.primary,
-            }
-          };
-
-          console.log('[CHECKOUT FORM] Starting checkout with options:', checkoutOptions);
-
-          // Launch checkout modal
-          const result = await cashfree.checkout(checkoutOptions);
-
-          console.log('[CHECKOUT FORM] Cashfree checkout completed, result:', result);
-
-          // Handle the result
-          if (result && result.error) {
-            console.error('[CHECKOUT FORM] Payment error:', result.error);
-            setPaymentInProgress(false);
-            setIsSubmitting(false);
-            handlePaymentFailure(result.error.message || 'Payment failed');
-          } else if (result && result.paymentDetails) {
-            console.log('[CHECKOUT FORM] Payment successful:', result.paymentDetails);
-            // Verify and create order
-            setTimeout(() => checkPaymentStatus(), 1000);
-          } else {
-            // User closed modal without completing payment
-            console.log('[CHECKOUT FORM] Payment cancelled or closed by user');
-            setPaymentStatus('idle');
-            setPaymentInProgress(false);
-            setIsSubmitting(false);
-            setCurrentOrder(null);
+        if (paymentResult.success) {
+          console.log('[CHECKOUT FORM] Payment successful, starting verification...');
+          
+          // Store payment IDs if available
+          if (paymentResult.orderId || paymentResult.paymentId) {
+            setCurrentOrder(prev => ({
+              ...prev,
+              paymentId: paymentResult.paymentId,
+              orderId: paymentResult.orderId || paymentResult.cfOrderId
+            }));
           }
-
-        } catch (sdkError) {
-          console.error('[CHECKOUT FORM] Cashfree SDK error:', sdkError);
-          console.error('[CHECKOUT FORM] Error details:', {
-            message: sdkError.message,
-            name: sdkError.name,
-            stack: sdkError.stack
-          });
-          setPaymentInProgress(false);
-          setIsSubmitting(false);
-          handlePaymentFailure('Payment modal failed. Please try again.');
+          
+          // Start verification process with proper UI feedback
+          setIsVerifyingPayment(true);
+          setVerificationProgress(0);
+          setVerificationStep('Confirming payment with bank...');
+          setVerificationAttempts(0);
+          setPaymentStatus('verifying');
+          setShowPaymentStatusModal(true);
+          
+          // Start verification with progress tracking
+          setTimeout(() => startVerificationProcess(), 1000);
+        } else if (paymentResult.cancelled) {
+          console.log('[CHECKOUT FORM] Payment cancelled by user');
+          handlePaymentCancellation();
+        } else {
+          console.log('[CHECKOUT FORM] Payment failed:', paymentResult.message);
+          handlePaymentFailure(paymentResult.message || 'Payment failed');
         }
 
-      } else {
-        // Fallback: SDK not loaded - show error instead of redirect
-        console.error('[CHECKOUT FORM] ❌ SDK NOT LOADED!');
-        console.error('[CHECKOUT FORM] window.Cashfree is:', window.Cashfree);
-        console.error('[CHECKOUT FORM] Possible reasons:');
-        console.error('  1. Script tag not loaded from CDN');
-        console.error('  2. Content Security Policy blocking script');
-        console.error('  3. Network error downloading SDK');
-        console.error('  4. Ad blocker blocking Cashfree domain');
-        
-        // Show error to user instead of redirect
-        handlePaymentFailure('Payment system not ready. Please refresh the page and try again.');
-        setPaymentStatus('idle');
-        return;
-        
-        /* Disabled redirect fallback - should use modal
-        const checkoutUrl = `https://${(import.meta.env.VITE_CASHFREE_ENV || 'sandbox') === 'prod' ? 'payments' : 'sandbox'}.cashfree.com/pay/${sessionId}`;
-        
-        // Store order data in sessionStorage for after return
-        sessionStorage.setItem('pendingOrderData', JSON.stringify({
-          customerInfo: effectiveCustomerInfo,
-          orderType,
-          note: orderNote,
-          paymentMethod: 'upi',
-          cfOrderId: cfOrderId,
-          amount: totalAmount
-        }));
-        
-        window.location.href = checkoutUrl;
-        */
+      } catch (paymentError) {
+        console.error('[CHECKOUT FORM] Payment processing error:', paymentError);
+        handlePaymentFailure(paymentError.message || 'Payment processing failed');
       }
 
     } catch (err) {
@@ -888,377 +1070,36 @@ const CheckoutForm = memo(() => {
   };
 
   // If order confirmation should be shown, render that instead of checkout form
-  if (showOrderConfirmation && confirmedOrder) {
+  if (showSuccessModal && confirmedOrder) {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
-        style={{
-          padding: theme.spacing.xl,
-          textAlign: 'center',
-          maxWidth: '600px',
-          margin: '0 auto'
-        }}
-      >
-        {/* Success Icon */}
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-          style={{
-            width: '100px',
-            height: '100px',
-            borderRadius: '50%',
-            backgroundColor: theme.colors.success + '15',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto ' + theme.spacing.xl,
-          }}
-        >
-          <span 
-            className="material-icons" 
-            style={{ 
-              fontSize: '60px', 
-              color: theme.colors.success 
-            }}
-          >
-            check_circle
-          </span>
-        </motion.div>
-
-        {/* Success Message */}
-        <motion.h2
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          style={{
-            fontSize: '28px',
-            fontWeight: '700',
-            color: theme.colors.text,
-            marginBottom: theme.spacing.md,
-          }}
-        >
-          Payment Successful!
-        </motion.h2>
-
-        <motion.p
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          style={{
-            fontSize: '16px',
-            color: theme.colors.textLight,
-            marginBottom: theme.spacing.xl,
-            lineHeight: '1.6'
-          }}
-        >
-          Your order has been confirmed and is being prepared.
-        </motion.p>
-
-        {/* Order Details Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          style={{
-            backgroundColor: theme.colors.background,
-            borderRadius: theme.borderRadius.lg,
-            padding: theme.spacing.xl,
-            marginBottom: theme.spacing.xl,
-            border: `1px solid ${theme.colors.border}`,
-            textAlign: 'left'
-          }}
-        >
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: theme.spacing.lg,
-            paddingBottom: theme.spacing.md,
-            borderBottom: `1px solid ${theme.colors.border}`
-          }}>
-            <div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                marginBottom: '4px'
-              }}>
-                Order ID
-              </div>
-              <div style={{ 
-                fontSize: '18px', 
-                fontWeight: '600',
-                color: theme.colors.text,
-                fontFamily: 'monospace'
-              }}>
-                {confirmedOrder.orderId || confirmedOrder.order_id}
-              </div>
-            </div>
-            <div style={{
-              padding: '8px 16px',
-              borderRadius: theme.borderRadius.md,
-              backgroundColor: orderType === 'dine-in' ? theme.colors.primary + '15' : theme.colors.warning + '15',
-              color: orderType === 'dine-in' ? theme.colors.primary : theme.colors.warning,
-              fontSize: '14px',
-              fontWeight: '600',
-              textTransform: 'capitalize'
-            }}>
-              <span className="material-icons" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '4px' }}>
-                {orderType === 'dine-in' ? 'restaurant' : 'takeout_dining'}
-              </span>
-              {orderType === 'dine-in' ? 'Dine In' : 'Takeaway'}
-            </div>
-          </div>
-
-          {/* Payment Info */}
-          <div style={{ marginBottom: theme.spacing.md }}>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              marginBottom: theme.spacing.sm,
-              fontSize: '14px'
-            }}>
-              <span style={{ color: theme.colors.textLight }}>Payment Method</span>
-              <span style={{ 
-                fontWeight: '600',
-                color: theme.colors.text,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <img src={upiLogo} alt="UPI" style={{ height: '16px' }} />
-                UPI
-              </span>
-            </div>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              fontSize: '14px'
-            }}>
-              <span style={{ color: theme.colors.textLight }}>Amount Paid</span>
-              <span style={{ fontWeight: '700', fontSize: '18px', color: theme.colors.success }}>
-                <CurrencyDisplay amount={confirmedOrder.total} />
-              </span>
-            </div>
-          </div>
-
-          {/* Expected Time (if dine-in) */}
-          {orderType === 'dine-in' && (
-            <div style={{
-              marginTop: theme.spacing.md,
-              padding: theme.spacing.md,
-              backgroundColor: theme.colors.primary + '08',
-              borderRadius: theme.borderRadius.md,
-              display: 'flex',
-              alignItems: 'center',
-              gap: theme.spacing.sm
-            }}>
-              <span className="material-icons" style={{ color: theme.colors.primary }}>schedule</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '12px', color: theme.colors.textLight }}>
-                  Estimated Preparation Time
-                </div>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: theme.colors.primary }}>
-                  15-20 minutes
-                </div>
-              </div>
-            </div>
-          )}
-        </motion.div>
-
-        {/* What's Next Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          style={{
-            backgroundColor: theme.colors.background,
-            borderRadius: theme.borderRadius.lg,
-            padding: theme.spacing.lg,
-            marginBottom: theme.spacing.xl,
-            border: `1px solid ${theme.colors.border}`,
-            textAlign: 'left'
-          }}
-        >
-          <div style={{ 
-            fontSize: '16px', 
-            fontWeight: '600',
-            color: theme.colors.text,
-            marginBottom: theme.spacing.md,
-            display: 'flex',
-            alignItems: 'center',
-            gap: theme.spacing.sm
-          }}>
-            <span className="material-icons">info</span>
-            What's Next?
-          </div>
-          
-          {orderType === 'dine-in' ? (
-            <>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                marginBottom: theme.spacing.sm,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.primary }}>•</span>
-                <span>Your order is being prepared by our kitchen</span>
-              </div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                marginBottom: theme.spacing.sm,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.primary }}>•</span>
-                <span>Your food will be served to your table</span>
-              </div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.primary }}>•</span>
-                <span>Enjoy your meal!</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                marginBottom: theme.spacing.sm,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.warning }}>•</span>
-                <span>Your order is being prepared</span>
-              </div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                marginBottom: theme.spacing.sm,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.warning }}>•</span>
-                <span>Please wait at the counter</span>
-              </div>
-              <div style={{ 
-                fontSize: '14px', 
-                color: theme.colors.textLight,
-                display: 'flex',
-                gap: theme.spacing.sm
-              }}>
-                <span style={{ color: theme.colors.warning }}>•</span>
-                <span>Show your order ID when collecting</span>
-              </div>
-            </>
-          )}
-        </motion.div>
-
-        {/* Action Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          style={{
-            display: 'flex',
-            gap: theme.spacing.md,
-            flexDirection: window.innerWidth < 480 ? 'column' : 'row'
-          }}
-        >
-          <button
-            onClick={() => {
-              setShowOrderConfirmation(false);
-              setConfirmedOrder(null);
-              // Cart should already be cleared by the placeOrder function
-            }}
-            style={{
-              flex: 1,
-              padding: '16px 24px',
-              borderRadius: theme.borderRadius.md,
-              backgroundColor: theme.colors.primary,
-              color: 'white',
-              fontWeight: '600',
-              fontSize: '16px',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: theme.spacing.sm,
-              transition: 'all 0.2s ease'
-            }}
-            onMouseOver={(e) => e.target.style.backgroundColor = theme.colors.primaryDark}
-            onMouseOut={(e) => e.target.style.backgroundColor = theme.colors.primary}
-          >
-            <span className="material-icons">home</span>
-            Continue Browsing
-          </button>
-          
-          <button
-            onClick={() => {
-              window.location.href = '/orders'; // Navigate to orders page if you have one
-            }}
-            style={{
-              flex: 1,
-              padding: '16px 24px',
-              borderRadius: theme.borderRadius.md,
-              backgroundColor: 'transparent',
-              color: theme.colors.primary,
-              fontWeight: '600',
-              fontSize: '16px',
-              border: `2px solid ${theme.colors.primary}`,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: theme.spacing.sm,
-              transition: 'all 0.2s ease'
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = theme.colors.primary + '10';
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = 'transparent';
-            }}
-          >
-            <span className="material-icons">receipt_long</span>
-            View Order
-          </button>
-        </motion.div>
-
-        {/* Thank You Note */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          style={{
-            marginTop: theme.spacing.xl,
-            fontSize: '14px',
-            color: theme.colors.textLight,
-            fontStyle: 'italic'
-          }}
-        >
-          Thank you for your order! We hope you enjoy your meal. 🍽️
-        </motion.p>
-      </motion.div>
+      <>
+        <OrderSuccessModal
+          order={confirmedOrder}
+          orderType={orderType}
+          onClose={handleContinueShopping}
+          onContinueShopping={handleContinueShopping}
+          onViewOrderHistory={handleViewOrderHistory}
+        />
+      </>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
+    <PaymentSDKLoader
+      sdkLoaded={sdkLoaded}
+      sdkError={sdkError}
+      isLoading={sdkLoading}
+      retryLoad={retryLoad}
+      canRetry={canRetry}
+      retryCount={retryCount}
+      maxRetries={maxRetries}
     >
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.3 }}
+      >
       {/* Error message for overall form errors */}      {errorMessage && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -2290,6 +2131,11 @@ const CheckoutForm = memo(() => {
                       key={app.key}
                       onClick={() => {
                         console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
+                        
+                        // Track analytics for UPI app selection
+                        const analytics = paymentService.getAnalytics();
+                        analytics.trackUpiAppSelected(app.key, app.label);
+                        
                         setSelectedUpiApp(app.key);
                         setShowUpiDropdown(false);
                         
@@ -2468,7 +2314,35 @@ const CheckoutForm = memo(() => {
           </div>
          
       </form>
+
+      {/* Payment Success Toast */}
+      {showSuccessToast && confirmedOrder && (
+        <PaymentSuccessToast
+          orderId={confirmedOrder.orderId || confirmedOrder.order_id || confirmedOrder.cfOrderId || 'N/A'}
+          amount={confirmedOrder.total}
+          onComplete={() => {
+            setShowSuccessToast(false);
+            setShowSuccessModal(true);
+          }}
+        />
+      )}
+
+      {/* Payment Status Tracker */}
+      {showPaymentStatusModal && (
+        <PaymentStatusTracker
+          status={paymentStatus}
+          message={paymentStatusMessage}
+          show={showPaymentStatusModal}
+          onRetry={handlePaymentRetry}
+          onClose={() => setShowPaymentStatusModal(false)}
+          verificationProgress={verificationProgress}
+          verificationStep={verificationStep}
+          verificationAttempts={verificationAttempts}
+          maxVerificationAttempts={maxVerificationAttempts}
+        />
+      )}
     </motion.div>
+    </PaymentSDKLoader>
   );
 });
 
