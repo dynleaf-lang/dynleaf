@@ -882,7 +882,7 @@ const TableSelection = () => {
     }
   };
 
-  const handleTableSelect = (table) => {
+  const handleTableSelect = async (table) => {
     console.log('Table selected:', table.TableName || table.name, table);
     try {
       // Persist current selected table's cart before switching (write to both keys)
@@ -897,14 +897,81 @@ const TableSelection = () => {
       console.log('Calling selectTable function...');
       selectTable(table);
 
-      // Load the new table's persisted cart if present (support legacy key)
-      const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
-      const saved = carts[table._id] || (table.tableId ? carts[table.tableId] : undefined);
-      if (saved && Array.isArray(saved.items)) {
-        replaceCart(saved.items, saved.customerInfo || {});
-      } else {
-        // No saved cart -> start clean for this table (do not affect global if same table)
-        replaceCart([], { orderType: 'dine-in' });
+      // Check if table is occupied and try to load confirmed orders from backend
+      const isOccupied = table.status?.toLowerCase() === 'occupied' || table.isOccupied;
+      let cartLoaded = false;
+
+      if (isOccupied) {
+        try {
+          console.log('[TABLE SELECT] Table is occupied, fetching confirmed orders...');
+          const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+          const response = await axios.get(`${API_BASE_URL}/api/public/orders/table/${table._id}`);
+          const tableOrders = response.data || [];
+          
+          // Find confirmed/active orders for this table
+          const confirmedOrders = tableOrders.filter(order => {
+            const status = (order.status || '').toLowerCase();
+            return ['confirmed', 'pending', 'preparing', 'ready'].includes(status);
+          });
+
+          if (confirmedOrders.length > 0) {
+            console.log('[TABLE SELECT] Found confirmed orders:', confirmedOrders.length);
+            // Take the most recent confirmed order
+            const latestOrder = confirmedOrders.sort((a, b) => 
+              new Date(b.createdAt) - new Date(a.createdAt)
+            )[0];
+
+            // Load order items into cart
+            const orderItems = (latestOrder.items || []).map((item, idx) => ({
+              ...item,
+              cartItemId: `order_${latestOrder._id}_item_${idx}`,
+              menuItemId: item.menuItemId || item._id,
+              name: item.name,
+              price: Number(item.price) || 0,
+              quantity: Number(item.quantity) || 1,
+              customizations: item.customizations || {},
+              notes: item.notes || '',
+              subtotal: Number(item.subtotal) || (Number(item.price) * Number(item.quantity))
+            }));
+
+            replaceCart(orderItems, {
+              name: latestOrder.customerName || latestOrder.customerInfo?.name || '',
+              phone: latestOrder.customerPhone || latestOrder.customerInfo?.phone || '',
+              orderType: latestOrder.orderType || 'dine-in'
+            });
+
+            // Also save to localStorage for persistence
+            const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+            carts[table._id] = {
+              items: orderItems,
+              customerInfo: {
+                name: latestOrder.customerName || latestOrder.customerInfo?.name || '',
+                phone: latestOrder.customerPhone || latestOrder.customerInfo?.phone || '',
+                orderType: latestOrder.orderType || 'dine-in'
+              }
+            };
+            if (table.tableId) carts[table.tableId] = carts[table._id];
+            localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+
+            cartLoaded = true;
+            console.log('[TABLE SELECT] Cart loaded from confirmed order');
+          }
+        } catch (err) {
+          console.error('[TABLE SELECT] Error fetching table orders:', err);
+          // Continue with localStorage fallback
+        }
+      }
+
+      // If cart wasn't loaded from backend, try localStorage
+      if (!cartLoaded) {
+        const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+        const saved = carts[table._id] || (table.tableId ? carts[table.tableId] : undefined);
+        if (saved && Array.isArray(saved.items)) {
+          replaceCart(saved.items, saved.customerInfo || {});
+        } else {
+          // No saved cart -> start clean for this table
+          replaceCart([], { orderType: 'dine-in' });
+        }
       }
 
       toast.success(`Table ${table.TableName || table.name} selected`);

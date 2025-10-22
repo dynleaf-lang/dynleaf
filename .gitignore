@@ -7,8 +7,10 @@ npm-debug.log
 /dist
 package-lock.json
 .eslintcache
-/temp_backup
-
+/temp_backup 
+*.md 
+frontend/customer/.env 
+ 
 .github/copilot-instructions.md
 TABLE_STATUS_CONSISTENCY_SOLUTION.md
 TABLE_DOUBLE_COUNTING_FIX.md

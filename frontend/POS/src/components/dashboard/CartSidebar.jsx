@@ -40,7 +40,9 @@ import {
   FaMapMarkerAlt,
   FaStickyNote,
   FaPrint,
-  FaRedo
+  FaRedo,
+  FaBell,
+  FaCheck  
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
@@ -76,7 +78,7 @@ const CartSidebar = () => {
     replaceCart
   } = useCart();
   
-  const { selectedTable, updateTableStatus, restaurant, branch } = usePOS();
+  const { selectedTable, updateTableStatus, restaurant, branch, fetchTables } = usePOS();
   const { createOrder, updatePaymentStatus, getOrdersByTable } = useOrder();
   const { user } = useAuth();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
@@ -168,6 +170,10 @@ const CartSidebar = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [lastSavedOrder, setLastSavedOrder] = useState(null);
+  
+  // Customer order approval workflow
+  const [pendingCustomerOrders, setPendingCustomerOrders] = useState([]);
+  const [showApprovalNotification, setShowApprovalNotification] = useState(false);
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('pos_printer_config');
@@ -427,6 +433,129 @@ const CartSidebar = () => {
   const [showSavedOrders, setShowSavedOrders] = useState(false); 
   const [showCustomerModal, setShowCustomerModal] = useState(false);
 
+  // Handle customer order approval
+  const handleApproveOrder = async (order) => {
+    try {
+      console.log('[CART SIDEBAR] Approving customer order:', order._id);
+      
+      // Get table information
+      const orderTableId = typeof order.tableId === 'object' 
+        ? (order.tableId?._id || order.tableId?.tableId) 
+        : order.tableId;
+      
+      // 1. Update order status in backend to "confirmed" (emits socket events)
+      try {
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+        
+        // First, update status using the status endpoint (emits socket events)
+        await axios.patch(`${API_BASE_URL}/api/public/orders/${order._id}/status`, {
+          status: 'confirmed' // Mark as confirmed by POS staff
+        });
+        console.log('[CART SIDEBAR] Order status updated to confirmed (socket event emitted)');
+        
+        // Then, update cashier info and notes using the generic endpoint
+        await axios.patch(`${API_BASE_URL}/api/public/orders/${order._id}`, {
+          cashierId: user?._id,
+          cashierName: user?.name || user?.username,
+          notes: `Approved by ${user?.name || 'POS Staff'} at ${new Date().toLocaleTimeString()}`
+        });
+        console.log('[CART SIDEBAR] Cashier info and notes updated');
+      } catch (updateError) {
+        console.error('[CART SIDEBAR] Failed to update order:', updateError);
+        toast.error('Failed to update order status in system');
+        return; // Don't proceed if backend update fails
+      }
+      
+      // 2. Update table status to occupied with currentOrderId
+      if (orderTableId && updateTableStatus) {
+        console.log('[CART SIDEBAR] About to update table status. Table ID:', orderTableId, 'Order ID:', order._id);
+        await updateTableStatus(orderTableId, 'occupied', order);
+        console.log('[CART SIDEBAR] Table status update request completed');
+        
+        // Refresh tables to ensure UI shows updated status
+        if (fetchTables) {
+          try {
+            console.log('[CART SIDEBAR] Fetching updated tables from backend...');
+            await fetchTables();
+            console.log('[CART SIDEBAR] Tables refreshed successfully');
+          } catch (refreshError) {
+            console.error('[CART SIDEBAR] Failed to refresh tables:', refreshError);
+            // Don't fail approval if refresh fails
+          }
+        }
+      }
+      
+      // 3. Load order items into POS cart for this table
+      const orderItems = (order.items || []).map((item, idx) => ({
+        ...item,
+        cartItemId: `customer_order_${order._id}_item_${idx}`,
+        menuItemId: item.menuItemId || item._id,
+        name: item.name,
+        price: Number(item.price) || 0,
+        quantity: Number(item.quantity) || 1,
+        customizations: item.customizations || {},
+        notes: item.notes || '',
+        subtotal: Number(item.subtotal) || (Number(item.price) * Number(item.quantity))
+      }));
+      
+      // 4. If this is the currently selected table, replace cart
+      if (selectedTable?._id === orderTableId) {
+        replaceCart(orderItems, {
+          name: order.customerName || order.customerInfo?.name || '',
+          phone: order.customerPhone || order.customerInfo?.phone || '',
+          orderType: order.orderType || 'dine-in'
+        });
+        toast.success('Order approved and loaded into cart');
+      } else {
+        // Save to per-table cart in localStorage
+        try {
+          const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+          carts[orderTableId] = {
+            items: orderItems,
+            customerInfo: {
+              name: order.customerName || order.customerInfo?.name || '',
+              phone: order.customerPhone || order.customerInfo?.phone || '',
+              orderType: order.orderType || 'dine-in'
+            }
+          };
+          localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+          toast.success(`Order approved for Table ${order.tableNumber || ''}`);
+        } catch (err) {
+          console.error('Failed to save to table cart:', err);
+        }
+      }
+      
+      // 5. Remove from pending orders
+      setPendingCustomerOrders(prev => prev.filter(o => o._id !== order._id));
+      
+      // Close notification if no more pending orders
+      setPendingCustomerOrders(prev => {
+        if (prev.length === 0) {
+          setShowApprovalNotification(false);
+        }
+        return prev;
+      });
+      
+    } catch (error) {
+      console.error('[CART SIDEBAR] Error approving order:', error);
+      toast.error('Failed to approve order');
+    }
+  };
+  
+  const handleRejectOrder = (order) => {
+    // Remove from pending orders
+    setPendingCustomerOrders(prev => {
+      const filtered = prev.filter(o => o._id !== order._id);
+      if (filtered.length === 0) {
+        setShowApprovalNotification(false);
+      }
+      return filtered;
+    });
+    
+    const customerName = order.customerName || order.customerInfo?.name || 'Customer';
+    toast.info(`Order from ${customerName} was rejected`);
+  };
+
   // POS functionality state
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [orderStatus, setOrderStatus] = useState({
@@ -661,6 +790,65 @@ const CartSidebar = () => {
     setKotSent(false);
     setKotSentItems({}); // Clear KOT sent items when changing tables
   }, [selectedTable && selectedTable._id]);
+
+  // Listen for customer orders and show approval notification
+  useEffect(() => {
+    const handleCustomerOrder = (event) => {
+      try {
+        const order = event.detail?.order || event.detail;
+        if (!order) return;
+        
+        // ONLY handle orders placed by CUSTOMER (not POS staff)
+        const isCustomerOrder = !order.cashierId && !order.createdBy && !order.createdByName;
+        
+        if (!isCustomerOrder) {
+          console.log('[CART SIDEBAR] Order is from POS staff, skipping approval workflow');
+          return;
+        }
+        
+        console.log('[CART SIDEBAR] Customer order received:', {
+          orderId: order._id,
+          customerName: order.customerName || order.customerInfo?.name,
+          tableId: order.tableId
+        });
+        
+        // Add to pending orders for approval
+        setPendingCustomerOrders(prev => {
+          // Avoid duplicates
+          if (prev.some(o => o._id === order._id)) return prev;
+          return [...prev, order];
+        });
+        
+        // Show notification modal
+        setShowApprovalNotification(true);
+        
+        // Play sound notification
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(() => console.log('Sound notification not available'));
+        } catch (err) {
+          console.log('Audio notification error:', err);
+        }
+        
+        // Toast notification
+        const customerName = order.customerName || order.customerInfo?.name || 'A customer';
+        const tableNumber = order.tableNumber || 'Unknown';
+        toast.info(`${customerName} placed an order - Please approve`, {
+          duration: 8000,
+          icon: '🔔'
+        });
+        
+      } catch (error) {
+        console.error('[CART SIDEBAR] Error handling customer order:', error);
+      }
+    };
+
+    window.addEventListener('newOrder', handleCustomerOrder);
+    
+    return () => {
+      window.removeEventListener('newOrder', handleCustomerOrder);
+    };
+  }, []);
 
   // Persist current table's cart and customer info to localStorage whenever they change
   React.useEffect(() => {
@@ -2891,6 +3079,119 @@ const CartSidebar = () => {
           }}
         />
       )}
+
+      {/* Customer Order Approval Notification Modal */}
+      <Modal 
+        isOpen={showApprovalNotification && pendingCustomerOrders.length > 0} 
+        toggle={() => setShowApprovalNotification(false)}
+        size="lg"
+        centered
+      >
+        <ModalHeader toggle={() => setShowApprovalNotification(false)}>
+          <FaBell className="me-2" style={{ color: '#ff6b6b' }} />
+          Customer Order Approval
+        </ModalHeader>
+        <ModalBody>
+          <div className="mb-3">
+            <Alert color="info">
+              <strong>{pendingCustomerOrders.length}</strong> customer order(s) waiting for approval
+            </Alert>
+          </div>
+          
+          {pendingCustomerOrders.map((order, index) => {
+            const customerName = order.customerName || order.customerInfo?.name || 'Guest';
+            const tableNumber = order.tableNumber || 'Unknown';
+            const orderTotal = order.total || order.totalAmount || 0;
+            const itemCount = (order.items || []).length;
+            
+            return (
+              <Card key={order._id} className="mb-3" style={{ border: '2px solid #ffc107' }}>
+                <CardBody>
+                  <div className="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                      <h5 className="mb-1">
+                        <strong>{customerName}</strong> placed an order
+                      </h5>
+                      <div className="text-muted">
+                        <FaUtensils className="me-1" /> Table {tableNumber}
+                      </div>
+                    </div>
+                    <Badge color="warning" pill style={{ fontSize: '14px' }}>
+                      Pending
+                    </Badge>
+                  </div>
+                  
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Order ID:</span>
+                      <strong>{order.orderId || order._id?.slice(-8)}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Items:</span>
+                      <strong>{itemCount} item(s)</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Total:</span>
+                      <strong>{formatPrice(orderTotal)}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Payment:</span>
+                      <Badge color={order.paymentStatus === 'paid' ? 'success' : 'secondary'}>
+                        {order.paymentStatus || 'Pending'}
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  {/* Order Items Preview */}
+                  <div className="mb-3">
+                    <small className="text-muted">Order Items:</small>
+                    <ListGroup flush style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                      {(order.items || []).map((item, idx) => (
+                        <ListGroupItem key={idx} className="px-0 py-1">
+                          <div className="d-flex justify-content-between">
+                            <span className="small">
+                              {item.quantity}x {item.name}
+                            </span>
+                            <span className="small text-muted">
+                              {formatPrice(item.subtotal || (item.price * item.quantity))}
+                            </span>
+                          </div>
+                        </ListGroupItem>
+                      ))}
+                    </ListGroup>
+                  </div>
+                  
+                  <div className="d-flex gap-2">
+                    <Button
+                      color="success"
+                      onClick={() => handleApproveOrder(order)}
+                      className="flex-fill"
+                    >
+                      <FaCheck className="me-2" />
+                      Approve & Load to Cart
+                    </Button>
+                    <Button
+                      color="danger"
+                      outline
+                      onClick={() => handleRejectOrder(order)}
+                    >
+                      <FaTimes />
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            );
+          })}
+        </ModalBody>
+        <ModalFooter>
+          <small className="text-muted me-auto">
+            Approve orders to update table status and load items
+          </small>
+          <Button color="secondary" onClick={() => setShowApprovalNotification(false)}>
+            Close
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 };

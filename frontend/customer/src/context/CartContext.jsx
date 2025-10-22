@@ -400,8 +400,10 @@ export const CartProvider = ({ children }) => {
 
   // Clear cart
   const clearCart = () => {
+    console.log('[CART CONTEXT] Clearing cart - items before:', cartItems.length);
     setCartItems([]);
     localStorage.removeItem('cart');
+    console.log('[CART CONTEXT] Cart cleared successfully');
     // Note: We don't reset cartLoaded here because the cart is still "loaded", just empty
   };
   // Submit order using the real API

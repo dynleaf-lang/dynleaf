@@ -40,17 +40,37 @@ export const POSProvider = ({ children }) => {
         const d = e.detail || {};
         const tid = d.tableId;
         if (!tid) return;
+        
+        console.log('[POS CONTEXT] Received table status update:', {
+          tableId: tid,
+          status: d.status,
+          currentOrderId: d.currentOrderId,
+          source: d.source
+        });
+        
         setTables((prev) =>
           Array.isArray(prev)
-            ? prev.map((t) =>
-                (t?._id === tid || t?.tableId === tid)
-                  ? { ...t, status: d.status || t.status, currentOrderId: d.currentOrderId ?? t.currentOrderId, isOccupied: (d.status || '').toLowerCase() === 'occupied' }
-                  : t
-              )
+            ? prev.map((t) => {
+                if (t?._id === tid || t?.tableId === tid) {
+                  const newStatus = d.status || t.status;
+                  console.log(`[POS CONTEXT] Updating table ${t.tableNumber} from ${t.status} to ${newStatus}`);
+                  return {
+                    ...t,
+                    status: newStatus,
+                    currentOrderId: d.currentOrderId ?? t.currentOrderId,
+                    currentOrder: d.currentOrderId ?? t.currentOrder,
+                    isOccupied: newStatus.toLowerCase() === 'occupied'
+                  };
+                }
+                return t;
+              })
             : prev
         );
-      } catch (_) {}
+      } catch (err) {
+        console.error('[POS CONTEXT] Error handling table status update:', err);
+      }
     };
+    
     window.addEventListener('tableStatusUpdate', onTableStatus);
     return () => window.removeEventListener('tableStatusUpdate', onTableStatus);
   }, []);
@@ -59,7 +79,16 @@ export const POSProvider = ({ children }) => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_BASE_URL}/public/tables/branch/${user.branchId}`);
-      setTables(response.data.tables || []);
+      const fetchedTables = response.data.tables || [];
+      console.log('[POS CONTEXT] Fetched tables:', fetchedTables.map(t => ({ 
+        id: t._id, 
+        name: t.TableName || t.name,
+        status: t.status, 
+        isOccupied: t.isOccupied,
+        currentOrder: t.currentOrder,
+        currentOrderId: t.currentOrderId 
+      })));
+      setTables(fetchedTables);
     } catch (error) {
       console.error('Error fetching tables:', error);
       setError('Failed to fetch tables');
@@ -279,16 +308,35 @@ export const POSProvider = ({ children }) => {
         updateData.currentOrderId = orderData._id;
       }
 
+      console.log('[POS CONTEXT] Updating table status:', {
+        tableId,
+        status: updateData.status,
+        currentOrderId: updateData.currentOrderId,
+        endpoint: `${API_BASE_URL}/public/tables/${tableId}/status`
+      });
+
       const response = await axios.patch(`${API_BASE_URL}/public/tables/${tableId}/status`, updateData);
       
-      // Update local state
-      setTables(prevTables => 
-        prevTables.map(table => 
+      console.log('[POS CONTEXT] Backend response:', response.data);
+      
+      // Update local state with complete status information
+      setTables(prevTables => {
+        const updated = prevTables.map(table => 
           table._id === tableId 
-            ? { ...table, status: updateData.status, currentOrderId: updateData.currentOrderId }
+            ? { 
+                ...table, 
+                status: updateData.status, 
+                currentOrder: updateData.currentOrderId,  // Table model uses 'currentOrder'
+                currentOrderId: updateData.currentOrderId, // Keep for compatibility with existing code
+                isOccupied: updateData.status === 'occupied'
+              }
             : table
-        )
-      );
+        );
+        console.log('[POS CONTEXT] Updated local tables state. Updated table:', 
+          updated.find(t => t._id === tableId)
+        );
+        return updated;
+      });
 
       return response.data;
     } catch (error) {
