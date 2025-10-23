@@ -109,18 +109,19 @@ const CheckoutForm = memo(() => {
   const [verificationProgress, setVerificationProgress] = useState(0);
   const [verificationStep, setVerificationStep] = useState('');
   const [verificationAttempts, setVerificationAttempts] = useState(0);
-  const maxVerificationAttempts = 6; // 30 seconds with 5-second intervals
+  const maxVerificationAttempts = 4; // Reduced from 6 to 4 for faster timeout
   
   // Debug logging for UPI app selection
   useEffect(() => {
     console.log('[CHECKOUT FORM] Selected UPI App changed to:', selectedUpiApp);
   }, [selectedUpiApp]);
 
-  // Handle user returning from UPI app (visibility change detection)
+  // Handle user returning from UPI app (optimized visibility change detection)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && paymentInProgress && currentOrder) {
-        console.log('[CHECKOUT FORM] User returned from UPI app, checking payment status...');
+        console.log('[CHECKOUT FORM] User returned from UPI app, checking payment status immediately...');
+        // Check immediately instead of waiting
         checkPaymentStatus();
       }
     };
@@ -128,7 +129,8 @@ const CheckoutForm = memo(() => {
     const handleFocus = () => {
       if (paymentInProgress && currentOrder) {
         console.log('[CHECKOUT FORM] Window focused, user likely returned from UPI app');
-        setTimeout(() => checkPaymentStatus(), 1000); // Small delay to allow payment processing
+        // Reduced delay for faster response
+        setTimeout(() => checkPaymentStatus(), 500); // Reduced from 1000ms
       }
     };
 
@@ -258,14 +260,14 @@ const CheckoutForm = memo(() => {
     return () => { cancelled = true; clearInterval(t); };
   }, [registerClosed, branch?._id]);
 
-  // Payment status checking function
+  // Payment status checking function - optimized for faster response
   const checkPaymentStatus = async () => {
     if (!currentOrder?.cfOrderId) return;
 
     try {
       console.log('[CHECKOUT FORM] Checking payment status for order:', currentOrder.cfOrderId);
       
-      // Call backend to check payment status using existing API method
+      // Quick order status check first (usually faster than detailed payment info)
       const response = await api.public.payments.cashfree.getOrder(currentOrder.cfOrderId);
       
       // Response structure: { success: true, data: { order_status, payment_status, ... } }
@@ -273,6 +275,13 @@ const CheckoutForm = memo(() => {
       const { order_status, payment_status } = orderData;
       
       console.log('[CHECKOUT FORM] Payment status response:', { order_status, payment_status, fullResponse: orderData });
+
+      // Prioritize order_status check for faster confirmation
+      if (order_status === 'PAID') {
+        console.log('[CHECKOUT FORM] Payment confirmed via order status check');
+        handlePaymentSuccess();
+        return;
+      }
 
       // Handle different payment statuses
       switch (payment_status) {
@@ -292,25 +301,23 @@ const CheckoutForm = memo(() => {
           handlePaymentPending();
           break;
         default:
-          // Check if order status indicates completion
-          if (order_status === 'PAID') {
-            handlePaymentSuccess();
-          } else if (order_status === 'CANCELLED' || order_status === 'TERMINATED') {
+          // Check if order status indicates failure
+          if (order_status === 'CANCELLED' || order_status === 'TERMINATED') {
             handlePaymentFailure('Payment was not completed.');
           } else {
-            // If status is unclear, wait a bit more then check again
-            console.log('[CHECKOUT FORM] Payment status unclear, will retry...', { order_status, payment_status });
-            setTimeout(() => checkPaymentStatus(), 3000);
+            // If status is unclear, wait less time then check again (faster retry)
+            console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status });
+            setTimeout(() => checkPaymentStatus(), 2000); // Reduced from 3000ms
           }
       }
     } catch (error) {
       console.error('[CHECKOUT FORM] Error checking payment status:', error);
-      // If we can't check status, assume payment failed after some retries
-      if (paymentRetryCount >= 3) {
+      // If we can't check status, assume payment failed after fewer retries (faster fail)
+      if (paymentRetryCount >= 2) { // Reduced from 3 to 2
         handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
       } else {
-        // Retry after a delay
-        setTimeout(() => checkPaymentStatus(), 2000);
+        // Retry after shorter delay
+        setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
       }
     }
   };
@@ -468,19 +475,19 @@ const CheckoutForm = memo(() => {
       setShowPaymentStatusModal(true);
     }
     
-    // Continue checking status, but with timeout
+    // Continue checking status, but with faster timeout
     setTimeout(() => {
       if (paymentStatus === 'pending') {
         checkPaymentStatus();
       }
-    }, 5000);
+    }, 3000); // Reduced from 5000ms to 3000ms
     
-    // Auto-timeout after 2 minutes of pending status
+    // Auto-timeout after 30 seconds instead of 2 minutes
     setTimeout(() => {
       if (paymentStatus === 'pending') {
-        handlePaymentFailure('Payment verification timed out. Please check your bank statement and contact support if amount was deducted.');
+        handlePaymentFailure('Payment verification timed out after 30 seconds. Please check your bank statement and contact support if amount was deducted.');
       }
-    }, 120000);
+    }, 30000); // Reduced from 120000ms to 30000ms
   };
 
   // Retry payment function
@@ -587,14 +594,14 @@ const CheckoutForm = memo(() => {
           return true;
         }
         
-        // If not verified and we haven't reached max attempts, try again
+        // If not verified and we haven't reached max attempts, try again with shorter intervals
         if (attempts < maxVerificationAttempts) {
           const timeElapsed = Date.now() - startTime;
-          const remainingTime = Math.max(30000 - timeElapsed, 0); // 30 seconds max
+          const remainingTime = Math.max(20000 - timeElapsed, 0); // Reduced from 30s to 20s max
           
           if (remainingTime > 0) {
-            console.log(`[CHECKOUT FORM] Retrying verification in 5 seconds... (${attempts}/${maxVerificationAttempts})`);
-            setTimeout(performVerification, 5000);
+            console.log(`[CHECKOUT FORM] Retrying verification in 3 seconds... (${attempts}/${maxVerificationAttempts})`);
+            setTimeout(performVerification, 3000); // Reduced from 5000ms to 3000ms
             return false;
           }
         }
@@ -610,7 +617,7 @@ const CheckoutForm = memo(() => {
         console.error('[CHECKOUT FORM] Verification error:', error);
         
         if (attempts < maxVerificationAttempts) {
-          setTimeout(performVerification, 5000);
+          setTimeout(performVerification, 3000); // Reduced from 5000ms
           return false;
         } else {
           setIsVerifyingPayment(false);

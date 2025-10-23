@@ -1166,26 +1166,42 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         // Ensure we're on checkout step while verifying
         setCheckoutStep('checkout');
 
-        // Poll Cashfree for payment success up to ~60s
+        // Optimized polling: Aggressive start, then exponential backoff (max 30s instead of 60s)
         let paid = false;
-        for (let i = 0; i < 12; i++) {
-          await new Promise(r => setTimeout(r, 5000));
+        const pollIntervals = [1000, 2000, 3000, 5000, 8000, 10000]; // 1s, 2s, 3s, 5s, 8s, 10s = ~30s total
+        
+        for (let i = 0; i < pollIntervals.length; i++) {
+          await new Promise(r => setTimeout(r, pollIntervals[i]));
+          
           try {
+            // Quick order status check first (faster than payment details)
+            const orderStatus = await api.public.payments.cashfree.getOrder(cfOrderId);
+            if (orderStatus?.data?.order_status === 'PAID') {
+              paid = true;
+              console.log('[ENHANCED CART] Payment confirmed via order status');
+              break;
+            }
+            
+            // If order status unclear, check payment details
             const payList = await api.public.payments.cashfree.getPayments(cfOrderId);
             const arr = payList?.data || [];
             const success = arr.find(p => (p.payment_status || '').toLowerCase() === 'success');
-            if (success) { paid = true; break; }
+            if (success) { 
+              paid = true; 
+              console.log('[ENHANCED CART] Payment confirmed via payment details');
+              break; 
+            }
           } catch (err) {
             // Continue polling on transient errors
-            console.warn('[ENHANCED CART] Payment poll error:', err?.message || err);
+            console.warn(`[ENHANCED CART] Payment poll attempt ${i + 1} failed:`, err?.message || err);
           }
         }
 
         if (!paid) {
           setIsPaymentProcessing(false);
           setIsLoading(false);
-          setError('Payment not confirmed yet. If the amount was debited, please wait or contact support.');
-          setTimeout(() => setError(null), 5000);
+          setError('Payment verification timed out after 30 seconds. If amount was debited, please wait or contact support.');
+          setTimeout(() => setError(null), 8000); // Show error longer since it's more serious
           return;
         }
 
