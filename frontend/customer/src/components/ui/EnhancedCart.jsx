@@ -84,7 +84,7 @@ const StepsIndicator = memo(({ checkoutStep = 'cart' }) => {
   
   // Helper function to determine step status
   const getStepStatus = (stepId) => {
-    const stepOrder = { cart: 1, checkout: 2, confirmation: 3 };
+    const stepOrder = { cart: 1, checkout: 2, success: 3, confirmation: 4 };
     const currentStepOrder = stepOrder[checkoutStep];
     const thisStepOrder = stepOrder[stepId];
     
@@ -807,9 +807,9 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         setOrderPlaced(false); // Reset order placed state
         setCurrentOrder(null); // Clear any stale order data
       }
-      // If order has been placed and we have a current order, show confirmation
+      // If order has been placed and we have a current order, show success first
       else if (orderPlaced && currentOrder) {
-        setCheckoutStep('confirmation');
+        setCheckoutStep('success');
       } 
       // Otherwise start at cart
       else {
@@ -942,7 +942,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             
             // Delay to show loading state and make transition smoother
             setTimeout(() => {
-              setCheckoutStep('confirmation');
+              setCheckoutStep('success'); // Show success modal first
               setIsLoading(false);
             }, 1000);
           } else if (orderResponse === null) {
@@ -1372,12 +1372,13 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                 }}>
                   {checkoutStep === 'cart' && 'Your Cart'}
                   {checkoutStep === 'checkout' && (isPaymentProcessing ? 'Payment Processing' : 'Checkout')}
+                  {checkoutStep === 'success' && 'Payment Successful!'}
                   {checkoutStep === 'confirmation' && 'Order Confirmation'}
                 </h2>
               </div>
               
               {/* Enhanced close button with hover effects */}
-              {checkoutStep !== 'confirmation' && (
+              {checkoutStep !== 'confirmation' && checkoutStep !== 'success' && (
                 <button
                   onClick={onClose}
                   aria-label="Close cart"
@@ -1707,6 +1708,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                 {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty-cart-enhanced" />}
                 {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart-content-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
                 {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout-form-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'success' && <CheckoutForm key="success-modal-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
                 {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
               </AnimatePresence>
             </div>

@@ -15,6 +15,7 @@ import { useCashfreeSDK } from '../../hooks/useCashfreeSDK';
 import { PaymentService } from '../../services/PaymentService';
 import PaymentSDKLoader from './PaymentSDKLoader';
 import OrderSuccessModal from './OrderSuccessModal';
+import OrderConfirmation from './OrderConfirmation';
 import PaymentSuccessToast from './PaymentSuccessToast';
 import PaymentStatusTracker from './PaymentStatusTracker';
 import amazonLogo from '../../assets/Payments-Icons/Amazon-Pay-icon.png';
@@ -41,9 +42,9 @@ if (typeof document !== 'undefined' && !document.querySelector('#payment-spinner
 }
 
 // Enhanced CheckoutForm component with better validation and user feedback
-const CheckoutForm = memo(() => {
+const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
-  const { cartItems, cartTotal, orderNote, setOrderNote, placeOrder } = useCart();
+  const { cartItems, cartTotal, orderNote, setOrderNote, placeOrder, currentOrder: cartCurrentOrder, setCurrentOrder: setCartCurrentOrder } = useCart();
   const { isAuthenticated, user } = useAuth();
   const { orderType } = useOrderType();
   const { branch } = useRestaurant();
@@ -504,6 +505,7 @@ const CheckoutForm = memo(() => {
       };
       
       setConfirmedOrder(confirmedOrderData);
+      setCartCurrentOrder(confirmedOrderData); // Update cart context as well
       setPaymentStatus('success');
       setCurrentOrder(null);
       setIsSubmitting(false);
@@ -524,6 +526,8 @@ const CheckoutForm = memo(() => {
       // Professional success flow: Toast → Modal
       setTimeout(() => {
         setShowSuccessToast(false);
+        console.log('[CHECKOUT FORM] Setting showSuccessModal to true');
+        console.log('[CHECKOUT FORM] confirmedOrderData:', confirmedOrderData);
         setShowSuccessModal(true);
       }, 2500); // Show toast for 2.5 seconds, then show modal
 
@@ -668,6 +672,16 @@ const CheckoutForm = memo(() => {
     } else {
       // If already on orders page, just close the modal
       handleContinueShopping();
+    }
+  };
+
+  const handleViewOrderConfirmation = () => {
+    console.log('[CHECKOUT FORM] Transitioning from Success Modal to Order Confirmation');
+    if (setCheckoutStep) {
+      setCheckoutStep('confirmation');
+    } else {
+      setShowSuccessModal(false);
+      setShowOrderConfirmation(true);
     }
   };
 
@@ -1301,18 +1315,44 @@ const CheckoutForm = memo(() => {
   };
 
   // If order confirmation should be shown, render that instead of checkout form
-  if (showSuccessModal && confirmedOrder) {
+  if (showOrderConfirmation && confirmedOrder) {
+    return (
+      <>
+        <OrderConfirmation />
+      </>
+    );
+  }
+
+  // If success modal should be shown (either via checkoutStep or local state), render that instead of checkout form  
+  if ((checkoutStep === 'success' && (cartCurrentOrder || confirmedOrder)) || (showSuccessModal && confirmedOrder)) {
+    console.log('[CHECKOUT FORM] Rendering OrderSuccessModal', { 
+      checkoutStep, 
+      showSuccessModal, 
+      confirmedOrder: !!confirmedOrder,
+      cartCurrentOrder: !!cartCurrentOrder
+    });
+    
+    const orderToShow = confirmedOrder || cartCurrentOrder;
     return (
       <>
         <OrderSuccessModal
-          order={confirmedOrder}
+          order={orderToShow}
           orderType={orderType}
           onClose={handleContinueShopping}
           onContinueShopping={handleContinueShopping}
-          onViewOrderHistory={handleViewOrderHistory}
+          onViewOrderHistory={handleViewOrderConfirmation}
         />
       </>
     );
+  }
+
+  // Debug logging for modal conditions
+  if (showSuccessModal || showOrderConfirmation) {
+    console.log('[CHECKOUT FORM] Modal states:', { 
+      showSuccessModal, 
+      showOrderConfirmation, 
+      confirmedOrder: !!confirmedOrder 
+    });
   }
 
   return (

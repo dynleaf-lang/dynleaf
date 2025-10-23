@@ -16,12 +16,35 @@ export const OrderSuccessModal = ({
   const [showReceipt, setShowReceipt] = useState(false);
   const [currentTime] = useState(new Date());
   const [isAnimationComplete, setIsAnimationComplete] = useState(false);
+  const [autoTransitionTimer, setAutoTransitionTimer] = useState(8); // 8 second countdown
 
   useEffect(() => {
     // Complete animation after all elements are rendered
     const timer = setTimeout(() => setIsAnimationComplete(true), 1000);
     return () => clearTimeout(timer);
   }, []);
+
+  // Auto transition to order confirmation after 8 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAutoTransitionTimer(prev => {
+        if (prev <= 1) {
+          // Transition to order confirmation
+          onViewOrderHistory?.();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [onViewOrderHistory]);
+
+  // Clear auto transition timer when user interacts
+  const handleUserInteraction = (callback) => {
+    setAutoTransitionTimer(0); // Stop countdown
+    callback?.();
+  };
 
   // Calculate order summary
   const subtotal = order?.items?.reduce((sum, item) => sum + (item.price * item.quantity), 0) || 0;
@@ -396,7 +419,7 @@ export const OrderSuccessModal = ({
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={onContinueShopping}
+                onClick={() => handleUserInteraction(onContinueShopping)}
                 style={{
                   padding: '16px 24px',
                   borderRadius: '8px',
@@ -426,7 +449,7 @@ export const OrderSuccessModal = ({
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={onViewOrderHistory}
+                  onClick={() => handleUserInteraction(onViewOrderHistory)}
                   style={{
                     padding: '12px 16px',
                     borderRadius: '6px',
@@ -443,13 +466,14 @@ export const OrderSuccessModal = ({
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '16px' }}>receipt_long</span>
-                  View Orders
+                  View Details {autoTransitionTimer > 0 && `(${autoTransitionTimer})`}
                 </motion.button>
 
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
+                    handleUserInteraction();
                     // Share order details
                     if (navigator.share) {
                       navigator.share({
