@@ -4,6 +4,7 @@ import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrderType } from '../ui/EnhancedCart';
 import { useTax } from '../../context/TaxContext';
+import { useSocket } from '../../context/SocketContext';
 import { theme } from '../../data/theme';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import TaxInfo from './TaxInfo';
@@ -48,6 +49,7 @@ const CheckoutForm = memo(() => {
   const { branch } = useRestaurant();
   const { taxRate, taxName, formattedTaxRate, calculateTax } = useTax();
   const { addNotification } = useNotifications();
+  const { socket, isConnected } = useSocket();
   
   // Cashfree SDK management
   const { 
@@ -115,6 +117,64 @@ const CheckoutForm = memo(() => {
   useEffect(() => {
     console.log('[CHECKOUT FORM] Selected UPI App changed to:', selectedUpiApp);
   }, [selectedUpiApp]);
+
+  // WebSocket integration for instant payment confirmations
+  useEffect(() => {
+    if (!socket || !isConnected || !currentOrder?.cfOrderId) {
+      return;
+    }
+
+    const handlePaymentConfirmation = (data) => {
+      console.log('[CHECKOUT FORM] WebSocket payment confirmation received:', data);
+      
+      // Check if this confirmation is for our current order
+      if (data.cfOrderId === currentOrder.cfOrderId || 
+          data.order?.paymentDetails?.cfOrderId === currentOrder.cfOrderId) {
+        
+        console.log('[CHECKOUT FORM] Payment confirmed via WebSocket - instant response!');
+        
+        // Cancel any ongoing polling since we got instant confirmation
+        if (paymentInProgress) {
+          handlePaymentSuccess();
+        }
+      }
+    };
+
+    const handlePaymentFailure = (data) => {
+      console.log('[CHECKOUT FORM] WebSocket payment failure received:', data);
+      
+      // Check if this failure is for our current order
+      if (data.cfOrderId === currentOrder.cfOrderId || 
+          data.order?.paymentDetails?.cfOrderId === currentOrder.cfOrderId) {
+        
+        console.log('[CHECKOUT FORM] Payment failed via WebSocket');
+        
+        if (paymentInProgress) {
+          handlePaymentFailure(data.message || 'Payment failed via bank notification');
+        }
+      }
+    };
+
+    // Listen for payment events
+    socket.on('payment_success', handlePaymentConfirmation);
+    socket.on('payment_confirmed', handlePaymentConfirmation);
+    socket.on('payment_failed', handlePaymentFailure);
+    socket.on('orderUpdate', (data) => {
+      // Handle generic order updates that might include payment status
+      if (data.eventType === 'payment_success' && 
+          data.order?.paymentDetails?.cfOrderId === currentOrder.cfOrderId) {
+        handlePaymentConfirmation(data);
+      }
+    });
+
+    // Cleanup listeners
+    return () => {
+      socket.off('payment_success', handlePaymentConfirmation);
+      socket.off('payment_confirmed', handlePaymentConfirmation);
+      socket.off('payment_failed', handlePaymentFailure);
+      socket.off('orderUpdate');
+    };
+  }, [socket, isConnected, currentOrder, paymentInProgress]);
 
   // Handle user returning from UPI app (optimized visibility change detection)
   useEffect(() => {
@@ -260,15 +320,21 @@ const CheckoutForm = memo(() => {
     return () => { cancelled = true; clearInterval(t); };
   }, [registerClosed, branch?._id]);
 
-  // Payment status checking function - optimized for faster response
+  // Enhanced payment status checking with connection error handling
   const checkPaymentStatus = async () => {
     if (!currentOrder?.cfOrderId) return;
+
+    const startTime = Date.now();
 
     try {
       console.log('[CHECKOUT FORM] Checking payment status for order:', currentOrder.cfOrderId);
       
       // Quick order status check first (usually faster than detailed payment info)
       const response = await api.public.payments.cashfree.getOrder(currentOrder.cfOrderId);
+      
+      // Measure response time for connection quality assessment
+      const responseTime = Date.now() - startTime;
+      console.log(`[CHECKOUT FORM] API response time: ${responseTime}ms`);
       
       // Response structure: { success: true, data: { order_status, payment_status, ... } }
       const orderData = response?.data || response;
@@ -312,12 +378,38 @@ const CheckoutForm = memo(() => {
       }
     } catch (error) {
       console.error('[CHECKOUT FORM] Error checking payment status:', error);
-      // If we can't check status, assume payment failed after fewer retries (faster fail)
-      if (paymentRetryCount >= 2) { // Reduced from 3 to 2
-        handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
+      
+      // Enhanced error handling with network-aware retry logic
+      const isNetworkError = error.code === 'NETWORK_ERROR' || 
+                           error.message?.includes('network') || 
+                           error.message?.includes('timeout') ||
+                           !navigator.onLine;
+      
+      if (isNetworkError) {
+        console.log('[CHECKOUT FORM] Network error detected, adjusting retry strategy');
+        
+        // Show network error message
+        try {
+          addNotification?.({
+            type: 'system',
+            title: 'Connection Issue',
+            message: 'Having trouble connecting. Retrying...',
+            icon: 'wifi_off',
+            priority: 'medium',
+            duration: 5000
+          });
+        } catch (_) {}
+        
+        // Longer delay for network issues
+        setTimeout(() => checkPaymentStatus(), 5000);
       } else {
-        // Retry after shorter delay
-        setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
+        // If we can't check status, assume payment failed after fewer retries (faster fail)
+        if (paymentRetryCount >= 2) { // Reduced from 3 to 2
+          handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
+        } else {
+          // Retry after shorter delay
+          setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
+        }
       }
     }
   };
@@ -560,7 +652,7 @@ const CheckoutForm = memo(() => {
     handleSubmit(new Event('submit'));
   };
 
-  // Enhanced verification process with progress tracking
+  // Enhanced verification process with multiple fallback strategies
   const startVerificationProcess = async () => {
     const startTime = Date.now();
     let attempts = 0;
@@ -583,14 +675,50 @@ const CheckoutForm = memo(() => {
       console.log(`[CHECKOUT FORM] Verification attempt ${attempts}/${maxVerificationAttempts}`);
       
       try {
-        // Check payment status
-        const verified = await checkPaymentStatus();
+        // Multi-strategy verification approach
+        let verified = false;
+        
+        // Strategy 1: Check via WebSocket confirmation (if received)
+        if (paymentStatus === 'success') {
+          console.log('[CHECKOUT FORM] Payment verified via WebSocket');
+          verified = true;
+        }
+        
+        // Strategy 2: Direct order status check (fastest)
+        if (!verified) {
+          try {
+            const orderResponse = await api.public.payments.cashfree.getOrder(currentOrder.cfOrderId);
+            if (orderResponse?.data?.order_status === 'PAID') {
+              console.log('[CHECKOUT FORM] Payment verified via order status');
+              verified = true;
+            }
+          } catch (orderErr) {
+            console.warn('[CHECKOUT FORM] Order status check failed:', orderErr.message);
+          }
+        }
+        
+        // Strategy 3: Payment details check (fallback)
+        if (!verified) {
+          try {
+            const paymentsResponse = await api.public.payments.cashfree.getPayments(currentOrder.cfOrderId);
+            const successPayment = paymentsResponse?.data?.find(p => 
+              (p.payment_status || '').toLowerCase() === 'success'
+            );
+            if (successPayment) {
+              console.log('[CHECKOUT FORM] Payment verified via payment details');
+              verified = true;
+            }
+          } catch (paymentsErr) {
+            console.warn('[CHECKOUT FORM] Payment details check failed:', paymentsErr.message);
+          }
+        }
         
         if (verified) {
           setVerificationProgress(100);
           setVerificationStep('Payment confirmed!');
           setIsVerifyingPayment(false);
           setShowPaymentStatusModal(false);
+          handlePaymentSuccess();
           return true;
         }
         
@@ -631,25 +759,62 @@ const CheckoutForm = memo(() => {
     performVerification();
   };
 
-  // Handle verification timeout
+  // Enhanced verification timeout handler with fallback options
   const handleVerificationTimeout = () => {
     setPaymentStatus('pending_verification');
     setPaymentStatusMessage(
-      'Payment received but verification is taking longer than expected. Your order is being processed and you will receive confirmation shortly.'
+      'Payment verification is taking longer than expected. This could be due to high network traffic. Your payment may still be processing.'
     );
     
-    // Show a helpful message to the user
+    // Show a comprehensive timeout modal with options
+    setShowPaymentStatusModal(true);
+    
+    // Show a helpful message to the user with next steps
     try {
       addNotification?.({
         type: 'system',
         title: 'Payment Being Verified',
-        message: 'Your payment was successful. We are confirming the details with your bank. You will receive order confirmation shortly.',
+        message: 'Your payment is being processed. You will receive order confirmation within a few minutes. If you don\'t receive confirmation, please contact support.',
         icon: 'hourglass_empty',
-        priority: 'medium',
-        duration: 10000
+        priority: 'high',
+        duration: 15000 // Show longer for important message
       });
     } catch (_) {}
+    
+    // Set up background verification polling (less aggressive)
+    let backgroundAttempts = 0;
+    const maxBackgroundAttempts = 5;
+    
+    const backgroundVerification = async () => {
+      if (backgroundAttempts >= maxBackgroundAttempts) {
+        console.log('[CHECKOUT FORM] Background verification timeout');
+        return;
+      }
+      
+      backgroundAttempts++;
+      console.log(`[CHECKOUT FORM] Background verification attempt ${backgroundAttempts}`);
+      
+      try {
+        // Check if payment was confirmed while user was waiting
+        const orderResponse = await api.public.payments.cashfree.getOrder(currentOrder.cfOrderId);
+        
+        if (orderResponse?.data?.order_status === 'PAID') {
+          console.log('[CHECKOUT FORM] Payment confirmed during background verification');
+          handlePaymentSuccess();
+          return;
+        }
+      } catch (error) {
+        console.warn('[CHECKOUT FORM] Background verification failed:', error);
+      }
+      
+      // Continue background polling every 30 seconds
+      setTimeout(backgroundVerification, 30000);
+    };
+    
+    // Start background verification after 1 minute
+    setTimeout(backgroundVerification, 60000);
   };
+
   const verifyPaymentStatus = async (cfOrderId) => {
     try {
       console.log('[CHECKOUT FORM] Verifying payment status for order:', cfOrderId);
@@ -690,6 +855,8 @@ const CheckoutForm = memo(() => {
       return null;
     }
   };
+  
+  
   
   // UPI Apps Configuration
   const upiApps = [

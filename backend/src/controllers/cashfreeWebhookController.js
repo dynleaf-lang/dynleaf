@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Order = require('../models/Order');
 const { emitOrderUpdate } = require('../utils/socketUtils');
 const { notifyOrderStatusWhatsApp } = require('../services/whatsappNotify');
+const { invalidatePaymentCache } = require('../utils/paymentCache');
 
 // Cashfree webhook handler
 // Handles payment notifications from Cashfree PG
@@ -187,28 +188,64 @@ async function handlePaymentSuccess(data) {
       paymentId: cf_payment_id
     });
 
-    // Emit real-time update to connected clients
+    // Invalidate payment cache since status changed
+    invalidatePaymentCache(cfOrderId);
+
+    // Emit real-time update to connected clients (ENHANCED FOR INSTANT NOTIFICATIONS)
     try {
+      // Emit multiple events for different client types
+      
+      // 1. General payment success event
       emitOrderUpdate({
         eventType: 'payment_success',
-        order: order,
-        message: `Payment completed for order ${order.orderId}`,
+        order: orderRecord,
+        cfOrderId: cfOrderId,
+        message: `Payment completed for order ${orderRecord.orderId}`,
         oldPaymentStatus: prevPaymentStatus,
         newPaymentStatus: 'paid',
         paymentDetails: {
-          method: order.paymentMethod,
-          amount: order_amount,
-          cfPaymentId: cf_payment_id
+          method: orderRecord.paymentMethod,
+          amount: payment_amount || order_amount,
+          cfPaymentId: cf_payment_id,
+          timestamp: new Date().toISOString()
         }
       });
+
+      // 2. Customer-specific instant payment confirmation
+      if (global.io) {
+        global.io.emit('payment_confirmed', {
+          cfOrderId: cfOrderId,
+          orderId: orderRecord.orderId,
+          status: 'success',
+          amount: payment_amount || order_amount,
+          paymentId: cf_payment_id,
+          timestamp: new Date().toISOString(),
+          message: 'Payment confirmed successfully'
+        });
+
+        // 3. Also emit to customer-specific room if table info available
+        if (orderRecord.tableId) {
+          global.io.to(`table_${orderRecord.tableId}`).emit('payment_confirmed', {
+            cfOrderId: cfOrderId,
+            orderId: orderRecord.orderId,
+            status: 'success',
+            amount: payment_amount || order_amount,
+            paymentId: cf_payment_id,
+            timestamp: new Date().toISOString(),
+            message: 'Your payment has been confirmed'
+          });
+        }
+      }
+      
+      console.log('[CASHFREE WEBHOOK] Real-time payment confirmation emitted for:', cfOrderId);
     } catch (socketError) {
-      console.error('[CASHFREE WEBHOOK] Socket emission error:', socketError);
+      console.error('[CASHFREE WEBHOOK] Socket emission error for payment:', socketError);
     }
 
     // Send WhatsApp notification if enabled
     try {
-      await notifyOrderStatusWhatsApp(order, { 
-        prevStatus: order.status,
+      await notifyOrderStatusWhatsApp(orderRecord, { 
+        prevStatus: orderRecord.status,
         paymentUpdate: true,
         paymentStatus: 'paid'
       });
@@ -217,19 +254,19 @@ async function handlePaymentSuccess(data) {
     }
 
     // Auto-confirm order if it was pending payment
-    if (order.status === 'pending') {
-      const prevStatus = order.status;
-      order.status = 'confirmed';
-      await order.save();
+    if (orderRecord.status === 'pending') {
+      const prevStatus = orderRecord.status;
+      orderRecord.status = 'confirmed';
+      await orderRecord.save();
 
-      console.log('[CASHFREE WEBHOOK] Order auto-confirmed after payment:', order.orderId);
+      console.log('[CASHFREE WEBHOOK] Order auto-confirmed after payment:', orderRecord.orderId);
 
       // Emit status update
       try {
         emitOrderUpdate({
           eventType: 'status_updated',
-          order: order,
-          message: `Order ${order.orderId} confirmed after payment`,
+          order: orderRecord,
+          message: `Order ${orderRecord.orderId} confirmed after payment`,
           oldStatus: prevStatus,
           newStatus: 'confirmed'
         });
@@ -239,7 +276,7 @@ async function handlePaymentSuccess(data) {
 
       // Send status update notification
       try {
-        await notifyOrderStatusWhatsApp(order, { prevStatus });
+        await notifyOrderStatusWhatsApp(orderRecord, { prevStatus });
       } catch (whatsappError) {
         console.error('[CASHFREE WEBHOOK] WhatsApp status notification error:', whatsappError);
       }
@@ -311,23 +348,63 @@ async function handlePaymentFailed(data) {
     console.log('[CASHFREE WEBHOOK] Order payment failed:', {
       orderId: orderRecord.orderId,
       previousStatus: prevPaymentStatus,
-      reason: payment_message,
-      errorCode: errorDetails?.error_code,
-      errorReason: errorDetails?.error_reason
+      newStatus: 'failed',
+      amount: payment_amount || order_amount,
+      paymentId: cf_payment_id,
+      reason: payment_message
     });
 
-    // Emit real-time update
+    // Invalidate payment cache since status changed
+    invalidatePaymentCache(cfOrderId);
+
+    // Emit real-time failure notification
     try {
+      // 1. General payment failure event
       emitOrderUpdate({
         eventType: 'payment_failed',
         order: orderRecord,
-        message: `Payment failed for order ${orderRecord.orderId}: ${payment_message}`,
+        cfOrderId: cfOrderId,
+        message: `Payment failed for order ${orderRecord.orderId}`,
         oldPaymentStatus: prevPaymentStatus,
         newPaymentStatus: 'failed',
-        errorDetails: error_details
+        errorDetails: { 
+          code: payment_status,
+          message: payment_message,
+          paymentId: cf_payment_id
+        }
       });
+
+      // 2. Customer-specific instant payment failure notification
+      if (global.io) {
+        global.io.emit('payment_failed', {
+          cfOrderId: cfOrderId,
+          orderId: orderRecord.orderId,
+          status: 'failed',
+          amount: payment_amount || order_amount,
+          paymentId: cf_payment_id,
+          timestamp: new Date().toISOString(),
+          message: payment_message || 'Payment failed',
+          reason: payment_message
+        });
+
+        // 3. Also emit to customer-specific room if table info available
+        if (orderRecord.tableId) {
+          global.io.to(`table_${orderRecord.tableId}`).emit('payment_failed', {
+            cfOrderId: cfOrderId,
+            orderId: orderRecord.orderId,
+            status: 'failed',
+            amount: payment_amount || order_amount,
+            paymentId: cf_payment_id,
+            timestamp: new Date().toISOString(),
+            message: 'Payment failed. Please try again or contact support.',
+            reason: payment_message
+          });
+        }
+      }
+      
+      console.log('[CASHFREE WEBHOOK] Real-time payment failure emitted for:', cfOrderId);
     } catch (socketError) {
-      console.error('[CASHFREE WEBHOOK] Socket emission error:', socketError);
+      console.error('[CASHFREE WEBHOOK] Socket emission error for payment failure:', socketError);
     }
 
   } catch (error) {

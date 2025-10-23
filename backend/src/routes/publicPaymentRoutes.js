@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { createOrder, getOrder, getOrderPayments, validateCredentials } = require('../services/cashfreeService');
 const { cashfreeWebhook } = require('../controllers/cashfreeWebhookController');
+const { getCacheStats, clearCache } = require('../utils/paymentCache');
 
 // Debug route to validate Cashfree credentials
 router.get('/cashfree/validate', async (req, res) => {
@@ -302,5 +303,48 @@ router.get('/cashfree/config-check', async (req, res) => {
     });
   }
 });
+
+// Payment cache statistics (for monitoring and debugging)
+router.get('/cashfree/cache/stats', (req, res) => {
+  try {
+    const stats = getCacheStats();
+    return res.status(200).json({
+      success: true,
+      cache: {
+        ...stats,
+        hitRatePercentage: Math.round(stats.hitRate * 100),
+        enabled: true,
+        ttl: '30 seconds'
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get cache stats',
+      error: err.message 
+    });
+  }
+});
+
+// Clear payment cache (for development/testing)
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/cashfree/cache/clear', (req, res) => {
+    try {
+      clearCache();
+      return res.status(200).json({
+        success: true,
+        message: 'Payment cache cleared',
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to clear cache',
+        error: err.message 
+      });
+    }
+  });
+}
 
 module.exports = router;

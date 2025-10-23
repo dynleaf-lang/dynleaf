@@ -1,4 +1,10 @@
 const axios = require('axios');
+const { 
+  cacheOrderStatus, 
+  getCachedOrderStatus, 
+  cachePaymentDetails, 
+  getCachedPaymentDetails 
+} = require('../utils/paymentCache');
 
 // Cashfree PG v2 service helpers
 // Env vars required:
@@ -188,12 +194,23 @@ async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} 
   }
 }
 
-// Get order status from Cashfree
+// Get order status from Cashfree with caching
 async function getOrder(cfOrderId) {
   try {
+    // Check cache first
+    const cached = getCachedOrderStatus(cfOrderId);
+    if (cached) {
+      return cached;
+    }
+
+    // If not cached, fetch from Cashfree
     const base = getBaseUrl();
     const headers = getHeaders();
     const { data } = await axios.get(`${base}/orders/${cfOrderId}`, { headers });
+    
+    // Cache the result for future requests
+    cacheOrderStatus(cfOrderId, data);
+    
     return data;
   } catch (error) {
     console.error('[CASHFREE] Get order failed:', {
@@ -205,12 +222,23 @@ async function getOrder(cfOrderId) {
   }
 }
 
-// Get payments for a CF order
+// Get payments for a CF order with caching
 async function getOrderPayments(cfOrderId) {
   try {
+    // Check cache first
+    const cached = getCachedPaymentDetails(cfOrderId);
+    if (cached) {
+      return cached;
+    }
+
+    // If not cached, fetch from Cashfree
     const base = getBaseUrl();
     const headers = getHeaders();
     const { data } = await axios.get(`${base}/orders/${cfOrderId}/payments`, { headers });
+    
+    // Cache the result for future requests
+    cachePaymentDetails(cfOrderId, data);
+    
     return data; // array
   } catch (error) {
     console.error('[CASHFREE] Get order payments failed:', {
