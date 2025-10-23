@@ -619,24 +619,12 @@ const CartSidebar = () => {
     setKotSent(kotStatus.allSent && kotStatus.anySent);
   }, [kotStatus.allSent, kotStatus.anySent]);
   
-  // Filter out cart items that already exist in batches to prevent duplication
+  // Show all cart items directly - no filtering needed
+  // Cart items should always be visible regardless of batch status
   const filteredCartItems = useMemo(() => {
-    const batchItems = (tableBatches?.batches || []).flatMap(batch => batch.items || []);
-    const batchItemSignatures = new Set(
-      batchItems.map(item => `${item.menuItemId}-${item.name}-${item.price}`)
-    );
-    
-    return cartItems.filter(cartItem => {
-      const cartSignature = `${cartItem.menuItemId}-${cartItem.name}-${cartItem.price}`;
-      const existsInBatch = batchItemSignatures.has(cartSignature);
-      
-      if (existsInBatch) {
-        console.log(`[CART SIDEBAR] Filtering out cart item that exists in batch: ${cartItem.name}`);
-      }
-      
-      return !existsInBatch;
-    });
-  }, [cartItems, tableBatches?.batches]);
+    console.log(`[CART SIDEBAR] Showing all cart items without filtering: ${cartItems.length} items`);
+    return cartItems;
+  }, [cartItems]);
   
   // Split bill states
   const [showSplitModal, setShowSplitModal] = useState(false);
