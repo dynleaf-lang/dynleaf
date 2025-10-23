@@ -69,21 +69,23 @@ export const OrderSuccessModal = ({
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
           style={{
             backgroundColor: 'white',
-            borderRadius: theme.borderRadius.xl,
+            borderRadius: '16px',
             padding: 0,
-            maxWidth: '500px',
+            maxWidth: '400px',
             width: '100%',
             maxHeight: '90vh',
             overflow: 'hidden',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.25)'
+            boxShadow: '0 20px 25px rgba(0,0,0,0.1), 0 8px 10px rgba(0,0,0,0.1)'
           }}
         >
           {/* Header Section */}
           <div style={{
-            background: `linear-gradient(135deg, ${theme.colors.success}, ${theme.colors.success}dd)`,
-            padding: theme.spacing.xl,
+            background: '#28a745',
+            padding: '32px 24px',
             textAlign: 'center',
-            color: 'white'
+            color: 'white',
+            borderTopLeftRadius: theme.borderRadius.xl,
+            borderTopRightRadius: theme.borderRadius.xl
           }}>
             {/* Success Animation */}
             <motion.div
@@ -91,14 +93,14 @@ export const OrderSuccessModal = ({
               animate={{ scale: 1, rotate: 0 }}
               transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
               style={{
-                width: '80px',
-                height: '80px',
+                width: '64px',
+                height: '64px',
                 borderRadius: '50%',
                 backgroundColor: 'rgba(255,255,255,0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                margin: '0 auto ' + theme.spacing.lg,
+                margin: '0 auto 16px',
                 backdropFilter: 'blur(10px)'
               }}
             >
@@ -107,9 +109,9 @@ export const OrderSuccessModal = ({
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.4 }}
                 className="material-icons"
-                style={{ fontSize: '40px', color: 'white' }}
+                style={{ fontSize: '32px', color: 'white' }}
               >
-                check_circle
+                check
               </motion.span>
             </motion.div>
 
@@ -119,9 +121,10 @@ export const OrderSuccessModal = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
               style={{
-                fontSize: theme.typography.sizes.xl,
-                fontWeight: theme.typography.fontWeights.bold,
-                margin: `0 0 ${theme.spacing.sm} 0`
+                fontSize: '24px',
+                fontWeight: '600',
+                margin: '0 0 8px 0',
+                letterSpacing: '-0.02em'
               }}
             >
               Payment Successful!
@@ -132,9 +135,10 @@ export const OrderSuccessModal = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
               style={{
-                fontSize: theme.typography.sizes.md,
+                fontSize: '16px',
                 opacity: 0.9,
-                margin: 0
+                margin: 0,
+                fontWeight: '400'
               }}
             >
               Your order has been confirmed
@@ -143,9 +147,8 @@ export const OrderSuccessModal = ({
 
           {/* Content Section */}
           <div style={{
-            padding: theme.spacing.xl,
-            maxHeight: '60vh',
-            overflow: 'auto'
+            padding: '24px',
+            backgroundColor: 'white'
           }}>
             {/* Order Details */}
             <motion.div
@@ -153,34 +156,37 @@ export const OrderSuccessModal = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
               style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: theme.borderRadius.lg,
-                padding: theme.spacing.lg,
-                marginBottom: theme.spacing.lg
+                backgroundColor: '#f8f9fa',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px'
               }}
             >
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: theme.spacing.md
+                marginBottom: '16px'
               }}>
                 <h3 style={{
                   margin: 0,
-                  fontSize: theme.typography.sizes.lg,
-                  fontWeight: theme.typography.fontWeights.semibold,
-                  color: theme.colors.text.primary
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  color: '#333',
+                  letterSpacing: '-0.01em'
                 }}>
                   Order #{order?.orderId || order?.order_id || order?.cfOrderId || order?.id || 'N/A'}
                 </h3>
                 
                 <span style={{
-                  backgroundColor: theme.colors.success + '20',
-                  color: theme.colors.success,
-                  padding: `${theme.spacing.xs} ${theme.spacing.sm}`,
-                  borderRadius: theme.borderRadius.md,
-                  fontSize: theme.typography.sizes.sm,
-                  fontWeight: theme.typography.fontWeights.medium
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
                 }}>
                   Paid
                 </span>
@@ -190,84 +196,45 @@ export const OrderSuccessModal = ({
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
-                gap: theme.spacing.md,
-                marginBottom: theme.spacing.md
+                gap: '16px'
               }}>
                 <div>
                   <div style={{
-                    fontSize: theme.typography.sizes.sm,
-                    color: theme.colors.text.secondary,
-                    marginBottom: theme.spacing.xs
+                    fontSize: '14px',
+                    color: '#666',
+                    marginBottom: '4px',
+                    fontWeight: '500'
                   }}>
                     Order Type
                   </div>
                   <div style={{
-                    fontSize: theme.typography.sizes.md,
-                    fontWeight: theme.typography.fontWeights.medium,
-                    color: theme.colors.text.primary,
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#333',
                     textTransform: 'capitalize'
                   }}>
-                    {order?.orderType || 'Takeaway'}
+                    {order?.orderType || 'DineIn'}
                   </div>
                 </div>
 
                 <div>
                   <div style={{
-                    fontSize: theme.typography.sizes.sm,
-                    color: theme.colors.text.secondary,
-                    marginBottom: theme.spacing.xs
+                    fontSize: '14px',
+                    color: '#666',
+                    marginBottom: '4px',
+                    fontWeight: '500'
                   }}>
                     Order Time
                   </div>
                   <div style={{
-                    fontSize: theme.typography.sizes.md,
-                    fontWeight: theme.typography.fontWeights.medium,
-                    color: theme.colors.text.primary
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#333'
                   }}>
-                    {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} AM
                   </div>
                 </div>
               </div>
-
-              {/* Estimated Time for Takeaway */}
-              {estimatedTime && (
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.6 }}
-                  style={{
-                    backgroundColor: theme.colors.primary + '10',
-                    border: `1px solid ${theme.colors.primary}30`,
-                    borderRadius: theme.borderRadius.md,
-                    padding: theme.spacing.md,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: theme.spacing.sm
-                  }}
-                >
-                  <span className="material-icons" style={{ 
-                    color: theme.colors.primary, 
-                    fontSize: '20px' 
-                  }}>
-                    schedule
-                  </span>
-                  <div>
-                    <div style={{
-                      fontSize: theme.typography.sizes.sm,
-                      fontWeight: theme.typography.fontWeights.semibold,
-                      color: theme.colors.primary
-                    }}>
-                      Ready in ~{estimatedTime} minutes
-                    </div>
-                    <div style={{
-                      fontSize: theme.typography.sizes.xs,
-                      color: theme.colors.text.secondary
-                    }}>
-                      We'll notify you when it's ready
-                    </div>
-                  </div>
-                </motion.div>
-              )}
             </motion.div>
 
             {/* Order Summary */}
@@ -275,19 +242,19 @@ export const OrderSuccessModal = ({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
-              style={{ marginBottom: theme.spacing.lg }}
+              style={{ marginBottom: '20px' }}
             >
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: theme.spacing.md
+                marginBottom: '16px'
               }}>
                 <h4 style={{
                   margin: 0,
-                  fontSize: theme.typography.sizes.md,
-                  fontWeight: theme.typography.fontWeights.semibold,
-                  color: theme.colors.text.primary
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#333'
                 }}>
                   Order Summary
                 </h4>
@@ -297,12 +264,13 @@ export const OrderSuccessModal = ({
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: theme.colors.primary,
-                    fontSize: theme.typography.sizes.sm,
+                    color: '#dc3545',
+                    fontSize: '14px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: theme.spacing.xs
+                    gap: '4px',
+                    fontWeight: '500'
                   }}
                 >
                   {showReceipt ? 'Hide' : 'Show'} Details
@@ -323,16 +291,16 @@ export const OrderSuccessModal = ({
                   >
                     {/* Items List */}
                     <div style={{
-                      border: `1px solid ${theme.colors.border}`,
-                      borderRadius: theme.borderRadius.md,
-                      marginBottom: theme.spacing.md
+                      border: '1px solid #e9ecef',
+                      borderRadius: '8px',
+                      marginBottom: '16px'
                     }}>
                       {order.items.map((item, index) => (
                         <div
                           key={index}
                           style={{
-                            padding: theme.spacing.md,
-                            borderBottom: index < order.items.length - 1 ? `1px solid ${theme.colors.border}` : 'none',
+                            padding: '12px 16px',
+                            borderBottom: index < order.items.length - 1 ? '1px solid #e9ecef' : 'none',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center'
@@ -340,24 +308,24 @@ export const OrderSuccessModal = ({
                         >
                           <div style={{ flex: 1 }}>
                             <div style={{
-                              fontSize: theme.typography.sizes.md,
-                              fontWeight: theme.typography.fontWeights.medium,
-                              color: theme.colors.text.primary,
-                              marginBottom: theme.spacing.xs
+                              fontSize: '14px',
+                              fontWeight: '500',
+                              color: '#333',
+                              marginBottom: '2px'
                             }}>
                               {item.name}
                             </div>
                             <div style={{
-                              fontSize: theme.typography.sizes.sm,
-                              color: theme.colors.text.secondary
+                              fontSize: '12px',
+                              color: '#666'
                             }}>
                               Qty: {item.quantity}
                             </div>
                           </div>
                           <div style={{
-                            fontSize: theme.typography.sizes.md,
-                            fontWeight: theme.typography.fontWeights.semibold,
-                            color: theme.colors.text.primary
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#333'
                           }}>
                             <CurrencyDisplay amount={item.price * item.quantity} />
                           </div>
@@ -370,38 +338,42 @@ export const OrderSuccessModal = ({
 
               {/* Price Summary */}
               <div style={{
-                backgroundColor: theme.colors.background,
-                borderRadius: theme.borderRadius.md,
-                padding: theme.spacing.md
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                padding: '16px'
               }}>
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  marginBottom: theme.spacing.sm
+                  marginBottom: '8px'
                 }}>
-                  <span style={{ color: theme.colors.text.secondary }}>Subtotal</span>
-                  <span><CurrencyDisplay amount={subtotal} /></span>
+                  <span style={{ color: '#666', fontSize: '14px' }}>Subtotal</span>
+                  <span style={{ fontSize: '14px', fontWeight: '500' }}>
+                    <CurrencyDisplay amount={subtotal} />
+                  </span>
                 </div>
                 
                 {tax > 0 && (
                   <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    marginBottom: theme.spacing.sm
+                    marginBottom: '8px'
                   }}>
-                    <span style={{ color: theme.colors.text.secondary }}>Tax</span>
-                    <span><CurrencyDisplay amount={tax} /></span>
+                    <span style={{ color: '#666', fontSize: '14px' }}>Tax</span>
+                    <span style={{ fontSize: '14px', fontWeight: '500' }}>
+                      <CurrencyDisplay amount={tax} />
+                    </span>
                   </div>
                 )}
                 
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  paddingTop: theme.spacing.sm,
-                  borderTop: `1px solid ${theme.colors.border}`,
-                  fontSize: theme.typography.sizes.lg,
-                  fontWeight: theme.typography.fontWeights.bold,
-                  color: theme.colors.text.primary
+                  paddingTop: '8px',
+                  borderTop: '1px solid #dee2e6',
+                  fontSize: '16px',
+                  fontWeight: '700',
+                  color: '#333'
                 }}>
                   <span>Total Paid</span>
                   <span><CurrencyDisplay amount={total} /></span>
@@ -416,7 +388,7 @@ export const OrderSuccessModal = ({
               transition={{ delay: 0.7 }}
               style={{
                 display: 'flex',
-                gap: theme.spacing.md,
+                gap: '12px',
                 flexDirection: 'column'
               }}
             >
@@ -426,22 +398,22 @@ export const OrderSuccessModal = ({
                 whileTap={{ scale: 0.98 }}
                 onClick={onContinueShopping}
                 style={{
-                  padding: `${theme.spacing.md} ${theme.spacing.lg}`,
-                  borderRadius: theme.borderRadius.lg,
-                  backgroundColor: theme.colors.primary,
+                  padding: '16px 24px',
+                  borderRadius: '8px',
+                  backgroundColor: '#dc3545',
                   color: 'white',
-                  fontWeight: theme.typography.fontWeights.semibold,
-                  fontSize: theme.typography.sizes.md,
+                  fontWeight: '600',
+                  fontSize: '16px',
                   border: 'none',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: theme.spacing.sm,
+                  gap: '8px',
                   transition: 'all 0.2s ease'
                 }}
               >
-                <span className="material-icons">restaurant_menu</span>
+                <span className="material-icons">clear</span>
                 Continue Shopping
               </motion.button>
 
@@ -449,25 +421,25 @@ export const OrderSuccessModal = ({
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
-                gap: theme.spacing.sm
+                gap: '8px'
               }}>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={onViewOrderHistory}
                   style={{
-                    padding: theme.spacing.md,
-                    borderRadius: theme.borderRadius.md,
+                    padding: '12px 16px',
+                    borderRadius: '6px',
                     backgroundColor: 'transparent',
-                    color: theme.colors.primary,
-                    fontWeight: theme.typography.fontWeights.medium,
-                    fontSize: theme.typography.sizes.sm,
-                    border: `1px solid ${theme.colors.primary}`,
+                    color: '#dc3545',
+                    fontWeight: '500',
+                    fontSize: '14px',
+                    border: '1px solid #dc3545',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: theme.spacing.xs
+                    gap: '6px'
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '16px' }}>receipt_long</span>
@@ -488,18 +460,18 @@ export const OrderSuccessModal = ({
                     }
                   }}
                   style={{
-                    padding: theme.spacing.md,
-                    borderRadius: theme.borderRadius.md,
+                    padding: '12px 16px',
+                    borderRadius: '6px',
                     backgroundColor: 'transparent',
-                    color: theme.colors.text.secondary,
-                    fontWeight: theme.typography.fontWeights.medium,
-                    fontSize: theme.typography.sizes.sm,
-                    border: `1px solid ${theme.colors.border}`,
+                    color: '#666',
+                    fontWeight: '500',
+                    fontSize: '14px',
+                    border: '1px solid #dee2e6',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: theme.spacing.xs
+                    gap: '6px'
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '16px' }}>share</span>
@@ -515,20 +487,30 @@ export const OrderSuccessModal = ({
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8 }}
             style={{
-              backgroundColor: theme.colors.background,
-              padding: theme.spacing.lg,
+              backgroundColor: '#f8f9fa',
+              padding: '16px 24px',
               textAlign: 'center',
-              borderTop: `1px solid ${theme.colors.border}`
+              borderTop: '1px solid #dee2e6',
+              borderBottomLeftRadius: theme.borderRadius.xl,
+              borderBottomRightRadius: theme.borderRadius.xl
             }}
           >
-            <p style={{
-              margin: 0,
-              fontSize: theme.typography.sizes.sm,
-              color: theme.colors.text.secondary,
-              lineHeight: 1.5
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
             }}>
-              🎉 Thank you for choosing us! We're preparing your order with care.
-            </p>
+              <span style={{ fontSize: '18px' }}>🎉</span>
+              <p style={{
+                margin: 0,
+                fontSize: '14px',
+                color: '#666',
+                lineHeight: 1.4
+              }}>
+                Thank you for choosing us! We're preparing your order with care.
+              </p>
+            </div>
           </motion.div>
         </motion.div>
       </motion.div>
