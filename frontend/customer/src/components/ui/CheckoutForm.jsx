@@ -111,6 +111,7 @@ const CheckoutForm = memo(() => {
   const [verificationProgress, setVerificationProgress] = useState(0);
   const [verificationStep, setVerificationStep] = useState('');
   const [verificationAttempts, setVerificationAttempts] = useState(0);
+  const [paymentStatusFinalized, setPaymentStatusFinalized] = useState(false); // Track when payment status is determined to prevent further verification
   const maxVerificationAttempts = 4; // Reduced from 6 to 4 for faster timeout
   
   // Debug logging for UPI app selection
@@ -322,6 +323,12 @@ const CheckoutForm = memo(() => {
 
   // Enhanced payment status checking with connection error handling
   const checkPaymentStatus = async () => {
+    // If payment status is already finalized, don't attempt further verification
+    if (paymentStatusFinalized) {
+      console.log('[CHECKOUT FORM] Payment status already finalized, skipping verification');
+      return;
+    }
+    
     if (!currentOrder?.cfOrderId) return;
 
     const startTime = Date.now();
@@ -373,7 +380,10 @@ const CheckoutForm = memo(() => {
           } else {
             // If status is unclear, wait less time then check again (faster retry)
             console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status });
-            setTimeout(() => checkPaymentStatus(), 2000); // Reduced from 3000ms
+            // Only retry if payment status hasn't been finalized
+            if (!paymentStatusFinalized) {
+              setTimeout(() => checkPaymentStatus(), 2000); // Reduced from 3000ms
+            }
           }
       }
     } catch (error) {
@@ -400,15 +410,21 @@ const CheckoutForm = memo(() => {
           });
         } catch (_) {}
         
-        // Longer delay for network issues
-        setTimeout(() => checkPaymentStatus(), 5000);
+        // Only retry for network issues if payment status hasn't been finalized
+        if (!paymentStatusFinalized) {
+          // Longer delay for network issues
+          setTimeout(() => checkPaymentStatus(), 5000);
+        }
       } else {
         // If we can't check status, assume payment failed after fewer retries (faster fail)
         if (paymentRetryCount >= 2) { // Reduced from 3 to 2
           handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
         } else {
-          // Retry after shorter delay
-          setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
+          // Only retry if payment status hasn't been finalized
+          if (!paymentStatusFinalized) {
+            // Retry after shorter delay
+            setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
+          }
         }
       }
     }
@@ -417,6 +433,9 @@ const CheckoutForm = memo(() => {
   // Handle successful payment
   const handlePaymentSuccess = async () => {
     console.log('[CHECKOUT FORM] Payment successful!');
+    
+    // Set payment status as finalized to prevent further verification attempts
+    setPaymentStatusFinalized(true);
     
     // Start the professional success flow
     setPaymentInProgress(false);
@@ -535,6 +554,10 @@ const CheckoutForm = memo(() => {
   // Handle failed payment
   const handlePaymentFailure = (message = 'Payment failed. Please try again.') => {
     console.log('[CHECKOUT FORM] Payment failed:', message);
+    
+    // Set payment status as finalized to prevent further verification attempts
+    setPaymentStatusFinalized(true);
+    
     setPaymentStatus('failed');
     setPaymentInProgress(false);
     setPaymentStatusMessage(message);
@@ -549,6 +572,10 @@ const CheckoutForm = memo(() => {
   // Handle cancelled payment
   const handlePaymentCancellation = () => {
     console.log('[CHECKOUT FORM] Payment cancelled by user');
+    
+    // Set payment status as finalized to prevent further verification attempts
+    setPaymentStatusFinalized(true);
+    
     setPaymentStatus('cancelled');
     setPaymentInProgress(false);
     setPaymentStatusMessage('Payment was cancelled. You can try again or choose a different payment method.');
@@ -590,6 +617,9 @@ const CheckoutForm = memo(() => {
     setPaymentStatusMessage('');
     setOrderCreationAttempted(false);
     
+    // Reset payment status finalized flag for retry
+    setPaymentStatusFinalized(false);
+    
     // Re-trigger the form submission
     setTimeout(() => {
       const form = document.querySelector('form');
@@ -627,6 +657,7 @@ const CheckoutForm = memo(() => {
     setCurrentOrder(null);
     setOrderCreationAttempted(false);
     setPaymentRetryCount(0);
+    setPaymentStatusFinalized(false); // Reset for next order
     // Cart should already be cleared by placeOrder function
   };
 
@@ -648,12 +679,22 @@ const CheckoutForm = memo(() => {
     setPaymentRetryCount(prev => prev + 1);
     setPaymentError('');
     setShowPaymentStatusModal(false);
+    
+    // Reset payment status finalized flag for retry
+    setPaymentStatusFinalized(false);
+    
     // Re-trigger payment process
     handleSubmit(new Event('submit'));
   };
 
   // Enhanced verification process with multiple fallback strategies
   const startVerificationProcess = async () => {
+    // If payment status is already finalized, don't start verification
+    if (paymentStatusFinalized) {
+      console.log('[CHECKOUT FORM] Payment status already finalized, skipping verification process');
+      return;
+    }
+    
     const startTime = Date.now();
     let attempts = 0;
     
@@ -665,6 +706,13 @@ const CheckoutForm = memo(() => {
     ];
     
     const performVerification = async () => {
+      // Check if payment status was finalized during verification
+      if (paymentStatusFinalized) {
+        console.log('[CHECKOUT FORM] Payment status finalized during verification, stopping');
+        setIsVerifyingPayment(false);
+        return true;
+      }
+      
       attempts++;
       setVerificationAttempts(attempts);
       
@@ -727,7 +775,7 @@ const CheckoutForm = memo(() => {
           const timeElapsed = Date.now() - startTime;
           const remainingTime = Math.max(20000 - timeElapsed, 0); // Reduced from 30s to 20s max
           
-          if (remainingTime > 0) {
+          if (remainingTime > 0 && !paymentStatusFinalized) {
             console.log(`[CHECKOUT FORM] Retrying verification in 3 seconds... (${attempts}/${maxVerificationAttempts})`);
             setTimeout(performVerification, 3000); // Reduced from 5000ms to 3000ms
             return false;
@@ -744,7 +792,7 @@ const CheckoutForm = memo(() => {
       } catch (error) {
         console.error('[CHECKOUT FORM] Verification error:', error);
         
-        if (attempts < maxVerificationAttempts) {
+        if (attempts < maxVerificationAttempts && !paymentStatusFinalized) {
           setTimeout(performVerification, 3000); // Reduced from 5000ms
           return false;
         } else {
@@ -786,8 +834,9 @@ const CheckoutForm = memo(() => {
     const maxBackgroundAttempts = 5;
     
     const backgroundVerification = async () => {
-      if (backgroundAttempts >= maxBackgroundAttempts) {
-        console.log('[CHECKOUT FORM] Background verification timeout');
+      // Stop background verification if payment status has been finalized or no current order
+      if (paymentStatusFinalized || backgroundAttempts >= maxBackgroundAttempts || !currentOrder?.cfOrderId) {
+        console.log('[CHECKOUT FORM] Background verification stopped - payment finalized, max attempts reached, or no current order');
         return;
       }
       
@@ -807,12 +856,16 @@ const CheckoutForm = memo(() => {
         console.warn('[CHECKOUT FORM] Background verification failed:', error);
       }
       
-      // Continue background polling every 30 seconds
-      setTimeout(backgroundVerification, 30000);
+      // Continue background polling every 30 seconds only if not finalized and order still exists
+      if (!paymentStatusFinalized && currentOrder?.cfOrderId) {
+        setTimeout(backgroundVerification, 30000);
+      }
     };
     
-    // Start background verification after 1 minute
-    setTimeout(backgroundVerification, 60000);
+    // Start background verification after 1 minute, but only if not already finalized and order exists
+    if (!paymentStatusFinalized && currentOrder?.cfOrderId) {
+      setTimeout(backgroundVerification, 60000);
+    }
   };
 
   const verifyPaymentStatus = async (cfOrderId) => {
@@ -1110,6 +1163,10 @@ const CheckoutForm = memo(() => {
     try {
       setPaymentError('');
       setPaymentInProgress(true);
+      
+      // Reset payment status finalized flag for new payment attempt
+      setPaymentStatusFinalized(false);
+      
       const totalAmount = cartTotal + calculateTax(cartTotal);
       
       // Step 1: Create Cashfree payment session
