@@ -921,7 +921,7 @@ const TableSelection = () => {
               new Date(b.createdAt) - new Date(a.createdAt)
             )[0];
 
-            // Load order items into cart
+            // Load order items into cart, but filter out items that are already in batches
             const orderItems = (latestOrder.items || []).map((item, idx) => ({
               ...item,
               cartItemId: `order_${latestOrder._id}_item_${idx}`,
@@ -934,16 +934,38 @@ const TableSelection = () => {
               subtotal: Number(item.subtotal) || (Number(item.price) * Number(item.quantity))
             }));
 
-            replaceCart(orderItems, {
+            // Filter out items that already exist in batches to prevent duplication
+            const batchesKey = 'pos_table_batches';
+            const allBatches = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+            const tableBatches = allBatches[table._id] || { batches: [] };
+            const batchItems = tableBatches.batches.flatMap(batch => batch.items || []);
+            const batchItemSignatures = new Set(
+              batchItems.map(item => `${item.menuItemId}-${item.name}-${item.price}`)
+            );
+
+            const filteredOrderItems = orderItems.filter(orderItem => {
+              const orderSignature = `${orderItem.menuItemId}-${orderItem.name}-${orderItem.price}`;
+              const existsInBatch = batchItemSignatures.has(orderSignature);
+              
+              if (existsInBatch) {
+                console.log(`[TABLE SELECT] Filtering out order item that exists in batch: ${orderItem.name}`);
+              }
+              
+              return !existsInBatch;
+            });
+
+            console.log(`[TABLE SELECT] Order items: ${orderItems.length}, Filtered items: ${filteredOrderItems.length}`);
+
+            replaceCart(filteredOrderItems, {
               name: latestOrder.customerName || latestOrder.customerInfo?.name || '',
               phone: latestOrder.customerPhone || latestOrder.customerInfo?.phone || '',
               orderType: latestOrder.orderType || 'dine-in'
             });
 
-            // Also save to localStorage for persistence
+            // Also save to localStorage for persistence (use filtered items)
             const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
             carts[table._id] = {
-              items: orderItems,
+              items: filteredOrderItems,
               customerInfo: {
                 name: latestOrder.customerName || latestOrder.customerInfo?.name || '',
                 phone: latestOrder.customerPhone || latestOrder.customerInfo?.phone || '',
@@ -954,7 +976,7 @@ const TableSelection = () => {
             localStorage.setItem('pos_table_carts', JSON.stringify(carts));
 
             cartLoaded = true;
-            console.log('[TABLE SELECT] Cart loaded from confirmed order');
+            console.log('[TABLE SELECT] Cart loaded from confirmed order (filtered)');
           }
         } catch (err) {
           console.error('[TABLE SELECT] Error fetching table orders:', err);

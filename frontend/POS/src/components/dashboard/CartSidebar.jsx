@@ -293,8 +293,16 @@ const CartSidebar = () => {
     if (!tableId) { setKotSentItems({}); return; }
     try {
       const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
-      setKotSentItems(all[tableId] || {});
-    } catch { setKotSentItems({}); }
+      const loaded = all[tableId] || {};
+      console.log('[CART SIDEBAR] Loaded KOT sent items for table:', tableId, {
+        itemCount: Object.keys(loaded).length,
+        items: Object.entries(loaded).map(([id, qty]) => ({ cartItemId: id, sentQty: qty }))
+      });
+      setKotSentItems(loaded);
+    } catch { 
+      console.warn('[CART SIDEBAR] Failed to load KOT sent items');
+      setKotSentItems({}); 
+    }
   }, [selectedTable && selectedTable._id]);
 
   // Clean up KOT sent items when cart items change (remove orphaned entries)
@@ -610,6 +618,26 @@ const CartSidebar = () => {
   useEffect(() => {
     setKotSent(kotStatus.allSent && kotStatus.anySent);
   }, [kotStatus.allSent, kotStatus.anySent]);
+  
+  // Filter out cart items that already exist in batches to prevent duplication
+  const filteredCartItems = useMemo(() => {
+    const batchItems = (tableBatches?.batches || []).flatMap(batch => batch.items || []);
+    const batchItemSignatures = new Set(
+      batchItems.map(item => `${item.menuItemId}-${item.name}-${item.price}`)
+    );
+    
+    return cartItems.filter(cartItem => {
+      const cartSignature = `${cartItem.menuItemId}-${cartItem.name}-${cartItem.price}`;
+      const existsInBatch = batchItemSignatures.has(cartSignature);
+      
+      if (existsInBatch) {
+        console.log(`[CART SIDEBAR] Filtering out cart item that exists in batch: ${cartItem.name}`);
+      }
+      
+      return !existsInBatch;
+    });
+  }, [cartItems, tableBatches?.batches]);
+  
   // Split bill states
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [splitCount, setSplitCount] = useState(2);
@@ -854,6 +882,13 @@ const CartSidebar = () => {
   React.useEffect(() => {
     try {
       if (!selectedTable?._id) return;
+      
+      console.log('[CART SIDEBAR] Syncing cart to table storage:', {
+        tableId: selectedTable._id,
+        itemCount: cartItems.length,
+        items: cartItems.map(item => ({ name: item.name, quantity: item.quantity }))
+      });
+      
       const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
       carts[selectedTable._id] = {
         items: cartItems,
@@ -1209,6 +1244,14 @@ const CartSidebar = () => {
   };
 
   const handleKOT = async (withPrint = false) => {
+    // Prevent multiple simultaneous calls
+    if (isProcessing) {
+      console.warn('[CART SIDEBAR] KOT already in progress, ignoring duplicate call');
+      return;
+    }
+    
+    console.log('[CART SIDEBAR] KOT started:', { withPrint, timestamp: new Date().toISOString() });
+    
     // Validate before processing
     const validationErrors = validatePOSAction('kot');
     if (validationErrors.length > 0) {
@@ -1220,14 +1263,134 @@ const CartSidebar = () => {
     setProcessingAction(withPrint ? 'kot-print' : 'kot');
     
     try {
+      // Check if there are existing customer orders for this table that just need KOT printing
+      const existingBatches = tableBatches?.batches || [];
+      const unsentCustomerOrders = existingBatches.filter(batch => {
+        // Check if this is a customer order that hasn't had KOT printed yet
+        return batch.orderId && !batch.kotPrinted && batch.sourceType === 'customer';
+      });
+      
+      console.log('[CART SIDEBAR] KOT Debug Info:', {
+        tableId: selectedTable?._id,
+        existingBatches: existingBatches.length,
+        unsentCustomerOrders: unsentCustomerOrders.length,
+        cartItems: cartItems.length,
+        batchDetails: existingBatches.map(b => ({
+          orderId: b.orderId,
+          sourceType: b.sourceType,
+          kotPrinted: b.kotPrinted
+        }))
+      });
+      
+      // First, handle any existing customer orders that need KOT printing
+      if (unsentCustomerOrders.length > 0) {
+        console.log('[CART SIDEBAR] Found existing customer orders without KOT, printing KOT for existing orders...');
+        
+        for (const batch of unsentCustomerOrders) {
+          if (withPrint) {
+            try {
+              const restaurantInfo = {
+                name: 'OrderEase Restaurant'
+              };
+              const kotPayload = {
+                order: { _id: batch.orderId, orderNumber: batch.orderNumber },
+                items: batch.items || [],
+                tableInfo: selectedTable,
+                customerInfo: batch.customer || {},
+                batchNumber: batch.orderNumber
+              };
+              
+              if (printerConfig?.printerType === 'network') {
+                const kotDestination = printerConfig?.kotDestination || 'kitchen';
+                const wantDuplicate = !!printerConfig?.kotDuplicate;
+                const iterations = wantDuplicate ? 2 : 1;
+                for (let i=0;i<iterations;i++) {
+                  const duplicate = i===1;
+                  let escpos = generateThermalKOT(kotPayload, restaurantInfo, { duplicate });
+                  escpos = Object.assign(new String(escpos), { _meta: { destination: kotDestination, type: duplicate? 'kot-duplicate':'kot' } });
+                  const res = await printThermalReceipt(escpos, printerConfig, { destination: kotDestination });
+                  if (!res?.success) {
+                    console.warn('Thermal KOT print failed, falling back to HTML (copy '+(i+1)+')');
+                    const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+                    printHTMLReceipt(html);
+                  }
+                }
+              } else {
+                const wantDuplicate = !!printerConfig?.kotDuplicate;
+                const iterations = wantDuplicate ? 2 : 1;
+                for (let i=0;i<iterations;i++) {
+                  const duplicate = i===1;
+                  const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+                  printHTMLReceipt(html);
+                }
+              }
+              
+              // Mark as KOT printed in local storage
+              const tableId = selectedTable?._id;
+              if (tableId) {
+                const batchesKey = 'pos_table_batches';
+                const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+                const entry = batchesAll[tableId];
+                if (entry && entry.batches) {
+                  const batchIndex = entry.batches.findIndex(b => b.orderId === batch.orderId);
+                  if (batchIndex !== -1) {
+                    entry.batches[batchIndex].kotPrinted = true;
+                    batchesAll[tableId] = entry;
+                    localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+                  }
+                }
+              }
+              
+            } catch (e) {
+              console.error('KOT print error for existing order:', e);
+            }
+          }
+          
+          // Update order status to indicate KOT was sent
+          try {
+            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+            await axios.patch(`${API_BASE_URL}/api/public/orders/${batch.orderId}/status`, {
+              status: 'in_progress' // Mark as in progress (KOT sent to kitchen)
+            });
+          } catch (statusError) {
+            console.warn('Failed to update order status after KOT:', statusError);
+          }
+        }
+        
+        if (unsentCustomerOrders.length > 0) {
+          toast.success(`KOT sent for existing customer orders${withPrint ? ' and printed' : ''}`);
+        }
+      }
+      
+      // Handle new cart items (if any) - this runs regardless of whether we processed customer orders above
       // Build only unsent quantities for this KOT
       const pendingItems = [];
       const itemsToUpdateKOT = []; // Track items for KOT update
+      
+      console.log('[CART SIDEBAR] KOT Processing - Current State:', {
+        tableId: selectedTable?._id,
+        totalCartItems: cartItems.length,
+        kotSentItemsCount: Object.keys(kotSentItems).length,
+        kotSentItems: Object.entries(kotSentItems).map(([id, qty]) => ({ 
+          cartItemId: id, 
+          sentQty: qty 
+        }))
+      });
       
       cartItems.forEach(item => {
         const total = Number(item.quantity) || 0;
         const sent = Number(kotSentItems[item.cartItemId] || 0);
         const pending = total - sent;
+        
+        console.log(`[CART SIDEBAR] Item calculation: ${item.name}`, {
+          cartItemId: item.cartItemId,
+          menuItemId: item.menuItemId,
+          totalQty: total,
+          sentQty: sent,
+          pendingQty: pending,
+          hasKotSentRecord: kotSentItems.hasOwnProperty(item.cartItemId)
+        });
+        
         if (pending > 0) {
           const price = Number(item.price) || 0;
           pendingItems.push({
@@ -1249,11 +1412,37 @@ const CartSidebar = () => {
       });
 
       if (pendingItems.length === 0) {
+        // If no cart items to process and we already handled customer orders above, we're done
+        if (unsentCustomerOrders.length > 0) {
+          return; // We already showed success message for customer orders
+        }
         toast.error('No new items to send to kitchen');
         return;
       }
 
       console.log('Sending KOT for items:', pendingItems.map(i => ({ name: i.name, qty: i.quantity })));
+
+      // Calculate total for only the pending items (this batch only)
+      const pendingItemsTotal = pendingItems.reduce((sum, item) => {
+        return sum + (item.price * item.quantity);
+      }, 0);
+
+      console.log('[CART SIDEBAR] KOT Debug - Sending to backend:', {
+        pendingItems: pendingItems.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          menuItemId: i.menuItemId,
+          cartItemId: i.cartItemId 
+        })),
+        pendingItemsTotal,
+        totalCartItems: cartItems.length,
+        allCartItems: cartItems.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          menuItemId: i.menuItemId,
+          cartItemId: i.cartItemId 
+        }))
+      });
 
       const orderData = {
         tableId: selectedTable?._id || null,
@@ -1269,7 +1458,7 @@ const CartSidebar = () => {
           const { cartItemId, ...orderItem } = item;
           return orderItem;
         }),
-        totalAmount: getTotal()
+        totalAmount: pendingItemsTotal // Use calculated total for this batch only
       };
 
       // Attempt create with stock enforcement; on insufficiency ask for override
@@ -1346,11 +1535,17 @@ const CartSidebar = () => {
       // Use the tracked itemsToUpdateKOT for more reliable updates
       const updatedSent = { ...kotSentItems };
       
+      console.log('[CART SIDEBAR] Updating KOT sent items:', {
+        previousKotSentItems: kotSentItems,
+        itemsToUpdate: itemsToUpdateKOT
+      });
+      
       itemsToUpdateKOT.forEach(item => {
         const { cartItemId, pendingQty } = item;
         if (cartItemId) {
-          updatedSent[cartItemId] = (updatedSent[cartItemId] || 0) + pendingQty;
-          console.log(`Updated KOT sent for ${cartItemId}: ${updatedSent[cartItemId]}`);
+          const previousSent = updatedSent[cartItemId] || 0;
+          updatedSent[cartItemId] = previousSent + pendingQty;
+          console.log(`[CART SIDEBAR] Updated KOT sent for ${cartItemId}: ${previousSent} + ${pendingQty} = ${updatedSent[cartItemId]}`);
         }
       });
       
@@ -1384,7 +1579,15 @@ const CartSidebar = () => {
       // Note: kotSent state will be automatically updated by the useEffect that watches kotStatus
       playPosSound('success');
       
-      toast.success(`KOT sent successfully${withPrint ? ' and printed' : ''}`);
+      // Create appropriate success message based on what was processed
+      let successMessage = `KOT sent successfully${withPrint ? ' and printed' : ''}`;
+      if (unsentCustomerOrders.length > 0 && pendingItems.length > 0) {
+        successMessage = `KOT sent for customer orders and new items${withPrint ? ' and printed' : ''}`;
+      } else if (pendingItems.length > 0) {
+        successMessage = `KOT sent for new items${withPrint ? ' and printed' : ''}`;
+      }
+      
+      toast.success(successMessage);
       
     } catch (error) {
       console.error('KOT Error:', error);
@@ -1975,16 +2178,16 @@ const CartSidebar = () => {
                 {/* <h6>Order Items</h6> */}
                 <>
                   {/* Batch Header display only if there any item added */}
-                  {cartItems.length > 0 && (
+                  {filteredCartItems.length > 0 && (
                     <div className="batch-headers">
                       <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
                     </div>
                   )}
 
                   {/* Cart Items List */}
-                  {cartItems.length > 0 && (
+                  {filteredCartItems.length > 0 && (
                     <>
-                      {cartItems.map((item) => {
+                      {filteredCartItems.map((item) => {
                         const total = Number(item.quantity) || 0;
                         const sent = Number(kotSentItems[item.cartItemId] || 0);
                         const pending = total - sent;
@@ -2101,18 +2304,18 @@ const CartSidebar = () => {
                 </Alert>
               )}
             </>
-              );
-            } else {
-              // Show placeholder when no cart items and no batches
-              return (
-                <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
-                  <FaShoppingCart size={48} className="text-muted mb-3" />
-                  <h5>No items added to cart</h5>
-                  <p>Add some items from the menu to get started!</p>
-                </Alert>
-              );
-            }
-          })()}
+            );
+          } else {
+            // Show placeholder when no cart items and no batches
+            return (
+              <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
+                <FaShoppingCart size={48} className="text-muted mb-3" />
+                <h5>No items added to cart</h5>
+                <p>Add some items from the menu to get started!</p>
+              </Alert>
+            );
+          }
+        })()}
 
           {/* Show Saved Orders Button - Only show when there are saved orders but section is hidden and cart is empty */}
           {!showSavedOrders && savedOrders.length > 0 && cartItems.length === 0 && (
@@ -2215,9 +2418,9 @@ const CartSidebar = () => {
                     color="danger"
                     size="sm"
                     onClick={() => handlePOSSaveOrder(false, false)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save order'}
+                    title={filteredCartItems.length === 0 ? 'Add items to cart first' : 'Save order'}
                   >
                     {isProcessing && processingAction === 'save' ? (
                       <>
@@ -2237,9 +2440,9 @@ const CartSidebar = () => {
                     color="danger"
                     size="sm"
                     onClick={() => handlePOSSaveOrder(true, false)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save and print order'}
+                    title={filteredCartItems.length === 0 ? 'Add items to cart first' : 'Save and print order'}
                   >
                     {isProcessing && processingAction === 'save-print' ? (
                       <>
@@ -2262,10 +2465,10 @@ const CartSidebar = () => {
                     color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(false)}
-                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
                     title={
-                      cartItems.length === 0 
+                      filteredCartItems.length === 0 
                         ? 'Add items to cart first' 
                         : kotStatus.allSent 
                           ? 'All items sent to kitchen' 
@@ -2292,10 +2495,10 @@ const CartSidebar = () => {
                     color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(true)}
-                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
                     title={
-                      cartItems.length === 0 
+                      filteredCartItems.length === 0 
                         ? 'Add items to cart first' 
                         : kotStatus.allSent 
                           ? 'All items sent and can be reprinted' 
