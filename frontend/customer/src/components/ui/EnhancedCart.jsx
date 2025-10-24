@@ -9,6 +9,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 import api from '../../utils/apiClient';
+import noImageFound from "../../assets/NO-image-found.png";
 
 // Import enhanced components
 import EmptyCart from './EmptyCart';
@@ -251,7 +252,7 @@ const CartItem = memo(({ item }) => {
         boxShadow: theme.shadows.sm,
         border: `1px solid ${theme.colors.border}`
       }}>        <img 
-          src={item.image || 'https://via.placeholder.com/150'} 
+          src={item.image || noImageFound} 
           alt={item.title || item.name}
           style={{
             width: '100%',
@@ -261,7 +262,7 @@ const CartItem = memo(({ item }) => {
           }}
           onError={(e) => {
             e.target.onerror = null;
-            e.target.src = 'https://via.placeholder.com/150?text=Food';
+            e.target.src = noImageFound;
           }}
         />
         {/* Price badge */}        <div style={{
