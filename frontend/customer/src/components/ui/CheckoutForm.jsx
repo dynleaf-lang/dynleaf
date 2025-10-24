@@ -1183,13 +1183,62 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       
       const totalAmount = cartTotal + calculateTax(cartTotal);
       
+      // Payment amount validation before creating Cashfree session
+      console.log('[CHECKOUT FORM] Validating payment amount:', totalAmount);
+      
+      // Payment validation constants
+      const MIN_PAYMENT_AMOUNT = 1; // Minimum ₹1 as per payment gateway requirements
+      const MAX_PAYMENT_AMOUNT = 100000; // UPI daily limit is ₹100,000
+      
+      // Validate cart is not empty
+      if (!cartItems || cartItems.length === 0) {
+        throw new Error('Cart is empty. Please add items before proceeding to payment.');
+      }
+      
+      // Validate cart total
+      if (cartTotal <= 0) {
+        throw new Error('Invalid cart total. Please refresh and try again.');
+      }
+      
+      // Validate total amount is a valid number
+      if (!totalAmount || isNaN(totalAmount) || !isFinite(totalAmount)) {
+        throw new Error('Invalid payment amount calculated. Please refresh and try again.');
+      }
+      
+      // Validate minimum amount
+      if (totalAmount < MIN_PAYMENT_AMOUNT) {
+        throw new Error(`Minimum payment amount is ₹${MIN_PAYMENT_AMOUNT}. Current amount: ₹${totalAmount.toFixed(2)}`);
+      }
+      
+      // Validate maximum amount (UPI transaction limit)
+      if (totalAmount > MAX_PAYMENT_AMOUNT) {
+        throw new Error(`Maximum payment amount is ₹${MAX_PAYMENT_AMOUNT.toLocaleString()}. Current amount: ₹${totalAmount.toFixed(2)}. Please contact us for large orders.`);
+      }
+      
+      // Validate amount precision (max 2 decimal places)
+      const roundedAmount = Number(totalAmount.toFixed(2));
+      if (Math.abs(totalAmount - roundedAmount) > 0.001) {
+        console.warn('[CHECKOUT FORM] Amount precision issue, rounding:', totalAmount, '->', roundedAmount);
+      }
+      
+      console.log('[CHECKOUT FORM] Payment amount validation passed:', {
+        cartTotal,
+        taxAmount: calculateTax(cartTotal),
+        totalAmount: roundedAmount,
+        itemCount: cartItems.length,
+        validationLimits: {
+          min: MIN_PAYMENT_AMOUNT,
+          max: MAX_PAYMENT_AMOUNT
+        }
+      });
+      
       // Step 1: Create Cashfree payment session
       console.log('[CHECKOUT FORM] Creating Cashfree payment session...');
       const rawId = `${effectiveCustomerInfo.email || effectiveCustomerInfo.phone || 'guest'}_${Date.now()}`;
       const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
       
       const cfResp = await api.public.payments.cashfree.createOrder({
-        amount: Number(totalAmount.toFixed(2)),
+        amount: roundedAmount, // Use validated and rounded amount
         currency: 'INR',
         customer: {
           name: effectiveCustomerInfo.name,
@@ -1228,7 +1277,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       setCurrentOrder({
         cfOrderId: finalOrderId,
         sessionId,
-        amount: totalAmount,
+        amount: roundedAmount, // Use validated amount
         orderData: {
           customerInfo: effectiveCustomerInfo,
           orderType,
@@ -1238,7 +1287,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
         }
       });
       setOrderCreationAttempted(false); // Not created yet
-      setLastPaymentAmount(totalAmount);
+      setLastPaymentAmount(roundedAmount); // Use validated amount
       setPaymentStatus('pending');
 
       // Step 2: Process payment using enhanced PaymentService
@@ -1248,13 +1297,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       paymentService.resetRetries();
       
       // Validate session data
-      paymentService.validateSessionData({ sessionId, amount: totalAmount, cfOrderId: finalOrderId });
+      paymentService.validateSessionData({ sessionId, amount: roundedAmount, cfOrderId: finalOrderId });
       
       try {
         const paymentResult = await paymentService.processPayment(
           {
             sessionId,
-            amount: totalAmount,
+            amount: roundedAmount, // Use validated amount
             cfOrderId: finalOrderId
           },
           {
@@ -2135,26 +2184,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           </div>
         </div>
         
-        {/* Debug info - remove in production */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={{
-            backgroundColor: '#f0f0f0',
-            padding: theme.spacing.sm,
-            borderRadius: theme.borderRadius.sm,
-            marginBottom: theme.spacing.md,
-            fontSize: theme.typography.sizes.sm,
-            fontFamily: 'monospace'
-          }}>
-            <div><strong>Payment Debug Info:</strong></div>
-            <div>Selected UPI App: {selectedUpiApp}</div>
-            <div>Total Amount: ₹{(cartTotal + calculateTax(cartTotal)).toFixed(2)}</div>
-            <div>User Agent: {navigator.userAgent.includes('Android') ? 'Android' : navigator.userAgent.includes('iPhone') ? 'iOS' : 'Desktop'}</div>
-            <div>Payment Status: {paymentStatus || 'none'}</div>
-            <div>Current Order ID: {currentOrder?.cfOrderId || 'none'}</div>
-            <div>Retry Count: {paymentRetryCount}</div>
-            <div>Cashfree SDK: {window.Cashfree ? 'Loaded' : 'Not Loaded'}</div>
-          </div>
-        )}
+        
         
         {/* Order summary section with enhanced styling */}
         <motion.div

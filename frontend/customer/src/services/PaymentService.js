@@ -244,8 +244,25 @@ export class PaymentService {
       throw new Error('Payment session ID is missing');
     }
 
-    if (!amount || amount <= 0) {
-      throw new Error('Invalid payment amount');
+    // Enhanced amount validation (consistent with CheckoutForm)
+    if (!amount || isNaN(amount) || !isFinite(amount)) {
+      throw new Error('Invalid payment amount: must be a valid number');
+    }
+
+    if (amount <= 0) {
+      throw new Error('Invalid payment amount: must be greater than 0');
+    }
+
+    // Payment limits validation (consistent with CheckoutForm)
+    const MIN_PAYMENT_AMOUNT = 1;
+    const MAX_PAYMENT_AMOUNT = 100000;
+
+    if (amount < MIN_PAYMENT_AMOUNT) {
+      throw new Error(`Payment amount too low: minimum ₹${MIN_PAYMENT_AMOUNT}, received ₹${amount}`);
+    }
+
+    if (amount > MAX_PAYMENT_AMOUNT) {
+      throw new Error(`Payment amount too high: maximum ₹${MAX_PAYMENT_AMOUNT.toLocaleString()}, received ₹${amount}`);
     }
 
     if (!cfOrderId) {
@@ -256,6 +273,13 @@ export class PaymentService {
     if (typeof sessionId !== 'string' || sessionId.length < 10) {
       throw new Error('Invalid payment session format');
     }
+
+    console.log('[PAYMENT SERVICE] Session data validation passed:', {
+      sessionId: sessionId.substring(0, 10) + '...',
+      amount,
+      cfOrderId,
+      limits: { min: MIN_PAYMENT_AMOUNT, max: MAX_PAYMENT_AMOUNT }
+    });
 
     return true;
   }
