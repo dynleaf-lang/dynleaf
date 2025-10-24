@@ -1,4 +1,4 @@
-import React, { useState, memo, useEffect } from 'react';
+import React, { useState, memo, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +31,14 @@ const spinnerStyles = `
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
 `;
 
 // Inject spinner styles
@@ -40,6 +48,70 @@ if (typeof document !== 'undefined' && !document.querySelector('#payment-spinner
   style.textContent = spinnerStyles;
   document.head.appendChild(style);
 }
+
+// Enhanced Loading Components
+const SkeletonLoader = ({ width = '100%', height = '20px', borderRadius = '4px' }) => (
+  <div
+    style={{
+      width,
+      height,
+      backgroundColor: '#f0f0f0',
+      borderRadius,
+      background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+      backgroundSize: '200% 100%',
+      animation: 'shimmer 1.5s infinite'
+    }}
+  />
+);
+
+const PaymentProcessingIndicator = ({ step, progress }) => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '24px'
+  }}>
+    <div style={{
+      width: '60px',
+      height: '60px',
+      borderRadius: '50%',
+      border: '3px solid rgba(0,0,0,0.1)',
+      borderTopColor: '#007bff',
+      animation: 'spin 1s linear infinite'
+    }} />
+    
+    <div style={{ textAlign: 'center' }}>
+      <p style={{
+        margin: 0,
+        fontSize: '16px',
+        fontWeight: '600',
+        color: '#333'
+      }}>
+        {step || 'Processing payment...'}
+      </p>
+      
+      {progress !== undefined && (
+        <div style={{
+          width: '200px',
+          height: '4px',
+          backgroundColor: '#e0e0e0',
+          borderRadius: '2px',
+          marginTop: '8px',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            width: `${progress}%`,
+            height: '100%',
+            backgroundColor: '#007bff',
+            borderRadius: '2px',
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+      )}
+    </div>
+  </div>
+);
 
 // Enhanced CheckoutForm component with better validation and user feedback
 const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
@@ -84,36 +156,288 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [registerClosed, setRegisterClosed] = useState(false);
   
-  // Payment selection (UPI only) and app preference
-  const [selectedUpiApp, setSelectedUpiApp] = useState('gpay'); // gpay | phonepe | paytm | other
-  const [showUpiDropdown, setShowUpiDropdown] = useState(false);
-  const [paymentInProgress, setPaymentInProgress] = useState(false);
-  const [paymentError, setPaymentError] = useState('');
+  // Consolidated payment state for better organization
+  const [paymentState, setPaymentState] = useState({
+    selectedUpiApp: 'gpay',
+    inProgress: false,
+    error: '',
+    status: null, // null | 'pending' | 'success' | 'failed' | 'cancelled'
+    retryCount: 0,
+    statusMessage: '',
+    amount: 0,
+    statusFinalized: false,
+    orderCreationAttempted: false
+  });
   
-  // Payment status tracking
-  const [paymentStatus, setPaymentStatus] = useState(null); // null | 'pending' | 'success' | 'failed' | 'cancelled'
-  const [currentOrder, setCurrentOrder] = useState(null); // Store current order details
-  const [paymentRetryCount, setPaymentRetryCount] = useState(0);
-  const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
-  const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
-  const [lastPaymentAmount, setLastPaymentAmount] = useState(0);
-  const [orderCreationAttempted, setOrderCreationAttempted] = useState(false);
+  // Consolidated verification state
+  const [verificationState, setVerificationState] = useState({
+    isVerifying: false,
+    progress: 0,
+    step: '',
+    attempts: 0
+  });
   
-  // Order confirmation state
-  const [showOrderConfirmation, setShowOrderConfirmation] = useState(false);
+  // Consolidated UI state
+  const [uiState, setUiState] = useState({
+    showUpiDropdown: false,
+    showPaymentStatusModal: false,
+    showSuccessToast: false,
+    showSuccessModal: false,
+    showOrderConfirmation: false
+  });
+  
+  // Order state
+  const [currentOrder, setCurrentOrder] = useState(null);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
   
-  // New professional UI state
-  const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  // Helper functions for state updates
+  const updatePaymentState = useCallback((updates) => {
+    setPaymentState(prev => ({ ...prev, ...updates }));
+  }, []);
   
-  // Payment verification state
-  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
-  const [verificationProgress, setVerificationProgress] = useState(0);
-  const [verificationStep, setVerificationStep] = useState('');
-  const [verificationAttempts, setVerificationAttempts] = useState(0);
-  const [paymentStatusFinalized, setPaymentStatusFinalized] = useState(false); // Track when payment status is determined to prevent further verification
+  const updateVerificationState = useCallback((updates) => {
+    setVerificationState(prev => ({ ...prev, ...updates }));
+  }, []);
+  
+  const updateUIState = useCallback((updates) => {
+    setUiState(prev => ({ ...prev, ...updates }));
+  }, []);
+  
+  // Backward compatibility accessors (to maintain existing functionality)
+  const selectedUpiApp = paymentState.selectedUpiApp;
+  const setSelectedUpiApp = useCallback((value) => updatePaymentState({ selectedUpiApp: value }), [updatePaymentState]);
+  const showUpiDropdown = uiState.showUpiDropdown;
+  const setShowUpiDropdown = useCallback((value) => updateUIState({ showUpiDropdown: value }), [updateUIState]);
+  const paymentInProgress = paymentState.inProgress;
+  const setPaymentInProgress = useCallback((value) => updatePaymentState({ inProgress: value }), [updatePaymentState]);
+  const paymentError = paymentState.error;
+  const setPaymentError = useCallback((value) => updatePaymentState({ error: value }), [updatePaymentState]);
+  const paymentStatus = paymentState.status;
+  const setPaymentStatus = useCallback((value) => updatePaymentState({ status: value }), [updatePaymentState]);
+  const paymentRetryCount = paymentState.retryCount;
+  const setPaymentRetryCount = useCallback((value) => updatePaymentState({ retryCount: value }), [updatePaymentState]);
+  const showPaymentStatusModal = uiState.showPaymentStatusModal;
+  const setShowPaymentStatusModal = useCallback((value) => updateUIState({ showPaymentStatusModal: value }), [updateUIState]);
+  const paymentStatusMessage = paymentState.statusMessage;
+  const setPaymentStatusMessage = useCallback((value) => updatePaymentState({ statusMessage: value }), [updatePaymentState]);
+  const lastPaymentAmount = paymentState.amount;
+  const setLastPaymentAmount = useCallback((value) => updatePaymentState({ amount: value }), [updatePaymentState]);
+  const orderCreationAttempted = paymentState.orderCreationAttempted;
+  const setOrderCreationAttempted = useCallback((value) => updatePaymentState({ orderCreationAttempted: value }), [updatePaymentState]);
+  const showOrderConfirmation = uiState.showOrderConfirmation;
+  const setShowOrderConfirmation = useCallback((value) => updateUIState({ showOrderConfirmation: value }), [updateUIState]);
+  const showSuccessToast = uiState.showSuccessToast;
+  const setShowSuccessToast = useCallback((value) => updateUIState({ showSuccessToast: value }), [updateUIState]);
+  const showSuccessModal = uiState.showSuccessModal;
+  const setShowSuccessModal = useCallback((value) => updateUIState({ showSuccessModal: value }), [updateUIState]);
+  const isVerifyingPayment = verificationState.isVerifying;
+  const setIsVerifyingPayment = useCallback((value) => updateVerificationState({ isVerifying: value }), [updateVerificationState]);
+  const verificationProgress = verificationState.progress;
+  const setVerificationProgress = useCallback((value) => updateVerificationState({ progress: value }), [updateVerificationState]);
+  const verificationStep = verificationState.step;
+  const setVerificationStep = useCallback((value) => updateVerificationState({ step: value }), [updateVerificationState]);
+  const verificationAttempts = verificationState.attempts;
+  const setVerificationAttempts = useCallback((value) => updateVerificationState({ attempts: value }), [updateVerificationState]);
+  const paymentStatusFinalized = paymentState.statusFinalized;
+  const setPaymentStatusFinalized = useCallback((value) => updatePaymentState({ statusFinalized: value }), [updatePaymentState]);
   const maxVerificationAttempts = 4; // Reduced from 6 to 4 for faster timeout
+  
+  // Enhanced error handling with categorization and user-friendly messages
+  const handleError = useCallback((error, context = 'general') => {
+    console.error(`[CHECKOUT FORM] Error in ${context}:`, error);
+    
+    // Categorize errors for better user experience
+    const errorCategories = {
+      network: /network|timeout|fetch|connection|ECONNREFUSED|NETWORK_ERROR/i,
+      validation: /validation|invalid|required|format/i,
+      payment: /payment|cashfree|upi|PAYMENT_FAILED|INSUFFICIENT_FUNDS/i,
+      server: /server|500|503|502|INTERNAL_SERVER_ERROR/i,
+      authentication: /auth|unauthorized|401|403|token/i,
+      order: /order|ORDER_NOT_FOUND|DUPLICATE_ORDER/i
+    };
+    
+    let userMessage = 'An unexpected error occurred. Please try again.';
+    let errorType = 'general';
+    
+    // Determine error type
+    const errorString = error.message || error.toString() || '';
+    for (const [type, pattern] of Object.entries(errorCategories)) {
+      if (pattern.test(errorString)) {
+        errorType = type;
+        break;
+      }
+    }
+    
+    // Generate user-friendly messages
+    switch (errorType) {
+      case 'network':
+        userMessage = 'Connection issue detected. Please check your internet and try again.';
+        break;
+      case 'validation':
+        userMessage = error.message || 'Please check your information and try again.';
+        break;
+      case 'payment':
+        userMessage = 'Payment processing issue. Your money is safe. Please try again or contact support.';
+        break;
+      case 'server':
+        userMessage = 'Server is temporarily busy. Please try again in a moment.';
+        break;
+      case 'authentication':
+        userMessage = 'Authentication issue. Please refresh the page and try again.';
+        break;
+      case 'order':
+        userMessage = 'Order processing issue. Please refresh and try again.';
+        break;
+      default:
+        userMessage = 'Something went wrong. Please try again or contact support if the issue persists.';
+    }
+    
+    setErrorMessage(userMessage);
+    
+    // Track errors for analytics (safely)
+    try {
+      if (paymentService?.getAnalytics) {
+        const analytics = paymentService.getAnalytics();
+        analytics?.trackError?.(context, errorType, errorString);
+      }
+    } catch (analyticsError) {
+      console.warn('[CHECKOUT FORM] Analytics tracking failed:', analyticsError);
+    }
+    
+    return { errorType, userMessage, originalError: error };
+  }, [paymentService, setErrorMessage]);
+  
+  // Payment Status State Machine for safer state transitions
+  const PaymentStatusMachine = {
+    IDLE: 'idle',
+    INITIALIZING: 'initializing',
+    PROCESSING: 'processing',
+    VERIFYING: 'verifying',
+    SUCCESS: 'success',
+    FAILED: 'failed',
+    CANCELLED: 'cancelled',
+    TIMEOUT: 'timeout'
+  };
+
+  const paymentStatusTransitions = {
+    [PaymentStatusMachine.IDLE]: [PaymentStatusMachine.INITIALIZING],
+    [PaymentStatusMachine.INITIALIZING]: [
+      PaymentStatusMachine.PROCESSING, 
+      PaymentStatusMachine.FAILED
+    ],
+    [PaymentStatusMachine.PROCESSING]: [
+      PaymentStatusMachine.VERIFYING,
+      PaymentStatusMachine.SUCCESS,
+      PaymentStatusMachine.FAILED,
+      PaymentStatusMachine.CANCELLED
+    ],
+    [PaymentStatusMachine.VERIFYING]: [
+      PaymentStatusMachine.SUCCESS,
+      PaymentStatusMachine.FAILED,
+      PaymentStatusMachine.TIMEOUT
+    ],
+    [PaymentStatusMachine.FAILED]: [PaymentStatusMachine.INITIALIZING], // Allow retry
+    [PaymentStatusMachine.TIMEOUT]: [PaymentStatusMachine.INITIALIZING], // Allow retry
+    [PaymentStatusMachine.CANCELLED]: [PaymentStatusMachine.INITIALIZING] // Allow retry
+  };
+
+  const isValidStatusTransition = useCallback((from, to) => {
+    return paymentStatusTransitions[from]?.includes(to) ?? false;
+  }, []);
+
+  const updatePaymentStatusSafely = useCallback((newStatus, context = '') => {
+    const currentStatus = paymentState.status || PaymentStatusMachine.IDLE;
+    
+    if (!isValidStatusTransition(currentStatus, newStatus)) {
+      console.warn(
+        `[CHECKOUT FORM] Invalid payment status transition from ${currentStatus} to ${newStatus} in context: ${context}`
+      );
+      return false;
+    }
+    
+    console.log(`[CHECKOUT FORM] Payment status: ${currentStatus} → ${newStatus} (${context})`);
+    updatePaymentState({ status: newStatus });
+    return true;
+  }, [paymentState.status, isValidStatusTransition, updatePaymentState]);
+  
+  // Performance optimizations - memoize expensive calculations
+  const orderSummary = useMemo(() => {
+    const subtotal = cartTotal || 0;
+    const tax = calculateTax(subtotal);
+    const total = subtotal + tax;
+    const itemCount = cartItems?.length || 0;
+    
+    return {
+      subtotal,
+      tax,
+      total,
+      itemCount,
+      hasItems: itemCount > 0,
+      isValidOrder: itemCount > 0 && total > 0
+    };
+  }, [cartTotal, calculateTax, cartItems?.length]);
+
+  // Memoize customer info for authenticated users to prevent unnecessary re-renders
+  const memoizedCustomerInfo = useMemo(() => 
+    isAuthenticated && user ? {
+      name: user.name || '',
+      phone: user.phone || '',
+      email: user.email || '',
+      address: orderType === 'takeaway' ? customerInfo.address || '' : undefined
+    } : customerInfo,
+    [isAuthenticated, user?.name, user?.phone, user?.email, customerInfo, orderType]
+  );
+
+  // Debounced validation for better UX
+  const debounce = (func, delay) => {
+    let timeoutId;
+    return (...args) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func.apply(null, args), delay);
+    };
+  };
+
+  const debouncedValidation = useMemo(
+    () => debounce((fieldName, value) => {
+      validateField(fieldName, value);
+    }, 300),
+    []
+  );
+
+  // Memoize UPI apps to prevent unnecessary re-renders
+  const memoizedUpiApps = useMemo(() => [
+    { 
+      key: 'gpay', 
+      label: 'Google Pay UPI',
+      icon: googlePay,
+      recommended: true
+    },
+    { 
+      key: 'phonepe', 
+      label: 'PhonePe UPI',
+      icon: phonePe
+    },
+    { 
+      key: 'paytm', 
+      label: 'Paytm UPI',
+      icon: paytmLogo
+    },
+    { 
+      key: 'cred', 
+      label: 'CRED UPI',
+      icon: credLogo
+    },
+    { 
+      key: 'amazonpay', 
+      label: 'Amazon Pay UPI',
+      icon: amazonLogo
+    }
+  ], []);
+
+  const getSelectedUpiApp = useCallback(() => 
+    memoizedUpiApps.find(app => app.key === selectedUpiApp) || memoizedUpiApps[0],
+    [memoizedUpiApps, selectedUpiApp]
+  );
   
   // Debug logging for UPI app selection
   useEffect(() => {
@@ -388,13 +712,10 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           }
       }
     } catch (error) {
-      console.error('[CHECKOUT FORM] Error checking payment status:', error);
+      const { errorType } = handleError(error, 'payment status check');
       
       // Enhanced error handling with network-aware retry logic
-      const isNetworkError = error.code === 'NETWORK_ERROR' || 
-                           error.message?.includes('network') || 
-                           error.message?.includes('timeout') ||
-                           !navigator.onLine;
+      const isNetworkError = errorType === 'network' || !navigator.onLine;
       
       if (isNetworkError) {
         console.log('[CHECKOUT FORM] Network error detected, adjusting retry strategy');
@@ -442,12 +763,12 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     setPaymentInProgress(false);
     setShowPaymentStatusModal(false); // Hide payment status modal
     setShowSuccessToast(true); // Show success toast first
-    setPaymentStatus('success');
+    updatePaymentStatusSafely(PaymentStatusMachine.SUCCESS, 'payment successful');
     setPaymentStatusMessage('Payment received. Finalizing your order...');
 
     if (orderCreationAttempted) {
       console.log('[CHECKOUT FORM] Order creation already attempted, skipping duplicate call.');
-      setPaymentStatus('success');
+      updatePaymentStatusSafely(PaymentStatusMachine.SUCCESS, 'order already created');
       setPaymentStatusMessage('Payment successful! Your order has been placed.');
       return;
     }
@@ -532,19 +853,24 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       }, 2500); // Show toast for 2.5 seconds, then show modal
 
     } catch (error) {
-      console.error('[CHECKOUT FORM] Order creation after payment failed:', error);
+      const { errorType, userMessage } = handleError(error, 'order creation after payment');
+      
       setPaymentStatus('success');
       setPaymentStatusMessage(
         `Payment received successfully. We could not finalize the order automatically. Please contact support with reference ${cfOrderId || 'N/A'}.`
       );
       setIsSubmitting(false);
       
-      // Show error notification
+      // Show appropriate notification based on error type
       try {
+        const notificationMessage = errorType === 'network' 
+          ? `Payment captured but we're having connection issues. Your order will be processed. Reference: ${cfOrderId || 'N/A'}.`
+          : `Payment captured but order confirmation is pending. Reference: ${cfOrderId || 'N/A'}. Please contact support if you do not receive a confirmation shortly.`;
+          
         addNotification?.({
           type: 'system',
           title: 'Order confirmation pending',
-          message: `Payment captured but order confirmation is pending. Reference: ${cfOrderId || 'N/A'}. Please contact support if you do not receive a confirmation shortly.`,
+          message: notificationMessage,
           icon: 'info',
           priority: 'high'
         });
@@ -562,7 +888,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
-    setPaymentStatus('failed');
+    updatePaymentStatusSafely(PaymentStatusMachine.FAILED, 'payment failed');
     setPaymentInProgress(false);
     setPaymentStatusMessage(message);
     setShowPaymentStatusModal(true);
@@ -580,7 +906,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
-    setPaymentStatus('cancelled');
+    updatePaymentStatusSafely(PaymentStatusMachine.CANCELLED, 'payment cancelled');
     setPaymentInProgress(false);
     setPaymentStatusMessage('Payment was cancelled. You can try again or choose a different payment method.');
     setShowPaymentStatusModal(true);
@@ -590,7 +916,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   // Handle pending payment
   const handlePaymentPending = () => {
     console.log('[CHECKOUT FORM] Payment is still pending');
-    setPaymentStatus('pending');
+    updatePaymentStatusSafely(PaymentStatusMachine.PROCESSING, 'payment pending');
     setPaymentStatusMessage('Payment is being processed. Please wait...');
     
     // Show modal if not already shown
@@ -925,38 +1251,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   
   
-  // UPI Apps Configuration
-  const upiApps = [
-    { 
-      key: 'gpay', 
-      label: 'Google Pay UPI',
-      icon: googlePay,
-      recommended: true
-    },
-    { 
-      key: 'phonepe', 
-      label: 'PhonePe UPI',
-      icon: phonePe
-    },
-    { 
-      key: 'paytm', 
-      label: 'Paytm UPI',
-      icon: paytmLogo
-    },
-    { 
-      key: 'cred', 
-      label: 'CRED UPI',
-      icon: credLogo
-    },
-    { 
-      key: 'amazonpay', 
-      label: 'Amazon Pay UPI',
-      icon: amazonLogo
-    }
-  ];
-
-  const getSelectedUpiApp = () => upiApps.find(app => app.key === selectedUpiApp) || upiApps[0];
-  
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1000,8 +1294,149 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     validateField(name, customerInfo[name]);
   };
   
-  // Validate a single field
-  const validateField = (name, value) => {
+  // Enhanced validation rules with comprehensive error messages
+  const validationRules = {
+    name: {
+      required: true,
+      minLength: 2,
+      maxLength: 50,
+      pattern: /^[a-zA-Z\s'-]+$/,
+      message: 'Name must contain only letters, spaces, hyphens, and apostrophes'
+    },
+    phone: {
+      required: false,
+      pattern: /^[\+]?[1-9][\d]{0,15}$/,
+      message: 'Please enter a valid phone number'
+    },
+    email: {
+      required: false,
+      pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: 'Please enter a valid email address'
+    },
+    address: {
+      required: orderType === 'takeaway',
+      minLength: 10,
+      maxLength: 200,
+      message: 'Address must be between 10-200 characters'
+    }
+  };
+
+  // Enhanced validation function with better error messages
+  const validateField = useCallback((fieldName, value) => {
+    const rules = validationRules[fieldName];
+    if (!rules) return true;
+    
+    // Required field validation
+    if (rules.required && (!value || !value.toString().trim())) {
+      setFormErrors(prev => ({
+        ...prev,
+        [fieldName]: `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} is required`
+      }));
+      return false;
+    }
+    
+    // Skip other validations if field is empty and not required
+    if (!value && !rules.required) {
+      setFormErrors(prev => ({ ...prev, [fieldName]: '' }));
+      return true;
+    }
+    
+    const stringValue = value.toString().trim();
+    
+    // Length validations
+    if (rules.minLength && stringValue.length < rules.minLength) {
+      setFormErrors(prev => ({
+        ...prev,
+        [fieldName]: `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} must be at least ${rules.minLength} characters`
+      }));
+      return false;
+    }
+    
+    if (rules.maxLength && stringValue.length > rules.maxLength) {
+      setFormErrors(prev => ({
+        ...prev,
+        [fieldName]: `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} must not exceed ${rules.maxLength} characters`
+      }));
+      return false;
+    }
+    
+    // Pattern validation
+    if (rules.pattern && !rules.pattern.test(stringValue)) {
+      setFormErrors(prev => ({
+        ...prev,
+        [fieldName]: rules.message
+      }));
+      return false;
+    }
+    
+    // Clear error if validation passes
+    setFormErrors(prev => ({ ...prev, [fieldName]: '' }));
+    return true;
+  }, [orderType]);
+  
+  // Security enhancements - input sanitization and XSS prevention
+  const sanitizeInput = useCallback((value, type = 'text') => {
+    if (!value) return '';
+    
+    let sanitized = value.toString().trim();
+    
+    switch (type) {
+      case 'name':
+        // Remove any potentially harmful characters but allow international names
+        sanitized = sanitized.replace(/[<>\"'&]/g, '');
+        // Remove script tags and other dangerous content
+        sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        // Allow letters, spaces, hyphens, apostrophes, and basic accented characters
+        sanitized = sanitized.replace(/[^\w\s'-]/g, '');
+        break;
+      case 'phone':
+        // Keep only numbers, +, -, (, ), and spaces
+        sanitized = sanitized.replace(/[^\d\+\-\(\)\s]/g, '');
+        break;
+      case 'email':
+        // Basic email sanitization - remove dangerous characters
+        sanitized = sanitized.toLowerCase().replace(/[^\w@\.\-\+]/g, '');
+        break;
+      case 'address':
+        // Remove script tags and potentially harmful content
+        sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        sanitized = sanitized.replace(/[<>\"']/g, '');
+        // Remove any SQL injection attempts
+        sanitized = sanitized.replace(/(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)/gi, '');
+        break;
+      default:
+        // General sanitization for other fields
+        sanitized = sanitized.replace(/[<>\"'&]/g, '');
+        sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+    }
+    
+    return sanitized;
+  }, []);
+  
+  // Enhanced input change handler with sanitization
+  const handleInputChangeSanitized = useCallback((e) => {
+    const { name, value } = e.target;
+    const sanitizedValue = sanitizeInput(value, name);
+    
+    setCustomerInfo(prev => ({
+      ...prev,
+      [name]: sanitizedValue
+    }));
+    
+    // Clear error for this field if any
+    if (formErrors[name]) {
+      setFormErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+    
+    // Debounced validation
+    debouncedValidation(name, sanitizedValue);
+  }, [formErrors, debouncedValidation, sanitizeInput]);
+  
+  // Validate a single field (legacy support)
+  const validateFieldLegacy = (name, value) => {
     let error = '';
     
     switch (name) {
@@ -1041,59 +1476,47 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   // Validate all form fields
   const validateForm = () => {
-    // For authenticated users, only validate address if it's takeaway
+    // For authenticated users, use their account info and only validate address if needed
     if (isAuthenticated && user) {
       if (orderType === 'takeaway') {
-        if (!customerInfo.address || !customerInfo.address.trim()) {
-          setFormErrors({ address: "Address is required for takeaway orders" });
-          setFormTouched({ address: true });
+        const isAddressValid = validateField('address', customerInfo.address);
+        if (!isAddressValid) {
+          setFormTouched(prev => ({ ...prev, address: true }));
           return false;
         }
       }
       return true;
     }
     
-    // For non-authenticated users, validate all fields as before
+    // For non-authenticated users, validate all required fields using enhanced validation
     let isValid = true;
-    let newFormTouched = {};
-    let newErrors = {};
+    const newFormTouched = {};
+    const fieldsToValidate = ['name'];
     
-    // Validate name (always required)
-    if (!customerInfo.name.trim()) {
-      newErrors.name = "Name is required";
-      isValid = false;
-    } else if (customerInfo.name.trim().length < 2) {
-      newErrors.name = "Name must be at least 2 characters";
-      isValid = false;
-    }
+    // Add optional fields to validation if they have values
+    if (customerInfo.phone) fieldsToValidate.push('phone');
+    if (customerInfo.email) fieldsToValidate.push('email');
     
-    // Validate phone if provided
-    if (customerInfo.phone && !/^[0-9+\s()-]{10,15}$/.test(customerInfo.phone)) {
-      newErrors.phone = "Please enter a valid phone number";
-      isValid = false;
-    }
-    
-    // Validate email if provided
-    if (customerInfo.email && !/\S+@\S+\.\S+/.test(customerInfo.email)) {
-      newErrors.email = "Please enter a valid email address";
-      isValid = false;
-    }
-    
-    // Validate address for takeaway orders
+    // Always validate address for takeaway orders
     if (orderType === 'takeaway') {
-      if (!customerInfo.address || !customerInfo.address.trim()) {
-        newErrors.address = "Address is required for takeaway orders";
+      fieldsToValidate.push('address');
+    }
+    
+    // Validate each field
+    fieldsToValidate.forEach(fieldName => {
+      const fieldValue = customerInfo[fieldName] || '';
+      const fieldIsValid = validateField(fieldName, fieldValue);
+      
+      newFormTouched[fieldName] = true;
+      
+      if (!fieldIsValid) {
         isValid = false;
       }
-    }
-    
-    // Mark all fields as touched when submitting
-    Object.keys(customerInfo).forEach(key => {
-      newFormTouched[key] = true;
     });
     
-    setFormErrors(newErrors);
-    setFormTouched(newFormTouched);
+    // Update touched state
+    setFormTouched(prev => ({ ...prev, ...newFormTouched }));
+    
     return isValid;
   };
   // Handle form submission
@@ -1178,10 +1601,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       setPaymentError('');
       setPaymentInProgress(true);
       
+      // Initialize payment state machine
+      updatePaymentStatusSafely(PaymentStatusMachine.INITIALIZING, 'payment process started');
+      
       // Reset payment status finalized flag for new payment attempt
       setPaymentStatusFinalized(false);
       
-      const totalAmount = cartTotal + calculateTax(cartTotal);
+      const totalAmount = orderSummary.total;
       
       // Payment amount validation before creating Cashfree session
       console.log('[CHECKOUT FORM] Validating payment amount:', totalAmount);
@@ -1190,13 +1616,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       const MIN_PAYMENT_AMOUNT = 1; // Minimum ₹1 as per payment gateway requirements
       const MAX_PAYMENT_AMOUNT = 100000; // UPI daily limit is ₹100,000
       
-      // Validate cart is not empty
-      if (!cartItems || cartItems.length === 0) {
+      // Validate cart using memoized order summary
+      if (!orderSummary.hasItems) {
         throw new Error('Cart is empty. Please add items before proceeding to payment.');
       }
       
       // Validate cart total
-      if (cartTotal <= 0) {
+      if (!orderSummary.isValidOrder) {
         throw new Error('Invalid cart total. Please refresh and try again.');
       }
       
@@ -1222,10 +1648,10 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       }
       
       console.log('[CHECKOUT FORM] Payment amount validation passed:', {
-        cartTotal,
-        taxAmount: calculateTax(cartTotal),
+        cartTotal: orderSummary.subtotal,
+        taxAmount: orderSummary.tax,
         totalAmount: roundedAmount,
-        itemCount: cartItems.length,
+        itemCount: orderSummary.itemCount,
         validationLimits: {
           min: MIN_PAYMENT_AMOUNT,
           max: MAX_PAYMENT_AMOUNT
@@ -1414,6 +1840,38 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       retryCount={retryCount}
       maxRetries={maxRetries}
     >
+      {/* Show skeleton loader when SDK is loading */}
+      {sdkLoading && (
+        <div style={{ padding: theme.spacing.lg }}>
+          <div style={{ marginBottom: theme.spacing.lg }}>
+            <SkeletonLoader height="24px" width="150px" />
+            <div style={{ marginTop: theme.spacing.sm }}>
+              <SkeletonLoader height="48px" />
+            </div>
+          </div>
+          
+          <div style={{ marginBottom: theme.spacing.lg }}>
+            <SkeletonLoader height="20px" width="100px" />
+            <div style={{ marginTop: theme.spacing.sm }}>
+              <SkeletonLoader height="40px" />
+            </div>
+          </div>
+          
+          <div style={{ marginBottom: theme.spacing.lg }}>
+            <SkeletonLoader height="20px" width="80px" />
+            <div style={{ marginTop: theme.spacing.sm }}>
+              <SkeletonLoader height="40px" />
+            </div>
+          </div>
+          
+          <div style={{ marginTop: theme.spacing.xl }}>
+            <SkeletonLoader height="48px" />
+          </div>
+        </div>
+      )}
+      
+      {/* Show form when SDK is ready */}
+      {!sdkLoading && (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1883,10 +2341,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   id="name"
                   name="name"
                   value={customerInfo.name}
-                  onChange={handleInputChange}
+                  onChange={handleInputChangeSanitized}
                   onBlur={handleBlur}
                   placeholder="Your Name"
                   required
+                  aria-required="true"
+                  aria-describedby={formErrors.name && formTouched.name ? "name-error" : undefined}
+                  aria-invalid={formErrors.name && formTouched.name ? "true" : "false"}
                   className={formErrors.name ? 'form-error' : ''}
                   style={{
                     width: '100%',
@@ -1902,6 +2363,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 />
                 <span 
                   className="material-icons"
+                  aria-hidden="true"
                   style={{ 
                     position: 'absolute', 
                     left: theme.spacing.sm, 
@@ -1915,15 +2377,21 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 </span>
               </div>
               {formErrors.name && formTouched.name && (
-                <p style={{ 
-                  color: theme.colors.danger, 
-                  fontSize: theme.typography.sizes.sm,
-                  marginTop: theme.spacing.xs,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: theme.spacing.xs
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                <p 
+                  id="name-error"
+                  role="alert"
+                  style={{ 
+                    color: theme.colors.danger, 
+                    fontSize: theme.typography.sizes.sm,
+                    marginTop: theme.spacing.xs,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: theme.spacing.xs
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '14px' }} aria-hidden="true">
+                    error_outline
+                  </span>
                   {formErrors.name}
                 </p>
               )}
@@ -1949,10 +2417,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 <input
                   id="phone"
                   name="phone"
+                  type="tel"
                   value={customerInfo.phone}
-                  onChange={handleInputChange}
+                  onChange={handleInputChangeSanitized}
                   onBlur={handleBlur}
                   placeholder="Your Phone Number"
+                  aria-describedby={formErrors.phone && formTouched.phone ? "phone-error phone-help" : "phone-help"}
+                  aria-invalid={formErrors.phone && formTouched.phone ? "true" : "false"}
                   style={{
                     width: '100%',
                     padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
@@ -1967,6 +2438,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 />
                 <span 
                   className="material-icons"
+                  aria-hidden="true"
                   style={{ 
                     position: 'absolute', 
                     left: theme.spacing.sm, 
@@ -1979,16 +2451,30 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   smartphone
                 </span>
               </div>
+              <p id="phone-help" style={{ 
+                fontSize: theme.typography.sizes.xs,
+                color: theme.colors.text.secondary,
+                marginTop: theme.spacing.xs,
+                marginBottom: 0
+              }}>
+                Optional: For order updates and delivery coordination
+              </p>
               {formErrors.phone && formTouched.phone && (
-                <p style={{ 
-                  color: theme.colors.danger, 
-                  fontSize: theme.typography.sizes.sm,
-                  marginTop: theme.spacing.xs,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: theme.spacing.xs
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                <p 
+                  id="phone-error"
+                  role="alert"
+                  style={{ 
+                    color: theme.colors.danger, 
+                    fontSize: theme.typography.sizes.sm,
+                    marginTop: theme.spacing.xs,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: theme.spacing.xs
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '14px' }} aria-hidden="true">
+                    error_outline
+                  </span>
                   {formErrors.phone}
                 </p>
               )}
@@ -2016,9 +2502,12 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   name="email"
                   type="email"
                   value={customerInfo.email}
-                  onChange={handleInputChange}
+                  onChange={handleInputChangeSanitized}
                   onBlur={handleBlur}
                   placeholder="Your Email Address"
+                  aria-describedby={formErrors.email && formTouched.email ? "email-error email-help" : "email-help"}
+                  aria-invalid={formErrors.email && formTouched.email ? "true" : "false"}
+                  autoComplete="email"
                   style={{
                     width: '100%',
                     padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
@@ -2033,6 +2522,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 />
                 <span 
                   className="material-icons"
+                  aria-hidden="true"
                   style={{ 
                     position: 'absolute', 
                     left: theme.spacing.sm, 
@@ -2045,16 +2535,30 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   email
                 </span>
               </div>
+              <p id="email-help" style={{ 
+                fontSize: theme.typography.sizes.xs,
+                color: theme.colors.text.secondary,
+                marginTop: theme.spacing.xs,
+                marginBottom: 0
+              }}>
+                Optional: For order confirmation and receipts
+              </p>
               {formErrors.email && formTouched.email && (
-                <p style={{ 
-                  color: theme.colors.danger, 
-                  fontSize: theme.typography.sizes.sm,
-                  marginTop: theme.spacing.xs,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: theme.spacing.xs
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+                <p 
+                  id="email-error"
+                  role="alert"
+                  style={{ 
+                    color: theme.colors.danger, 
+                    fontSize: theme.typography.sizes.sm,
+                    marginTop: theme.spacing.xs,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: theme.spacing.xs
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '14px' }} aria-hidden="true">
+                    error_outline
+                  </span>
                   {formErrors.email}
                 </p>
               )}
@@ -2085,9 +2589,14 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 id="address"
                 name="address"
                 value={customerInfo.address || ''}
-                onChange={handleInputChange}
+                onChange={handleInputChangeSanitized}
                 onBlur={handleBlur}
                 placeholder="Your Delivery Address"
+                required={orderType === 'takeaway'}
+                aria-required={orderType === 'takeaway' ? "true" : "false"}
+                aria-describedby={formErrors.address && formTouched.address ? "address-error address-help" : "address-help"}
+                aria-invalid={formErrors.address && formTouched.address ? "true" : "false"}
+                rows="3"
                 style={{
                   width: '100%',
                   padding: `${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.md} ${theme.spacing.xl}`,
@@ -2105,6 +2614,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
               />
               <span 
                 className="material-icons"
+                aria-hidden="true"
                 style={{ 
                   position: 'absolute', 
                   left: theme.spacing.sm, 
@@ -2116,16 +2626,30 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 location_on
               </span>
             </div>
+            <p id="address-help" style={{ 
+              fontSize: theme.typography.sizes.xs,
+              color: theme.colors.text.secondary,
+              marginTop: theme.spacing.xs,
+              marginBottom: 0
+            }}>
+              Include street address, building/apartment number, and any delivery instructions
+            </p>
             {formErrors.address && formTouched.address && (
-              <p style={{ 
-                color: theme.colors.danger, 
-                fontSize: theme.typography.sizes.sm,
-                marginTop: theme.spacing.xs,
-                display: 'flex',
-                alignItems: 'center',
-                gap: theme.spacing.xs
-              }}>
-                <span className="material-icons" style={{ fontSize: '14px' }}>error_outline</span>
+              <p 
+                id="address-error"
+                role="alert"
+                style={{ 
+                  color: theme.colors.danger, 
+                  fontSize: theme.typography.sizes.sm,
+                  marginTop: theme.spacing.xs,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.xs
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '14px' }} aria-hidden="true">
+                  error_outline
+                </span>
                 {formErrors.address}
               </p>
             )}
@@ -2337,6 +2861,21 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
               {/* Pay Using Dropdown */}
               <div 
                 onClick={() => setShowUpiDropdown(!showUpiDropdown)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setShowUpiDropdown(!showUpiDropdown);
+                  }
+                  if (e.key === 'Escape') {
+                    setShowUpiDropdown(false);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-haspopup="listbox"
+                aria-expanded={showUpiDropdown}
+                aria-describedby="upi-dropdown-help"
+                aria-label="Select UPI payment app"
                 style={{
                   backgroundColor: 'white',
                   border: `1px solid ${theme.colors.border}`,
@@ -2399,19 +2938,23 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
 
               {/* UPI Apps Dropdown */}
               {showUpiDropdown && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  backgroundColor: 'white',
-                  border: `1px solid ${theme.colors.border}`,
-                  borderRadius: theme.borderRadius.md,
-                  boxShadow: theme.shadows.lg,
-                  zIndex: 1000,
-                  marginTop: '4px',
-                  overflow: 'hidden'
-                }}>
+                <div 
+                  role="listbox"
+                  aria-label="Select UPI payment app"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: `1px solid ${theme.colors.border}`,
+                    borderRadius: theme.borderRadius.md,
+                    boxShadow: theme.shadows.lg,
+                    zIndex: 1000,
+                    marginTop: '4px',
+                    overflow: 'hidden'
+                  }}
+                >
                   {/* Recommended Section */}
                   <div style={{
                     padding: `${theme.spacing.xs} ${theme.spacing.md}`,
@@ -2427,9 +2970,23 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   </div>
                   
                   {/* UPI Apps List */}
-                  {upiApps.map(app => (
+                  {upiApps.map((app, index) => (
                     <div
                       key={app.key}
+                      role="option"
+                      aria-selected={selectedUpiApp === app.key}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
+                          setSelectedUpiApp(app.key);
+                          setShowUpiDropdown(false);
+                        }
+                        if (e.key === 'Escape') {
+                          setShowUpiDropdown(false);
+                        }
+                      }}
                       onClick={() => {
                         console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
                         
@@ -2535,6 +3092,15 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   </div>
                 </div>
               )}
+              
+              <p id="upi-dropdown-help" style={{ 
+                fontSize: theme.typography.sizes.xs,
+                color: theme.colors.text.secondary,
+                marginTop: theme.spacing.xs,
+                marginBottom: 0
+              }}>
+                Select your preferred UPI app for secure payment
+              </p>
             </div>
             
             {/* Payment instruction */}
@@ -2561,6 +3127,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             <motion.button
               type="submit"
               disabled={isSubmitting || registerClosed || paymentInProgress}
+              aria-describedby="submit-button-help"
+              aria-label={`${registerClosed ? 'Ordering is currently paused' : `Pay and place order for ${orderSummary.total.toFixed(2)} rupees`}`}
               whileHover={!isSubmitting ? { scale: 1.01 } : {}}
               whileTap={!isSubmitting ? { scale: 0.98 } : {}}
               style={{
@@ -2593,7 +3161,12 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                       borderTopColor: 'white',
                       animation: 'spin 1s linear infinite',
                     }} />
-                    {paymentInProgress ? 'Starting Payment...' : 'Processing Order...'}
+                    {isVerifyingPayment 
+                      ? `Verifying Payment... (${verificationAttempts}/${maxVerificationAttempts})`
+                      : paymentInProgress 
+                      ? 'Starting Payment...' 
+                      : 'Processing Order...'
+                    }
                   </>
                 </div>
               ) : (
@@ -2612,6 +3185,18 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                 </div>
               )}
             </motion.button>
+            <p id="submit-button-help" style={{ 
+              fontSize: theme.typography.sizes.xs,
+              color: theme.colors.text.secondary,
+              marginTop: theme.spacing.xs,
+              textAlign: 'center',
+              marginBottom: 0
+            }}>
+              {registerClosed 
+                ? 'We are currently not accepting new orders. Please try again later.'
+                : `${getSelectedUpiApp().label} will open for secure payment when you place your order`
+              }
+            </p>
           </div>
          
       </form>
@@ -2643,6 +3228,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
         />
       )}
     </motion.div>
+    )}
     </PaymentSDKLoader>
   );
 });
