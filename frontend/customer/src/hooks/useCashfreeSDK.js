@@ -17,13 +17,11 @@ export const useCashfreeSDK = () => {
   const loadStartTime = useRef(null);
 
   const loadSDK = () => {
-    return new Promise((resolve, reject) => {
-      console.log('[CASHFREE SDK] Attempting to load SDK...');
+    return new Promise((resolve, reject) => { 
       loadStartTime.current = Date.now();
       
       // Check if already loaded
-      if (window.Cashfree) {
-        console.log('[CASHFREE SDK] Already loaded');
+      if (window.Cashfree) { 
         const loadTime = Date.now() - loadStartTime.current;
         analytics.current.trackSDKLoaded(loadTime);
         setSdkLoaded(true);
@@ -35,8 +33,7 @@ export const useCashfreeSDK = () => {
 
       // Check if script already exists
       const existingScript = document.querySelector('script[src*="cashfree.com"]');
-      if (existingScript) {
-        console.log('[CASHFREE SDK] Script tag exists, waiting for load...');
+      if (existingScript) { 
         
         const checkSDK = () => {
           if (window.Cashfree) {

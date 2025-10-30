@@ -7,10 +7,35 @@ export class PaymentAnalytics {
     this.sessionId = this.generateSessionId();
     this.events = [];
     this.startTime = Date.now();
+    this.apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    this.enabled = import.meta.env.PROD; // Only enable analytics in production
+    
+    // Debug logging for configuration
+    console.log('[PAYMENT ANALYTICS] Configuration:', {
+      apiUrl: this.apiUrl,
+      enabled: this.enabled,
+      environment: import.meta.env.NODE_ENV,
+      mode: import.meta.env.MODE
+    });
   }
 
   generateSessionId() {
     return `pay_analytics_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  }
+
+  /**
+   * Enable or disable analytics
+   */
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    console.log(`[PAYMENT ANALYTICS] Analytics ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Check if analytics is enabled
+   */
+  isEnabled() {
+    return this.enabled;
   }
 
   /**
@@ -52,19 +77,29 @@ export class PaymentAnalytics {
    */
   async sendToAnalytics(event) {
     try {
-      // Only send in production to avoid cluttering dev logs
-      if (import.meta.env.PROD) {
-        // Send to backend analytics endpoint
-        await fetch('/api/analytics/payment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(event)
-        });
+      // Only send analytics if enabled
+      if (!this.enabled) {
+        console.log('[PAYMENT ANALYTICS] Analytics disabled, skipping event:', event.event);
+        return;
       }
+
+      // Send to backend analytics endpoint using the correct API URL
+      const response = await fetch(`${this.apiUrl}/api/analytics/payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Analytics API responded with status: ${response.status}`);
+      }
+
+      console.log('[PAYMENT ANALYTICS] Event sent successfully:', event.event);
     } catch (error) {
       console.warn('[PAYMENT ANALYTICS] Failed to send event:', error);
+      // Don't throw error - analytics failure shouldn't break payment flow
     }
   }
 
