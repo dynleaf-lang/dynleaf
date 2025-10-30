@@ -3,6 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Table = require('../models/DiningTables.js');
 const { publicAccess } = require('../middleware/authMiddleware');
+const { emitTableStatusUpdate } = require('../utils/socketUtils');
 
 // Make all routes in this file public
 router.use(publicAccess);
@@ -104,7 +105,16 @@ router.patch('/:id/status', async (req, res) => {
         // Build update object
     const updateData = { status: normalizedStatus };
         if (currentOrderId !== undefined) {
-            updateData.currentOrderId = currentOrderId;
+            // The table model uses 'currentOrder' field, not 'currentOrderId'
+            updateData.currentOrder = currentOrderId;
+        }
+        
+        // Set isOccupied based on status
+        if (normalizedStatus === 'occupied') {
+            updateData.isOccupied = true;
+        } else if (normalizedStatus === 'available') {
+            updateData.isOccupied = false;
+            updateData.currentOrder = null;
         }
         
         // Update the table
@@ -118,7 +128,17 @@ router.patch('/:id/status', async (req, res) => {
             return res.status(404).json({ message: 'Table not found' });
         }
         
-    console.log(`[PUBLIC TABLES] Table ${id} status updated to: ${normalizedStatus}`);
+        console.log(`[PUBLIC TABLES] Table ${id} status updated to: ${normalizedStatus}`);
+        
+        // Emit socket event for real-time updates
+        try {
+            await emitTableStatusUpdate(updatedTable, normalizedStatus, 'manual_update');
+            console.log(`[PUBLIC TABLES] Socket event emitted for table ${id}`);
+        } catch (socketError) {
+            console.error('[PUBLIC TABLES] Error emitting socket event:', socketError);
+            // Don't fail the request if socket emission fails
+        }
+        
         res.json({ 
             message: 'Table status updated successfully',
             table: updatedTable 

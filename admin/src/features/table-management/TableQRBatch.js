@@ -51,7 +51,7 @@ const TableQRBatch = () => {
   const branchId = t.branchId;
   const tableCode = t.tableId || t.TableCode || t.TableName || t._id; // prefer human code
   const tableName = t.TableName || `Table ${tableCode}`;
-
+  
     if (mode === 'whatsapp') {
       const number = (waNumber || '').replace(/\D/g, '');
   const text = `Hi, I'd like to view the menu. Here's my reference id\n\nurn:dynleaf:restaurant_tables:${tableCode}`;

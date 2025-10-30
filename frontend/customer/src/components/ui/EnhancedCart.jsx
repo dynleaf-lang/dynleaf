@@ -9,6 +9,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import CurrencyDisplay from '../Utils/CurrencyFormatter';
 import { theme } from '../../data/theme';
 import api from '../../utils/apiClient';
+import noImageFound from "../../assets/NO-image-found.png";
 
 // Import enhanced components
 import EmptyCart from './EmptyCart';
@@ -84,7 +85,7 @@ const StepsIndicator = memo(({ checkoutStep = 'cart' }) => {
   
   // Helper function to determine step status
   const getStepStatus = (stepId) => {
-    const stepOrder = { cart: 1, checkout: 2, confirmation: 3 };
+    const stepOrder = { cart: 1, checkout: 2, success: 3, confirmation: 4 };
     const currentStepOrder = stepOrder[checkoutStep];
     const thisStepOrder = stepOrder[stepId];
     
@@ -251,7 +252,7 @@ const CartItem = memo(({ item }) => {
         boxShadow: theme.shadows.sm,
         border: `1px solid ${theme.colors.border}`
       }}>        <img 
-          src={item.image || 'https://via.placeholder.com/150'} 
+          src={item.image || noImageFound} 
           alt={item.title || item.name}
           style={{
             width: '100%',
@@ -261,7 +262,7 @@ const CartItem = memo(({ item }) => {
           }}
           onError={(e) => {
             e.target.onerror = null;
-            e.target.src = 'https://via.placeholder.com/150?text=Food';
+            e.target.src = noImageFound;
           }}
         />
         {/* Price badge */}        <div style={{
@@ -807,9 +808,9 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         setOrderPlaced(false); // Reset order placed state
         setCurrentOrder(null); // Clear any stale order data
       }
-      // If order has been placed and we have a current order, show confirmation
+      // If order has been placed and we have a current order, show success first
       else if (orderPlaced && currentOrder) {
-        setCheckoutStep('confirmation');
+        setCheckoutStep('success');
       } 
       // Otherwise start at cart
       else {
@@ -942,7 +943,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
             
             // Delay to show loading state and make transition smoother
             setTimeout(() => {
-              setCheckoutStep('confirmation');
+              setCheckoutStep('success'); // Show success modal first
               setIsLoading(false);
             }, 1000);
           } else if (orderResponse === null) {
@@ -1166,26 +1167,42 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
         // Ensure we're on checkout step while verifying
         setCheckoutStep('checkout');
 
-        // Poll Cashfree for payment success up to ~60s
+        // Optimized polling: Aggressive start, then exponential backoff (max 30s instead of 60s)
         let paid = false;
-        for (let i = 0; i < 12; i++) {
-          await new Promise(r => setTimeout(r, 5000));
+        const pollIntervals = [1000, 2000, 3000, 5000, 8000, 10000]; // 1s, 2s, 3s, 5s, 8s, 10s = ~30s total
+        
+        for (let i = 0; i < pollIntervals.length; i++) {
+          await new Promise(r => setTimeout(r, pollIntervals[i]));
+          
           try {
+            // Quick order status check first (faster than payment details)
+            const orderStatus = await api.public.payments.cashfree.getOrder(cfOrderId);
+            if (orderStatus?.data?.order_status === 'PAID') {
+              paid = true;
+              console.log('[ENHANCED CART] Payment confirmed via order status');
+              break;
+            }
+            
+            // If order status unclear, check payment details
             const payList = await api.public.payments.cashfree.getPayments(cfOrderId);
             const arr = payList?.data || [];
             const success = arr.find(p => (p.payment_status || '').toLowerCase() === 'success');
-            if (success) { paid = true; break; }
+            if (success) { 
+              paid = true; 
+              console.log('[ENHANCED CART] Payment confirmed via payment details');
+              break; 
+            }
           } catch (err) {
             // Continue polling on transient errors
-            console.warn('[ENHANCED CART] Payment poll error:', err?.message || err);
+            console.warn(`[ENHANCED CART] Payment poll attempt ${i + 1} failed:`, err?.message || err);
           }
         }
 
         if (!paid) {
           setIsPaymentProcessing(false);
           setIsLoading(false);
-          setError('Payment not confirmed yet. If the amount was debited, please wait or contact support.');
-          setTimeout(() => setError(null), 5000);
+          setError('Payment verification timed out after 30 seconds. If amount was debited, please wait or contact support.');
+          setTimeout(() => setError(null), 8000); // Show error longer since it's more serious
           return;
         }
 
@@ -1356,12 +1373,13 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                 }}>
                   {checkoutStep === 'cart' && 'Your Cart'}
                   {checkoutStep === 'checkout' && (isPaymentProcessing ? 'Payment Processing' : 'Checkout')}
+                  {checkoutStep === 'success' && 'Payment Successful!'}
                   {checkoutStep === 'confirmation' && 'Order Confirmation'}
                 </h2>
               </div>
               
               {/* Enhanced close button with hover effects */}
-              {checkoutStep !== 'confirmation' && (
+              {checkoutStep !== 'confirmation' && checkoutStep !== 'success' && (
                 <button
                   onClick={onClose}
                   aria-label="Close cart"
@@ -1691,6 +1709,7 @@ const CartWithProvider = ({ isOpen, onClose, onLoginModalOpen, onSignupModalOpen
                 {!isLoading && cartItems.length === 0 && checkoutStep === 'cart' && <EmptyCart key="empty-cart-enhanced" />}
                 {!isLoading && cartItems.length > 0 && checkoutStep === 'cart' && <CartContent key="cart-content-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
                 {!isLoading && checkoutStep === 'checkout' && <CheckoutForm key="checkout-form-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
+                {!isLoading && checkoutStep === 'success' && <CheckoutForm key="success-modal-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
                 {!isLoading && checkoutStep === 'confirmation' && <OrderConfirmation key="confirmation-enhanced" checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} />}
               </AnimatePresence>
             </div>

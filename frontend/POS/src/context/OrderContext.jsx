@@ -30,6 +30,14 @@ export const OrderProvider = ({ children }) => {
 
   // Upsert a batch snapshot from an order into localStorage so CartSidebar can render table batches
   const upsertBatchFromOrder = useCallback((ord) => {
+    console.log('[ORDER CONTEXT] upsertBatchFromOrder called for order:', ord._id, {
+      tableId: ord.tableId,
+      status: ord.status,
+      sourceType: ord.source,
+      hasCreatedBy: !!ord.createdBy,
+      hasCashierId: !!ord.cashierId
+    });
+    
     try {
       const tId = typeof ord?.tableId === 'object' ? (ord?.tableId?._id || ord?.tableId?.tableId || ord?.tableId?.id) : ord?.tableId;
       if (!tId) return; // only track dine-in/table orders
@@ -101,6 +109,19 @@ export const OrderProvider = ({ children }) => {
           const safeItems = Array.isArray(ord.items) ? ord.items : [];
           const total = Number(ord.totalAmount) || safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
 
+          console.log('[ORDER CONTEXT] Processing order for batch storage:', {
+            orderId: ord._id,
+            orderTotalAmount: ord.totalAmount,
+            calculatedTotal: total,
+            itemCount: safeItems.length,
+            itemDetails: safeItems.map(item => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+              menuItemId: item.menuItemId
+            }))
+          });
+
           // Derive customer/order meta from the order
           const ci = ord.customer || ord.customerInfo || {};
           const name = ci.name || ord.customerName || '';
@@ -109,21 +130,57 @@ export const OrderProvider = ({ children }) => {
           const orderType = ord.orderType || ord.type || 'dine-in';
           const specialInstructions = ord.specialInstructions || ord.notes || ord.instructions || '';
           const deliveryAddress = ord.deliveryAddress || ci.address || '';
+          
+          // Determine if this is a customer order vs POS order
+          // Customer orders: placed via customer app/website, don't have POS user fields
+          // POS orders: placed via POS system, have cashier/user identification
+          const isCustomerOrder = !ord.cashierId && !ord.createdBy && !ord.createdByName && ord.source !== 'pos';
+          const sourceType = isCustomerOrder ? 'customer' : 'pos';
 
           if (idx === -1) {
             const orderNumber = ord.orderNumber || entry.nextOrderNumber;
+            
+            // Check if this order already exists by order ID to prevent duplicates
+            const existingByOrderId = list.find(b => b.orderId === ord._id);
+            if (existingByOrderId) {
+              console.warn('[ORDER CONTEXT] Attempted to create duplicate batch for order:', ord._id, {
+                tableId: tId,
+                existingBatch: existingByOrderId,
+                newOrder: {
+                  id: ord._id,
+                  sourceType,
+                  status: ord.status,
+                  createdAt: ord.createdAt
+                }
+              });
+              return; // Prevent duplicate batch creation
+            }
+            
             const batch = {
               orderId: ord._id,
               orderNumber,
               items: safeItems,
               totalAmount: total,
               createdAt: ord.createdAt || new Date().toISOString(),
+              sourceType, // Track whether this came from customer or POS
+              kotPrinted: false, // Track KOT printing status
               // Extra meta so POS can reflect customer/order context
               orderType,
               customer: { name, phone, customerId },
               specialInstructions,
               deliveryAddress
             };
+            
+            console.log('[ORDER CONTEXT] Creating new batch for order:', ord._id, {
+              batchItemCount: safeItems.length,
+              batchItems: safeItems.map(i => ({ 
+                name: i.name, 
+                quantity: i.quantity, 
+                menuItemId: i.menuItemId 
+              })),
+              totalAmount: total,
+              sourceType
+            });
             // Append new batch at the end so Batch #1 stays on top and newer batches appear below
             entry.batches = [...list, batch];
             if (!ord.orderNumber) entry.nextOrderNumber = (Number(entry.nextOrderNumber) || 1) + 1;
@@ -134,6 +191,7 @@ export const OrderProvider = ({ children }) => {
               ...existing,
               items: safeItems,
               totalAmount: total,
+              sourceType: sourceType || existing.sourceType, // Preserve or update source type
               orderType: orderType || existing.orderType,
               customer: {
                 ...(existing.customer || {}),
@@ -214,9 +272,13 @@ export const OrderProvider = ({ children }) => {
         const payload = event.detail;
         const created = payload?.order || payload; // backend sometimes sends { order, ... }
         if (!created || typeof created !== 'object') return;
+        
+        console.log('[ORDER CONTEXT] handleNewOrder triggered for:', created._id);
+        
         // If order already present, update; else prepend
         setOrders(prev => {
           const exists = prev.some(o => o._id === created._id);
+          console.log('[ORDER CONTEXT] Order exists in state:', exists);
           return exists ? prev.map(o => (o._id === created._id ? { ...o, ...created } : o)) : [created, ...prev];
         });
         // Mirror into local batches so CartSidebar shows it
@@ -231,6 +293,9 @@ export const OrderProvider = ({ children }) => {
         const payload = event.detail;
         const updated = payload?.order || payload;
         if (!updated || typeof updated !== 'object') return;
+        
+        console.log('[ORDER CONTEXT] handleOrderUpdate triggered for:', updated._id);
+        
         setOrders(prev => prev.map(o => (o._id === updated._id ? { ...o, ...updated } : o)));
   upsertBatchFromOrder(updated);
   try { window.dispatchEvent(new CustomEvent('batchesUpdated', { detail: { tableId: updated.tableId, orderId: updated._id } })); } catch {}
@@ -357,6 +422,16 @@ export const OrderProvider = ({ children }) => {
       // Handle different response structures
       const createdOrder = response.data.order || response.data;
       
+      console.log('[ORDER CONTEXT] Backend returned order with items:', {
+        orderId: createdOrder._id,
+        itemCount: createdOrder.items?.length || 0,
+        items: createdOrder.items?.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          menuItemId: i.menuItemId 
+        })) || []
+      });
+      
       // Validate that we have a valid order object
       if (!createdOrder || typeof createdOrder !== 'object') {
         throw new Error('Invalid order response from server');
@@ -365,6 +440,10 @@ export const OrderProvider = ({ children }) => {
 
       // Add to local state immediately
       setOrders(prevOrders => [createdOrder, ...prevOrders]);
+      
+      // NOTE: Don't call upsertBatchFromOrder here - let socket events handle it
+      // to prevent duplicate batch creation. The socket 'newOrder' event will
+      // trigger upsertBatchFromOrder when the backend broadcasts the order.
 
       // Emit to kitchen via socket (only if order has required fields)
       if (createdOrder._id) {
@@ -375,10 +454,8 @@ export const OrderProvider = ({ children }) => {
       const orderIdentifier = createdOrder.orderNumber || createdOrder._id || 'New Order';
       toast.success(`Order #${orderIdentifier} created successfully`);
       
-      // Refresh orders to ensure persistence
-      setTimeout(() => {
-    fetchOrders();
-      }, 1000);
+      // Note: No need to refresh orders here as socket events will handle real-time updates
+      // This prevents potential race conditions and duplicate batch creation
       
       return { success: true, order: createdOrder };
 

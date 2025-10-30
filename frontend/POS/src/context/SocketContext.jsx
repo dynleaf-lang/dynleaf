@@ -18,6 +18,37 @@ export const SocketProvider = ({ children }) => {
   const [connected, setConnected] = useState(false);
   const { user, isAuthenticated } = useAuth();
 
+  // Event deduplication cache to prevent processing duplicate events
+  const eventCache = useMemo(() => {
+    const cache = new Map();
+    const CACHE_DURATION = 5000; // 5 seconds
+    
+    return {
+      isDuplicate: (eventType, eventId, data) => {
+        const key = `${eventType}:${eventId}`;
+        const now = Date.now();
+        
+        if (cache.has(key)) {
+          const { timestamp } = cache.get(key);
+          if (now - timestamp < CACHE_DURATION) {
+            return true; // Duplicate within cache duration
+          }
+        }
+        
+        // Clean old entries
+        for (const [k, v] of cache.entries()) {
+          if (now - v.timestamp > CACHE_DURATION) {
+            cache.delete(k);
+          }
+        }
+        
+        // Store new event
+        cache.set(key, { timestamp: now, data });
+        return false;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated && user) {
       // Initialize socket connection
@@ -56,6 +87,13 @@ export const SocketProvider = ({ children }) => {
 
       // Listen for order status updates from kitchen
       newSocket.on('orderStatusUpdate', (data) => {
+        const eventId = `${data.orderId}-${data.status}-${data.timestamp || Date.now()}`;
+        
+        if (eventCache.isDuplicate('orderStatusUpdate', eventId, data)) {
+          console.log('[SOCKET] Duplicate order status update ignored:', { orderId: data.orderId, status: data.status });
+          return;
+        }
+        
         console.log('[SOCKET] Order status update received:', data);
         toast.success(`Order #${data.orderNumber} status updated to: ${data.status}`);
         
@@ -65,6 +103,13 @@ export const SocketProvider = ({ children }) => {
 
       // Listen for new orders (for kitchen integration)
       newSocket.on('newOrder', (data) => {
+        const eventId = `${data._id || data.orderId}-${data.timestamp || Date.now()}`;
+        
+        if (eventCache.isDuplicate('newOrder', eventId, data)) {
+          console.log('[SOCKET] Duplicate new order ignored:', { orderId: data._id || data.orderId });
+          return;
+        }
+        
         console.log('[SOCKET] New order notification:', data);
         
         // Emit custom event for order context to handle
@@ -73,12 +118,27 @@ export const SocketProvider = ({ children }) => {
 
       // Listen for generic order updates (created/updated/deleted)
       newSocket.on('orderUpdate', (data) => {
+        const eventId = `${data._id || data.orderId}-${data.status}-${data.timestamp || Date.now()}`;
+        
+        if (eventCache.isDuplicate('orderUpdate', eventId, data)) {
+          console.log('[SOCKET] Duplicate order update ignored:', { orderId: data._id || data.orderId });
+          return;
+        }
+        
         console.log('[SOCKET] Order update event:', data);
         window.dispatchEvent(new CustomEvent('orderUpdate', { detail: data }));
       });
 
       // Listen for table status updates
       newSocket.on('tableStatusUpdate', (data) => {
+        // Generate a unique ID for this event to detect duplicates
+        const eventId = `${data.tableId}-${data.status}-${data.currentOrderId || 'none'}-${data.timestamp || Date.now()}`;
+        
+        if (eventCache.isDuplicate('tableStatusUpdate', eventId, data)) {
+          console.log('[SOCKET] Duplicate table status update ignored:', { tableId: data.tableId, status: data.status });
+          return;
+        }
+        
         console.log('[SOCKET] Table status update:', data);
         
         // Emit custom event for table context to handle

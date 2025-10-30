@@ -40,7 +40,9 @@ import {
   FaMapMarkerAlt,
   FaStickyNote,
   FaPrint,
-  FaRedo
+  FaRedo,
+  FaBell,
+  FaCheck  
 } from 'react-icons/fa';
 import { useCart } from '../../context/CartContext';
 import { usePOS } from '../../context/POSContext';
@@ -76,7 +78,7 @@ const CartSidebar = () => {
     replaceCart
   } = useCart();
   
-  const { selectedTable, updateTableStatus, restaurant, branch } = usePOS();
+  const { selectedTable, updateTableStatus, restaurant, branch, fetchTables } = usePOS();
   const { createOrder, updatePaymentStatus, getOrdersByTable } = useOrder();
   const { user } = useAuth();
   const { formatCurrency: formatCurrencyDynamic, getCurrencySymbol, isReady: currencyReady } = useCurrency();
@@ -168,6 +170,10 @@ const CartSidebar = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [lastSavedOrder, setLastSavedOrder] = useState(null);
+  
+  // Customer order approval workflow
+  const [pendingCustomerOrders, setPendingCustomerOrders] = useState([]);
+  const [showApprovalNotification, setShowApprovalNotification] = useState(false);
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('pos_printer_config');
@@ -287,8 +293,16 @@ const CartSidebar = () => {
     if (!tableId) { setKotSentItems({}); return; }
     try {
       const all = JSON.parse(localStorage.getItem('pos_table_kot_sent') || '{}');
-      setKotSentItems(all[tableId] || {});
-    } catch { setKotSentItems({}); }
+      const loaded = all[tableId] || {};
+      console.log('[CART SIDEBAR] Loaded KOT sent items for table:', tableId, {
+        itemCount: Object.keys(loaded).length,
+        items: Object.entries(loaded).map(([id, qty]) => ({ cartItemId: id, sentQty: qty }))
+      });
+      setKotSentItems(loaded);
+    } catch { 
+      console.warn('[CART SIDEBAR] Failed to load KOT sent items');
+      setKotSentItems({}); 
+    }
   }, [selectedTable && selectedTable._id]);
 
   // Clean up KOT sent items when cart items change (remove orphaned entries)
@@ -427,6 +441,129 @@ const CartSidebar = () => {
   const [showSavedOrders, setShowSavedOrders] = useState(false); 
   const [showCustomerModal, setShowCustomerModal] = useState(false);
 
+  // Handle customer order approval
+  const handleApproveOrder = async (order) => {
+    try {
+      console.log('[CART SIDEBAR] Approving customer order:', order._id);
+      
+      // Get table information
+      const orderTableId = typeof order.tableId === 'object' 
+        ? (order.tableId?._id || order.tableId?.tableId) 
+        : order.tableId;
+      
+      // 1. Update order status in backend to "confirmed" (emits socket events)
+      try {
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+        
+        // First, update status using the status endpoint (emits socket events)
+        await axios.patch(`${API_BASE_URL}/api/public/orders/${order._id}/status`, {
+          status: 'confirmed' // Mark as confirmed by POS staff
+        });
+        console.log('[CART SIDEBAR] Order status updated to confirmed (socket event emitted)');
+        
+        // Then, update cashier info and notes using the generic endpoint
+        await axios.patch(`${API_BASE_URL}/api/public/orders/${order._id}`, {
+          cashierId: user?._id,
+          cashierName: user?.name || user?.username,
+          notes: `Approved by ${user?.name || 'POS Staff'} at ${new Date().toLocaleTimeString()}`
+        });
+        console.log('[CART SIDEBAR] Cashier info and notes updated');
+      } catch (updateError) {
+        console.error('[CART SIDEBAR] Failed to update order:', updateError);
+        toast.error('Failed to update order status in system');
+        return; // Don't proceed if backend update fails
+      }
+      
+      // 2. Update table status to occupied with currentOrderId
+      if (orderTableId && updateTableStatus) {
+        console.log('[CART SIDEBAR] About to update table status. Table ID:', orderTableId, 'Order ID:', order._id);
+        await updateTableStatus(orderTableId, 'occupied', order);
+        console.log('[CART SIDEBAR] Table status update request completed');
+        
+        // Refresh tables to ensure UI shows updated status
+        if (fetchTables) {
+          try {
+            console.log('[CART SIDEBAR] Fetching updated tables from backend...');
+            await fetchTables();
+            console.log('[CART SIDEBAR] Tables refreshed successfully');
+          } catch (refreshError) {
+            console.error('[CART SIDEBAR] Failed to refresh tables:', refreshError);
+            // Don't fail approval if refresh fails
+          }
+        }
+      }
+      
+      // 3. Load order items into POS cart for this table
+      const orderItems = (order.items || []).map((item, idx) => ({
+        ...item,
+        cartItemId: `customer_order_${order._id}_item_${idx}`,
+        menuItemId: item.menuItemId || item._id,
+        name: item.name,
+        price: Number(item.price) || 0,
+        quantity: Number(item.quantity) || 1,
+        customizations: item.customizations || {},
+        notes: item.notes || '',
+        subtotal: Number(item.subtotal) || (Number(item.price) * Number(item.quantity))
+      }));
+      
+      // 4. If this is the currently selected table, replace cart
+      if (selectedTable?._id === orderTableId) {
+        replaceCart(orderItems, {
+          name: order.customerName || order.customerInfo?.name || '',
+          phone: order.customerPhone || order.customerInfo?.phone || '',
+          orderType: order.orderType || 'dine-in'
+        });
+        toast.success('Order approved and loaded into cart');
+      } else {
+        // Save to per-table cart in localStorage
+        try {
+          const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
+          carts[orderTableId] = {
+            items: orderItems,
+            customerInfo: {
+              name: order.customerName || order.customerInfo?.name || '',
+              phone: order.customerPhone || order.customerInfo?.phone || '',
+              orderType: order.orderType || 'dine-in'
+            }
+          };
+          localStorage.setItem('pos_table_carts', JSON.stringify(carts));
+          toast.success(`Order approved for Table ${order.tableNumber || ''}`);
+        } catch (err) {
+          console.error('Failed to save to table cart:', err);
+        }
+      }
+      
+      // 5. Remove from pending orders
+      setPendingCustomerOrders(prev => prev.filter(o => o._id !== order._id));
+      
+      // Close notification if no more pending orders
+      setPendingCustomerOrders(prev => {
+        if (prev.length === 0) {
+          setShowApprovalNotification(false);
+        }
+        return prev;
+      });
+      
+    } catch (error) {
+      console.error('[CART SIDEBAR] Error approving order:', error);
+      toast.error('Failed to approve order');
+    }
+  };
+  
+  const handleRejectOrder = (order) => {
+    // Remove from pending orders
+    setPendingCustomerOrders(prev => {
+      const filtered = prev.filter(o => o._id !== order._id);
+      if (filtered.length === 0) {
+        setShowApprovalNotification(false);
+      }
+      return filtered;
+    });
+    
+    const customerName = order.customerName || order.customerInfo?.name || 'Customer';
+    toast.info(`Order from ${customerName} was rejected`);
+  };
+
   // POS functionality state
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [orderStatus, setOrderStatus] = useState({
@@ -481,6 +618,14 @@ const CartSidebar = () => {
   useEffect(() => {
     setKotSent(kotStatus.allSent && kotStatus.anySent);
   }, [kotStatus.allSent, kotStatus.anySent]);
+  
+  // Show all cart items directly - no filtering needed
+  // Cart items should always be visible regardless of batch status
+  const filteredCartItems = useMemo(() => {
+    console.log(`[CART SIDEBAR] Showing all cart items without filtering: ${cartItems.length} items`);
+    return cartItems;
+  }, [cartItems]);
+  
   // Split bill states
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [splitCount, setSplitCount] = useState(2);
@@ -662,10 +807,76 @@ const CartSidebar = () => {
     setKotSentItems({}); // Clear KOT sent items when changing tables
   }, [selectedTable && selectedTable._id]);
 
+  // Listen for customer orders and show approval notification
+  useEffect(() => {
+    const handleCustomerOrder = (event) => {
+      try {
+        const order = event.detail?.order || event.detail;
+        if (!order) return;
+        
+        // ONLY handle orders placed by CUSTOMER (not POS staff)
+        const isCustomerOrder = !order.cashierId && !order.createdBy && !order.createdByName;
+        
+        if (!isCustomerOrder) {
+          console.log('[CART SIDEBAR] Order is from POS staff, skipping approval workflow');
+          return;
+        }
+        
+        console.log('[CART SIDEBAR] Customer order received:', {
+          orderId: order._id,
+          customerName: order.customerName || order.customerInfo?.name,
+          tableId: order.tableId
+        });
+        
+        // Add to pending orders for approval
+        setPendingCustomerOrders(prev => {
+          // Avoid duplicates
+          if (prev.some(o => o._id === order._id)) return prev;
+          return [...prev, order];
+        });
+        
+        // Show notification modal
+        setShowApprovalNotification(true);
+        
+        // Play sound notification
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(() => console.log('Sound notification not available'));
+        } catch (err) {
+          console.log('Audio notification error:', err);
+        }
+        
+        // Toast notification
+        const customerName = order.customerName || order.customerInfo?.name || 'A customer';
+        const tableNumber = order.tableNumber || 'Unknown';
+        toast.info(`${customerName} placed an order - Please approve`, {
+          duration: 8000,
+          icon: '🔔'
+        });
+        
+      } catch (error) {
+        console.error('[CART SIDEBAR] Error handling customer order:', error);
+      }
+    };
+
+    window.addEventListener('newOrder', handleCustomerOrder);
+    
+    return () => {
+      window.removeEventListener('newOrder', handleCustomerOrder);
+    };
+  }, []);
+
   // Persist current table's cart and customer info to localStorage whenever they change
   React.useEffect(() => {
     try {
       if (!selectedTable?._id) return;
+      
+      console.log('[CART SIDEBAR] Syncing cart to table storage:', {
+        tableId: selectedTable._id,
+        itemCount: cartItems.length,
+        items: cartItems.map(item => ({ name: item.name, quantity: item.quantity }))
+      });
+      
       const carts = JSON.parse(localStorage.getItem('pos_table_carts') || '{}');
       carts[selectedTable._id] = {
         items: cartItems,
@@ -1021,6 +1232,14 @@ const CartSidebar = () => {
   };
 
   const handleKOT = async (withPrint = false) => {
+    // Prevent multiple simultaneous calls
+    if (isProcessing) {
+      console.warn('[CART SIDEBAR] KOT already in progress, ignoring duplicate call');
+      return;
+    }
+    
+    console.log('[CART SIDEBAR] KOT started:', { withPrint, timestamp: new Date().toISOString() });
+    
     // Validate before processing
     const validationErrors = validatePOSAction('kot');
     if (validationErrors.length > 0) {
@@ -1032,14 +1251,134 @@ const CartSidebar = () => {
     setProcessingAction(withPrint ? 'kot-print' : 'kot');
     
     try {
+      // Check if there are existing customer orders for this table that just need KOT printing
+      const existingBatches = tableBatches?.batches || [];
+      const unsentCustomerOrders = existingBatches.filter(batch => {
+        // Check if this is a customer order that hasn't had KOT printed yet
+        return batch.orderId && !batch.kotPrinted && batch.sourceType === 'customer';
+      });
+      
+      console.log('[CART SIDEBAR] KOT Debug Info:', {
+        tableId: selectedTable?._id,
+        existingBatches: existingBatches.length,
+        unsentCustomerOrders: unsentCustomerOrders.length,
+        cartItems: cartItems.length,
+        batchDetails: existingBatches.map(b => ({
+          orderId: b.orderId,
+          sourceType: b.sourceType,
+          kotPrinted: b.kotPrinted
+        }))
+      });
+      
+      // First, handle any existing customer orders that need KOT printing
+      if (unsentCustomerOrders.length > 0) {
+        console.log('[CART SIDEBAR] Found existing customer orders without KOT, printing KOT for existing orders...');
+        
+        for (const batch of unsentCustomerOrders) {
+          if (withPrint) {
+            try {
+              const restaurantInfo = {
+                name: 'OrderEase Restaurant'
+              };
+              const kotPayload = {
+                order: { _id: batch.orderId, orderNumber: batch.orderNumber },
+                items: batch.items || [],
+                tableInfo: selectedTable,
+                customerInfo: batch.customer || {},
+                batchNumber: batch.orderNumber
+              };
+              
+              if (printerConfig?.printerType === 'network') {
+                const kotDestination = printerConfig?.kotDestination || 'kitchen';
+                const wantDuplicate = !!printerConfig?.kotDuplicate;
+                const iterations = wantDuplicate ? 2 : 1;
+                for (let i=0;i<iterations;i++) {
+                  const duplicate = i===1;
+                  let escpos = generateThermalKOT(kotPayload, restaurantInfo, { duplicate });
+                  escpos = Object.assign(new String(escpos), { _meta: { destination: kotDestination, type: duplicate? 'kot-duplicate':'kot' } });
+                  const res = await printThermalReceipt(escpos, printerConfig, { destination: kotDestination });
+                  if (!res?.success) {
+                    console.warn('Thermal KOT print failed, falling back to HTML (copy '+(i+1)+')');
+                    const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+                    printHTMLReceipt(html);
+                  }
+                }
+              } else {
+                const wantDuplicate = !!printerConfig?.kotDuplicate;
+                const iterations = wantDuplicate ? 2 : 1;
+                for (let i=0;i<iterations;i++) {
+                  const duplicate = i===1;
+                  const html = generateHTMLKOT(kotPayload, restaurantInfo, { duplicate });
+                  printHTMLReceipt(html);
+                }
+              }
+              
+              // Mark as KOT printed in local storage
+              const tableId = selectedTable?._id;
+              if (tableId) {
+                const batchesKey = 'pos_table_batches';
+                const batchesAll = JSON.parse(localStorage.getItem(batchesKey) || '{}');
+                const entry = batchesAll[tableId];
+                if (entry && entry.batches) {
+                  const batchIndex = entry.batches.findIndex(b => b.orderId === batch.orderId);
+                  if (batchIndex !== -1) {
+                    entry.batches[batchIndex].kotPrinted = true;
+                    batchesAll[tableId] = entry;
+                    localStorage.setItem(batchesKey, JSON.stringify(batchesAll));
+                  }
+                }
+              }
+              
+            } catch (e) {
+              console.error('KOT print error for existing order:', e);
+            }
+          }
+          
+          // Update order status to indicate KOT was sent
+          try {
+            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+            await axios.patch(`${API_BASE_URL}/api/public/orders/${batch.orderId}/status`, {
+              status: 'in_progress' // Mark as in progress (KOT sent to kitchen)
+            });
+          } catch (statusError) {
+            console.warn('Failed to update order status after KOT:', statusError);
+          }
+        }
+        
+        if (unsentCustomerOrders.length > 0) {
+          toast.success(`KOT sent for existing customer orders${withPrint ? ' and printed' : ''}`);
+        }
+      }
+      
+      // Handle new cart items (if any) - this runs regardless of whether we processed customer orders above
       // Build only unsent quantities for this KOT
       const pendingItems = [];
       const itemsToUpdateKOT = []; // Track items for KOT update
+      
+      console.log('[CART SIDEBAR] KOT Processing - Current State:', {
+        tableId: selectedTable?._id,
+        totalCartItems: cartItems.length,
+        kotSentItemsCount: Object.keys(kotSentItems).length,
+        kotSentItems: Object.entries(kotSentItems).map(([id, qty]) => ({ 
+          cartItemId: id, 
+          sentQty: qty 
+        }))
+      });
       
       cartItems.forEach(item => {
         const total = Number(item.quantity) || 0;
         const sent = Number(kotSentItems[item.cartItemId] || 0);
         const pending = total - sent;
+        
+        console.log(`[CART SIDEBAR] Item calculation: ${item.name}`, {
+          cartItemId: item.cartItemId,
+          menuItemId: item.menuItemId,
+          totalQty: total,
+          sentQty: sent,
+          pendingQty: pending,
+          hasKotSentRecord: kotSentItems.hasOwnProperty(item.cartItemId)
+        });
+        
         if (pending > 0) {
           const price = Number(item.price) || 0;
           pendingItems.push({
@@ -1061,11 +1400,37 @@ const CartSidebar = () => {
       });
 
       if (pendingItems.length === 0) {
+        // If no cart items to process and we already handled customer orders above, we're done
+        if (unsentCustomerOrders.length > 0) {
+          return; // We already showed success message for customer orders
+        }
         toast.error('No new items to send to kitchen');
         return;
       }
 
       console.log('Sending KOT for items:', pendingItems.map(i => ({ name: i.name, qty: i.quantity })));
+
+      // Calculate total for only the pending items (this batch only)
+      const pendingItemsTotal = pendingItems.reduce((sum, item) => {
+        return sum + (item.price * item.quantity);
+      }, 0);
+
+      console.log('[CART SIDEBAR] KOT Debug - Sending to backend:', {
+        pendingItems: pendingItems.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          menuItemId: i.menuItemId,
+          cartItemId: i.cartItemId 
+        })),
+        pendingItemsTotal,
+        totalCartItems: cartItems.length,
+        allCartItems: cartItems.map(i => ({ 
+          name: i.name, 
+          quantity: i.quantity, 
+          menuItemId: i.menuItemId,
+          cartItemId: i.cartItemId 
+        }))
+      });
 
       const orderData = {
         tableId: selectedTable?._id || null,
@@ -1081,7 +1446,7 @@ const CartSidebar = () => {
           const { cartItemId, ...orderItem } = item;
           return orderItem;
         }),
-        totalAmount: getTotal()
+        totalAmount: pendingItemsTotal // Use calculated total for this batch only
       };
 
       // Attempt create with stock enforcement; on insufficiency ask for override
@@ -1158,11 +1523,17 @@ const CartSidebar = () => {
       // Use the tracked itemsToUpdateKOT for more reliable updates
       const updatedSent = { ...kotSentItems };
       
+      console.log('[CART SIDEBAR] Updating KOT sent items:', {
+        previousKotSentItems: kotSentItems,
+        itemsToUpdate: itemsToUpdateKOT
+      });
+      
       itemsToUpdateKOT.forEach(item => {
         const { cartItemId, pendingQty } = item;
         if (cartItemId) {
-          updatedSent[cartItemId] = (updatedSent[cartItemId] || 0) + pendingQty;
-          console.log(`Updated KOT sent for ${cartItemId}: ${updatedSent[cartItemId]}`);
+          const previousSent = updatedSent[cartItemId] || 0;
+          updatedSent[cartItemId] = previousSent + pendingQty;
+          console.log(`[CART SIDEBAR] Updated KOT sent for ${cartItemId}: ${previousSent} + ${pendingQty} = ${updatedSent[cartItemId]}`);
         }
       });
       
@@ -1196,7 +1567,15 @@ const CartSidebar = () => {
       // Note: kotSent state will be automatically updated by the useEffect that watches kotStatus
       playPosSound('success');
       
-      toast.success(`KOT sent successfully${withPrint ? ' and printed' : ''}`);
+      // Create appropriate success message based on what was processed
+      let successMessage = `KOT sent successfully${withPrint ? ' and printed' : ''}`;
+      if (unsentCustomerOrders.length > 0 && pendingItems.length > 0) {
+        successMessage = `KOT sent for customer orders and new items${withPrint ? ' and printed' : ''}`;
+      } else if (pendingItems.length > 0) {
+        successMessage = `KOT sent for new items${withPrint ? ' and printed' : ''}`;
+      }
+      
+      toast.success(successMessage);
       
     } catch (error) {
       console.error('KOT Error:', error);
@@ -1787,16 +2166,16 @@ const CartSidebar = () => {
                 {/* <h6>Order Items</h6> */}
                 <>
                   {/* Batch Header display only if there any item added */}
-                  {cartItems.length > 0 && (
+                  {filteredCartItems.length > 0 && (
                     <div className="batch-headers">
                       <small className="text-decoration-underline fst-italic">Batch #{batchCount + 1}</small>
                     </div>
                   )}
 
                   {/* Cart Items List */}
-                  {cartItems.length > 0 && (
+                  {filteredCartItems.length > 0 && (
                     <>
-                      {cartItems.map((item) => {
+                      {filteredCartItems.map((item) => {
                         const total = Number(item.quantity) || 0;
                         const sent = Number(kotSentItems[item.cartItemId] || 0);
                         const pending = total - sent;
@@ -1913,18 +2292,18 @@ const CartSidebar = () => {
                 </Alert>
               )}
             </>
-              );
-            } else {
-              // Show placeholder when no cart items and no batches
-              return (
-                <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
-                  <FaShoppingCart size={48} className="text-muted mb-3" />
-                  <h5>No items added to cart</h5>
-                  <p>Add some items from the menu to get started!</p>
-                </Alert>
-              );
-            }
-          })()}
+            );
+          } else {
+            // Show placeholder when no cart items and no batches
+            return (
+              <Alert color="info" className="text-center shadow-none bg-white" fade={false}>
+                <FaShoppingCart size={48} className="text-muted mb-3" />
+                <h5>No items added to cart</h5>
+                <p>Add some items from the menu to get started!</p>
+              </Alert>
+            );
+          }
+        })()}
 
           {/* Show Saved Orders Button - Only show when there are saved orders but section is hidden and cart is empty */}
           {!showSavedOrders && savedOrders.length > 0 && cartItems.length === 0 && (
@@ -2027,9 +2406,9 @@ const CartSidebar = () => {
                     color="danger"
                     size="sm"
                     onClick={() => handlePOSSaveOrder(false, false)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save order'}
+                    title={filteredCartItems.length === 0 ? 'Add items to cart first' : 'Save order'}
                   >
                     {isProcessing && processingAction === 'save' ? (
                       <>
@@ -2049,9 +2428,9 @@ const CartSidebar = () => {
                     color="danger"
                     size="sm"
                     onClick={() => handlePOSSaveOrder(true, false)}
-                    disabled={isProcessing || cartItems.length === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0}
                     className="w-100 pos-action-btn"
-                    title={cartItems.length === 0 ? 'Add items to cart first' : 'Save and print order'}
+                    title={filteredCartItems.length === 0 ? 'Add items to cart first' : 'Save and print order'}
                   >
                     {isProcessing && processingAction === 'save-print' ? (
                       <>
@@ -2074,10 +2453,10 @@ const CartSidebar = () => {
                     color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(false)}
-                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
                     title={
-                      cartItems.length === 0 
+                      filteredCartItems.length === 0 
                         ? 'Add items to cart first' 
                         : kotStatus.allSent 
                           ? 'All items sent to kitchen' 
@@ -2104,10 +2483,10 @@ const CartSidebar = () => {
                     color={kotStatus.allSent ? "success" : kotStatus.anySent ? "warning" : "secondary"}
                     size="sm"
                     onClick={() => handleKOT(true)}
-                    disabled={isProcessing || cartItems.length === 0 || kotStatus.pendingCount === 0}
+                    disabled={isProcessing || filteredCartItems.length === 0 || kotStatus.pendingCount === 0}
                     className="w-100 pos-action-btn"
                     title={
-                      cartItems.length === 0 
+                      filteredCartItems.length === 0 
                         ? 'Add items to cart first' 
                         : kotStatus.allSent 
                           ? 'All items sent and can be reprinted' 
@@ -2891,6 +3270,119 @@ const CartSidebar = () => {
           }}
         />
       )}
+
+      {/* Customer Order Approval Notification Modal */}
+      <Modal 
+        isOpen={showApprovalNotification && pendingCustomerOrders.length > 0} 
+        toggle={() => setShowApprovalNotification(false)}
+        size="lg"
+        centered
+      >
+        <ModalHeader toggle={() => setShowApprovalNotification(false)}>
+          <FaBell className="me-2" style={{ color: '#ff6b6b' }} />
+          Customer Order Approval
+        </ModalHeader>
+        <ModalBody>
+          <div className="mb-3">
+            <Alert color="info">
+              <strong>{pendingCustomerOrders.length}</strong> customer order(s) waiting for approval
+            </Alert>
+          </div>
+          
+          {pendingCustomerOrders.map((order, index) => {
+            const customerName = order.customerName || order.customerInfo?.name || 'Guest';
+            const tableNumber = order.tableNumber || 'Unknown';
+            const orderTotal = order.total || order.totalAmount || 0;
+            const itemCount = (order.items || []).length;
+            
+            return (
+              <Card key={order._id} className="mb-3" style={{ border: '2px solid #ffc107' }}>
+                <CardBody>
+                  <div className="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                      <h5 className="mb-1">
+                        <strong>{customerName}</strong> placed an order
+                      </h5>
+                      <div className="text-muted">
+                        <FaUtensils className="me-1" /> Table {tableNumber}
+                      </div>
+                    </div>
+                    <Badge color="warning" pill style={{ fontSize: '14px' }}>
+                      Pending
+                    </Badge>
+                  </div>
+                  
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Order ID:</span>
+                      <strong>{order.orderId || order._id?.slice(-8)}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Items:</span>
+                      <strong>{itemCount} item(s)</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Total:</span>
+                      <strong>{formatPrice(orderTotal)}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>Payment:</span>
+                      <Badge color={order.paymentStatus === 'paid' ? 'success' : 'secondary'}>
+                        {order.paymentStatus || 'Pending'}
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  {/* Order Items Preview */}
+                  <div className="mb-3">
+                    <small className="text-muted">Order Items:</small>
+                    <ListGroup flush style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                      {(order.items || []).map((item, idx) => (
+                        <ListGroupItem key={idx} className="px-0 py-1">
+                          <div className="d-flex justify-content-between">
+                            <span className="small">
+                              {item.quantity}x {item.name}
+                            </span>
+                            <span className="small text-muted">
+                              {formatPrice(item.subtotal || (item.price * item.quantity))}
+                            </span>
+                          </div>
+                        </ListGroupItem>
+                      ))}
+                    </ListGroup>
+                  </div>
+                  
+                  <div className="d-flex gap-2">
+                    <Button
+                      color="success"
+                      onClick={() => handleApproveOrder(order)}
+                      className="flex-fill"
+                    >
+                      <FaCheck className="me-2" />
+                      Approve & Load to Cart
+                    </Button>
+                    <Button
+                      color="danger"
+                      outline
+                      onClick={() => handleRejectOrder(order)}
+                    >
+                      <FaTimes />
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            );
+          })}
+        </ModalBody>
+        <ModalFooter>
+          <small className="text-muted me-auto">
+            Approve orders to update table status and load items
+          </small>
+          <Button color="secondary" onClick={() => setShowApprovalNotification(false)}>
+            Close
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 };
