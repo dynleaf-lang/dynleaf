@@ -10,7 +10,18 @@ import {
 import { getCachedData, setCachedData } from './cacheHelper';
 
 // API base URL from environment variables or default
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+                     import.meta.env.VITE_API_BASE_URL || 
+                     'http://localhost:5001';
+
+// Debug logging for API client configuration
+console.log('[API CLIENT] Configuration:', {
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+  VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+  resolvedURL: API_BASE_URL,
+  environment: import.meta.env.MODE
+});
+
 const PUBLIC_API_PATH = '/api/public';
  
 // Configuration options with defaults
@@ -369,15 +380,40 @@ export const api = {
     cashfree: {
       createOrder: async ({ amount, currency = 'INR', customer = {}, orderMeta = {} }) => {
         try {
-          const response = await apiClient.post(`${PUBLIC_API_PATH}/payments/cashfree/order`, {
+          const endpoint = `${PUBLIC_API_PATH}/payments/cashfree/order`;
+          const fullUrl = `${API_BASE_URL}${endpoint}`;
+          
+          console.log('[API CLIENT] Creating Cashfree order:', {
+            endpoint,
+            fullUrl,
+            baseURL: API_BASE_URL,
+            payload: { amount, currency, customer, orderMeta }
+          });
+          
+          const response = await apiClient.post(endpoint, {
             amount,
             currency,
             customer,
             orderMeta
           });
+          
+          console.log('[API CLIENT] Cashfree order response:', {
+            status: response.status,
+            hasData: !!response.data,
+            hasSessionId: !!response.data?.data?.payment_session_id,
+            dataKeys: Object.keys(response.data || {}),
+          });
+          
           return response.data;
         } catch (error) {
-          console.error('[API CLIENT] Cashfree create order error:', error);
+          console.error('[API CLIENT] Cashfree create order error:', {
+            message: error.message,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            url: error.config?.url,
+            baseURL: error.config?.baseURL
+          });
           throw error;
         }
       },

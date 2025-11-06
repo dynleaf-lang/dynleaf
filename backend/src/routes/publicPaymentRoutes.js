@@ -21,7 +21,11 @@ router.get('/cashfree/validate', async (req, res) => {
         hasAppId: !!process.env.CASHFREE_APP_ID,
         hasSecret: !!process.env.CASHFREE_SECRET_KEY,
         appIdLength: process.env.CASHFREE_APP_ID?.length,
-        secretLength: process.env.CASHFREE_SECRET_KEY?.length
+        secretLength: process.env.CASHFREE_SECRET_KEY?.length,
+        nodeEnv: process.env.NODE_ENV,
+        detectedUrl: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production' 
+          ? 'https://api.cashfree.com/pg' 
+          : 'https://sandbox.cashfree.com/pg'
       },
       timestamp: new Date().toISOString()
     });
@@ -40,11 +44,18 @@ router.get('/cashfree/validate', async (req, res) => {
 router.post('/cashfree/order', async (req, res) => {
   try {
     console.log('[PAYMENTS] Creating Cashfree order:', req.body);
+    console.log('[PAYMENTS] Request headers:', {
+      'content-type': req.get('content-type'),
+      'user-agent': req.get('user-agent'),
+      'origin': req.get('origin'),
+      'host': req.get('host')
+    });
     
     const { amount, currency = 'INR', customer = {}, orderMeta = {} } = req.body || {};
     
     // Enhanced validation
     if (!amount || Number(amount) <= 0) {
+      console.error('[PAYMENTS] Invalid amount received:', { amount, type: typeof amount });
       return res.status(400).json({ 
         success: false,
         message: 'Invalid amount. Must be greater than 0',
@@ -58,7 +69,8 @@ router.post('/cashfree/order', async (req, res) => {
       secretKey: process.env.CASHFREE_SECRET_KEY ? 'Set' : 'Missing',
       env: process.env.CASHFREE_ENV,
       webhookUrl: process.env.CASHFREE_WEBHOOK_URL,
-      returnUrl: process.env.CASHFREE_RETURN_URL
+      returnUrl: process.env.CASHFREE_RETURN_URL,
+      nodeEnv: process.env.NODE_ENV
     });
 
     const data = await createOrder({ amount, currency, customer, orderMeta });
@@ -66,8 +78,25 @@ router.post('/cashfree/order', async (req, res) => {
     console.log('[PAYMENTS] Order created successfully:', {
       order_id: data.order_id,
       order_status: data.order_status,
-      hasSessionId: !!data.payment_session_id
+      hasSessionId: !!data.payment_session_id,
+      sessionIdLength: data.payment_session_id?.length,
+      sessionIdPrefix: data.payment_session_id?.substring(0, 10),
+      fullDataKeys: Object.keys(data)
     });
+    
+    // Validate the response before sending
+    if (!data.payment_session_id) {
+      console.error('[PAYMENTS] Critical: No payment_session_id in response from Cashfree service');
+      return res.status(500).json({
+        success: false,
+        message: 'Payment session creation failed - no session ID received',
+        debug: {
+          receivedKeys: Object.keys(data),
+          orderId: data.order_id,
+          status: data.order_status
+        }
+      });
+    }
     
     return res.status(200).json({
       success: true,
@@ -75,7 +104,8 @@ router.post('/cashfree/order', async (req, res) => {
       debug: {
         timestamp: new Date().toISOString(),
         env: process.env.CASHFREE_ENV,
-        apiVersion: '2023-08-01'
+        apiVersion: '2023-08-01',
+        sessionIdPresent: !!data.payment_session_id
       }
     });
   } catch (err) {
