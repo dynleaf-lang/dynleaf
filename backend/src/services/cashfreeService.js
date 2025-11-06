@@ -17,9 +17,19 @@ const CF_API_VERSION = '2023-08-01'; // Using latest stable version with better 
 
 function getBaseUrl() {
   const env = (process.env.CASHFREE_ENV || 'test').toLowerCase();
-  return env === 'prod'
+  const baseUrl = env === 'prod' || env === 'production'
     ? 'https://api.cashfree.com/pg'
     : 'https://sandbox.cashfree.com/pg';
+    
+  console.log('[CASHFREE] Environment Configuration:', {
+    CASHFREE_ENV: process.env.CASHFREE_ENV,
+    normalizedEnv: env,
+    baseUrl: baseUrl,
+    isProduction: env === 'prod' || env === 'production',
+    NODE_ENV: process.env.NODE_ENV
+  });
+  
+  return baseUrl;
 }
 
 function getHeaders() {
