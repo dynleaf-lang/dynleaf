@@ -7,16 +7,99 @@ export class PaymentAnalytics {
     this.sessionId = this.generateSessionId();
     this.events = [];
     this.startTime = Date.now();
-    this.apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    this.enabled = import.meta.env.PROD; // Only enable analytics in production
+    this.apiUrl = this.getProductionApiUrl();
+    
+    // Smart analytics enablement logic
+    this.enabled = this.shouldEnableAnalytics();
     
     // Debug logging for configuration
     console.log('[PAYMENT ANALYTICS] Configuration:', {
       apiUrl: this.apiUrl,
       enabled: this.enabled,
       environment: import.meta.env.NODE_ENV,
-      mode: import.meta.env.MODE
+      mode: import.meta.env.MODE,
+      isProduction: import.meta.env.PROD,
+      hasProductionUrl: this.hasProductionUrl()
     });
+    
+    // Enhanced environment debugging
+    console.log('[PAYMENT ANALYTICS] Environment Variables Debug:', {
+      VITE_API_URL: import.meta.env.VITE_API_URL,
+      VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+      NODE_ENV: import.meta.env.NODE_ENV,
+      MODE: import.meta.env.MODE,
+      PROD: import.meta.env.PROD,
+      DEV: import.meta.env.DEV,
+      allEnvKeys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
+      buildTimeCheck: 'VITE_API_URL' in import.meta.env ? 'FOUND' : 'NOT_FOUND',
+      fallbackUsed: this.apiUrl === 'http://localhost:5001' ? 'YES' : 'NO'
+    });
+    
+    // Runtime environment detection
+    console.log('[PAYMENT ANALYTICS] Runtime Environment:', {
+      origin: window.location.origin,
+      hostname: window.location.hostname,
+      isLocalhost: window.location.hostname === 'localhost',
+      isProduction: window.location.hostname !== 'localhost',
+      userAgent: navigator.userAgent.substring(0, 50)
+    });
+  }
+
+  /**
+   * Get the correct API URL with fallback logic for production
+   */
+  getProductionApiUrl() {
+    // First try environment variables
+    const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+    
+    if (envUrl && envUrl !== 'http://localhost:5001') {
+      console.log('[PAYMENT ANALYTICS] Using environment URL:', envUrl);
+      return envUrl;
+    }
+    
+    // Runtime detection for production
+    const hostname = window.location.hostname;
+    
+    // If we're on a production domain but env var is missing/localhost
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      const productionUrl = 'https://dynleaf.onrender.com';
+      console.warn('[PAYMENT ANALYTICS] Environment variable missing, using hardcoded production URL:', productionUrl);
+      console.warn('[PAYMENT ANALYTICS] Please set VITE_API_URL in your deployment environment');
+      return productionUrl;
+    }
+    
+    // Default to localhost for local development
+    console.log('[PAYMENT ANALYTICS] Using localhost for development');
+    return 'http://localhost:5001';
+  }
+
+  /**
+   * Determine if analytics should be enabled based on environment and configuration
+   */
+  shouldEnableAnalytics() {
+    // Disable analytics in development by default
+    if (import.meta.env.DEV) {
+      return false;
+    }
+    
+    // In production, only enable if we have a proper production API URL
+    if (import.meta.env.PROD) {
+      return this.hasProductionUrl();
+    }
+    
+    // Default to disabled
+    return false;
+  }
+
+  /**
+   * Check if we have a production API URL (not localhost)
+   */
+  hasProductionUrl() {
+    return this.apiUrl && 
+           !this.apiUrl.includes('localhost') && 
+           !this.apiUrl.includes('127.0.0.1') &&
+           !this.apiUrl.includes('0.0.0.0') &&
+           this.apiUrl.startsWith('http');
   }
 
   generateSessionId() {
@@ -28,7 +111,7 @@ export class PaymentAnalytics {
    */
   setEnabled(enabled) {
     this.enabled = enabled;
-    console.log(`[PAYMENT ANALYTICS] Analytics ${enabled ? 'enabled' : 'disabled'}`);
+    console.log(`[PAYMENT ANALYTICS] Analytics ${enabled ? 'enabled' : 'disabled'} manually`);
   }
 
   /**
@@ -36,6 +119,39 @@ export class PaymentAnalytics {
    */
   isEnabled() {
     return this.enabled;
+  }
+
+  /**
+   * Force enable analytics for testing (bypasses URL checks)
+   */
+  forceEnable() {
+    this.enabled = true;
+    console.log('[PAYMENT ANALYTICS] Analytics force enabled for testing');
+  }
+
+  /**
+   * Update API URL and re-evaluate enablement
+   */
+  updateApiUrl(newUrl) {
+    this.apiUrl = newUrl;
+    this.enabled = this.shouldEnableAnalytics();
+    console.log('[PAYMENT ANALYTICS] API URL updated:', {
+      apiUrl: this.apiUrl,
+      enabled: this.enabled
+    });
+  }
+
+  /**
+   * Auto-fix production URL if environment variable is missing
+   */
+  autoFixProductionUrl() {
+    if (window.location.hostname !== 'localhost' && this.apiUrl.includes('localhost')) {
+      const productionUrl = 'https://dynleaf.onrender.com';
+      console.log('[PAYMENT ANALYTICS] Auto-fixing production URL to:', productionUrl);
+      this.updateApiUrl(productionUrl);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -79,12 +195,26 @@ export class PaymentAnalytics {
     try {
       // Only send analytics if enabled
       if (!this.enabled) {
-        console.log('[PAYMENT ANALYTICS] Analytics disabled, skipping event:', event.event);
+        console.log('[PAYMENT ANALYTICS] Analytics disabled, skipping event:', {
+          event: event.event,
+          reason: this.hasProductionUrl() ? 'Manual disable' : 'No production URL',
+          apiUrl: this.apiUrl,
+          environment: import.meta.env.MODE
+        });
         return;
       }
 
+      // Additional validation
+      if (!this.apiUrl) {
+        console.warn('[PAYMENT ANALYTICS] No API URL configured, skipping event:', event.event);
+        return;
+      }
+
+      const url = `${this.apiUrl}/api/analytics/payment`;
+      console.log('[PAYMENT ANALYTICS] Sending event to:', url);
+
       // Send to backend analytics endpoint using the correct API URL
-      const response = await fetch(`${this.apiUrl}/api/analytics/payment`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,12 +223,22 @@ export class PaymentAnalytics {
       });
 
       if (!response.ok) {
-        throw new Error(`Analytics API responded with status: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`Analytics API responded with status: ${response.status}, body: ${errorText}`);
       }
 
-      console.log('[PAYMENT ANALYTICS] Event sent successfully:', event.event);
+      const result = await response.json().catch(() => null);
+      console.log('[PAYMENT ANALYTICS] Event sent successfully:', {
+        event: event.event,
+        response: result
+      });
     } catch (error) {
-      console.warn('[PAYMENT ANALYTICS] Failed to send event:', error);
+      console.warn('[PAYMENT ANALYTICS] Failed to send event:', {
+        event: event.event,
+        error: error.message,
+        apiUrl: this.apiUrl,
+        enabled: this.enabled
+      });
       // Don't throw error - analytics failure shouldn't break payment flow
     }
   }
