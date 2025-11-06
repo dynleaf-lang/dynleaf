@@ -140,6 +140,7 @@ const favoritesRoutes = require('./routes/favoritesRoutes');
 const posSessionRoutes = require('./routes/posSessionRoutes');
 const whatsappRoutes = require('./routes/whatsappRoutes');
 const { redirectShortLink } = require('./controllers/whatsappController');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 // Import public routes for customer application
 const publicTableRoutes = require('./routes/publicTableRoutes');
@@ -190,6 +191,7 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/floors', floorRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/pos/sessions', posSessionRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Debug request logging middleware for public routes
 app.use('/api/public', (req, res, next) => {
