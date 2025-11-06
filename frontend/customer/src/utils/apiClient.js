@@ -10,16 +10,40 @@ import {
 import { getCachedData, setCachedData } from './cacheHelper';
 
 // API base URL from environment variables or default
-const API_BASE_URL = import.meta.env.VITE_API_URL || 
-                     import.meta.env.VITE_API_BASE_URL || 
-                     'http://localhost:5001';
+const getApiBaseUrl = () => {
+  const viteApiUrl = import.meta.env.VITE_API_URL;
+  const viteApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  const fallbackUrl = 'http://localhost:5001';
+  
+  // Priority: VITE_API_URL > VITE_API_BASE_URL > fallback
+  let resolvedUrl = viteApiUrl || viteApiBaseUrl || fallbackUrl;
+  
+  // Runtime production detection and auto-fix
+  const isProduction = window.location.hostname !== 'localhost' && 
+                      window.location.hostname !== '127.0.0.1' &&
+                      window.location.hostname !== '0.0.0.0';
+  
+  if (isProduction && resolvedUrl.includes('localhost')) {
+    console.warn('[API CLIENT] Production environment detected but using localhost URL');
+    console.warn('[API CLIENT] Auto-correcting to production URL');
+    resolvedUrl = 'https://dynleaf.onrender.com';
+  }
+  
+  return resolvedUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Debug logging for API client configuration
 console.log('[API CLIENT] Configuration:', {
   VITE_API_URL: import.meta.env.VITE_API_URL,
   VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
   resolvedURL: API_BASE_URL,
-  environment: import.meta.env.MODE
+  environment: import.meta.env.MODE,
+  hostname: window.location.hostname,
+  isProduction: window.location.hostname !== 'localhost',
+  autoFixed: API_BASE_URL === 'https://dynleaf.onrender.com' && 
+            (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001').includes('localhost')
 });
 
 const PUBLIC_API_PATH = '/api/public';
@@ -516,12 +540,29 @@ export const api = {
     // Test-only method to update base URL
   _updateBaseUrl: (newBaseUrl) => {
     if (newBaseUrl && typeof newBaseUrl === 'string') {
-      
+      console.log('[API CLIENT] Updating base URL to:', newBaseUrl);
       apiClient.defaults.baseURL = newBaseUrl;
       return true;
     }
     return false;
   },
+
+  // Runtime API URL fix for production issues
+  _fixProductionUrl: () => {
+    const isProduction = window.location.hostname !== 'localhost' && 
+                        window.location.hostname !== '127.0.0.1';
+    
+    if (isProduction && apiClient.defaults.baseURL.includes('localhost')) {
+      const productionUrl = 'https://dynleaf.onrender.com';
+      console.log('[API CLIENT] Fixing production URL from', apiClient.defaults.baseURL, 'to', productionUrl);
+      apiClient.defaults.baseURL = productionUrl;
+      return true;
+    }
+    return false;
+  },
+
+  // Get current API base URL
+  _getCurrentBaseUrl: () => apiClient.defaults.baseURL,
       // Public API endpoints (don't require authentication)
   public: {
     // Health check for the public API
