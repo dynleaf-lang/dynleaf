@@ -26,13 +26,15 @@ export class PaymentAnalytics {
     console.log('[PAYMENT ANALYTICS] Environment Variables Debug:', {
       VITE_API_URL: import.meta.env.VITE_API_URL,
       VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+      VITE_CASHFREE_ENV: import.meta.env.VITE_CASHFREE_ENV,
       NODE_ENV: import.meta.env.NODE_ENV,
       MODE: import.meta.env.MODE,
       PROD: import.meta.env.PROD,
       DEV: import.meta.env.DEV,
       allEnvKeys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
       buildTimeCheck: 'VITE_API_URL' in import.meta.env ? 'FOUND' : 'NOT_FOUND',
-      fallbackUsed: this.apiUrl === 'http://localhost:5001' ? 'YES' : 'NO'
+      fallbackUsed: this.apiUrl === 'http://localhost:5001' ? 'YES' : 'NO',
+      cashfreeEnvValue: import.meta.env.VITE_CASHFREE_ENV || 'NOT_SET'
     });
     
     // Runtime environment detection
