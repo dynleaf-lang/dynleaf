@@ -23,9 +23,7 @@ router.get('/cashfree/validate', async (req, res) => {
         appIdLength: process.env.CASHFREE_APP_ID?.length,
         secretLength: process.env.CASHFREE_SECRET_KEY?.length,
         nodeEnv: process.env.NODE_ENV,
-        detectedUrl: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production' 
-          ? 'https://api.cashfree.com/pg' 
-          : 'https://sandbox.cashfree.com/pg'
+        detectedUrl: 'https://api.cashfree.com/pg',
       },
       timestamp: new Date().toISOString()
     });
@@ -195,9 +193,7 @@ router.get('/cashfree/env-debug', (req, res) => {
       condition: `process.env.CASHFREE_ENV === 'prod'`,
       result: process.env.CASHFREE_ENV === 'prod',
       wouldUseProd: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production',
-      actualBaseUrl: (process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production')
-        ? 'https://api.cashfree.com/pg'
-        : 'https://sandbox.cashfree.com/pg'
+      actualBaseUrl: 'https://api.cashfree.com/pg',
     }
   });
 });
@@ -333,9 +329,7 @@ router.get('/cashfree/config-check', async (req, res) => {
       returnUrl: process.env.CASHFREE_RETURN_URL || 'Not Set',
       nodeEnv: process.env.NODE_ENV,
       apiVersion: '2023-08-01',
-      baseUrl: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production'
-        ? 'https://api.cashfree.com/pg'
-        : 'https://sandbox.cashfree.com/pg',
+      baseUrl: 'https://api.cashfree.com/pg',
       allCashfreeEnvVars: Object.keys(process.env)
         .filter(key => key.includes('CASHFREE'))
         .reduce((acc, key) => {
