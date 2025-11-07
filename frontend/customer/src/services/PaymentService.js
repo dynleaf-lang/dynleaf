@@ -6,12 +6,98 @@ import { PaymentAnalytics } from './PaymentAnalytics';
  */
 export class PaymentService {
   constructor() {
-    this.cfMode = (import.meta.env.VITE_CASHFREE_ENV || 'sandbox') === 'prod' ? 'production' : 'sandbox';
+    // Smart Cashfree mode detection
+    this.cfMode = this.detectCashfreeMode();
     this.retryAttempts = 0;
     this.maxRetries = 2;
     this.paymentTimeout = 5 * 60 * 1000; // 5 minutes
     this.analytics = new PaymentAnalytics();
     this.paymentStartTime = null;
+    
+    // Debug environment configuration
+    console.log('[PAYMENT SERVICE] Environment Configuration:', {
+      VITE_CASHFREE_ENV: import.meta.env.VITE_CASHFREE_ENV,
+      MODE: import.meta.env.MODE,
+      NODE_ENV: import.meta.env.NODE_ENV,
+      PROD: import.meta.env.PROD,
+      hostname: window.location.hostname,
+      detectedMode: this.cfMode
+    });
+  }
+
+  /**
+   * Detect the correct Cashfree mode based on environment
+   */
+  detectCashfreeMode() {
+    const viteEnv = import.meta.env.VITE_CASHFREE_ENV;
+    const isProductionEnvironment = window.location.hostname !== 'localhost' && 
+                                   window.location.hostname !== '127.0.0.1';
+    
+    // Check if API URL issue exists and try to fix it
+    this.checkAndFixApiUrl();
+    
+    // Priority logic:
+    // 1. If VITE_CASHFREE_ENV is explicitly set to 'prod' or 'production', use production
+    // 2. If we're on a production domain (not localhost), use production
+    // 3. Otherwise use sandbox
+    
+    if (viteEnv === 'prod' || viteEnv === 'production') {
+      console.log('[PAYMENT SERVICE] Using production mode (explicit env var)');
+      return 'production';
+    }
+    
+    if (isProductionEnvironment && (!viteEnv || viteEnv === 'sandbox')) {
+      console.log('[PAYMENT SERVICE] Production environment detected, auto-switching to production mode');
+      console.warn('[PAYMENT SERVICE] Consider setting VITE_CASHFREE_ENV=production in your deployment');
+      return 'production';
+    }
+    
+    if (viteEnv === 'sandbox') {
+      console.log('[PAYMENT SERVICE] Using sandbox mode (explicit env var)');
+      return 'sandbox';
+    }
+    
+    // Default fallback
+    console.log('[PAYMENT SERVICE] Using sandbox mode (default)');
+    return 'sandbox';
+  }
+
+  /**
+   * Check and fix API URL if needed
+   */
+  checkAndFixApiUrl() {
+    // Try multiple environment variable names
+    const currentApiUrl = import.meta.env.VITE_API_URL || 
+                         import.meta.env.VITE_BACKEND_URL || 
+                         import.meta.env.VITE_SERVER_URL;
+    const fallbackApiUrl = import.meta.env.VITE_API_BASE_URL;
+    const isProductionEnvironment = window.location.hostname !== 'localhost' && 
+                                   window.location.hostname !== '127.0.0.1';
+    
+    console.log('[PAYMENT SERVICE] Environment Variable Check:', {
+      VITE_API_URL: import.meta.env.VITE_API_URL,
+      VITE_BACKEND_URL: import.meta.env.VITE_BACKEND_URL,
+      VITE_SERVER_URL: import.meta.env.VITE_SERVER_URL,
+      VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+      resolvedApiUrl: currentApiUrl,
+      isProduction: isProductionEnvironment
+    });
+    
+    if (isProductionEnvironment && currentApiUrl?.includes('localhost')) {
+      console.warn('[PAYMENT SERVICE] Production environment detected but API URL points to localhost');
+      console.warn('[PAYMENT SERVICE] Current API URL:', currentApiUrl);
+      
+      if (fallbackApiUrl && !fallbackApiUrl.includes('localhost')) {
+        console.log('[PAYMENT SERVICE] Using VITE_API_BASE_URL as fallback:', fallbackApiUrl);
+        // Try to update the API client if available
+        if (window.api && window.api._updateBaseUrl) {
+          window.api._updateBaseUrl(fallbackApiUrl);
+        }
+      } else {
+        console.warn('[PAYMENT SERVICE] No valid production URL found in environment variables');
+        console.warn('[PAYMENT SERVICE] Please verify VITE_API_URL is set correctly in deployment');
+      }
+    }
   }
 
   /**
@@ -304,6 +390,28 @@ export class PaymentService {
       maxRetries: this.maxRetries,
       paymentTimeout: this.paymentTimeout
     };
+  }
+
+  /**
+   * Manually set Cashfree mode (for testing/debugging)
+   */
+  setCashfreeMode(mode) {
+    const validModes = ['production', 'sandbox'];
+    if (!validModes.includes(mode)) {
+      throw new Error(`Invalid mode. Must be one of: ${validModes.join(', ')}`);
+    }
+    
+    console.log(`[PAYMENT SERVICE] Manually setting mode from ${this.cfMode} to ${mode}`);
+    this.cfMode = mode;
+    return this.cfMode;
+  }
+
+  /**
+   * Force production mode
+   */
+  forceProductionMode() {
+    console.log('[PAYMENT SERVICE] Forcing production mode');
+    return this.setCashfreeMode('production');
   }
 
   /**
