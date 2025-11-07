@@ -16,24 +16,50 @@ const {
 const CF_API_VERSION = '2023-08-01'; // Using latest stable version with better UPI support
 
 function getBaseUrl() { 
-  const baseUrl = 'https://api.cashfree.com/pg';
-   
+  const env = process.env.CASHFREE_ENV;
   
-  return baseUrl;
+  // Use production API for prod environment, sandbox for test/development
+  if (env === 'prod' || env === 'production') {
+    console.log('[CASHFREE] Using production API');
+    return 'https://api.cashfree.com/pg';
+  } else {
+    console.log('[CASHFREE] Using sandbox API');
+    return 'https://sandbox.cashfree.com/pg';
+  }
 }
 
 function getHeaders() {
   const appId = process.env.CASHFREE_APP_ID;
   const secret = process.env.CASHFREE_SECRET_KEY;
+  const env = process.env.CASHFREE_ENV;
   
   console.log('[CASHFREE] Auth Debug:', {
     appId: appId ? `${appId.substring(0, 8)}...` : 'Missing',
     secret: secret ? `${secret.substring(0, 8)}...` : 'Missing',
-    env: process.env.CASHFREE_ENV
+    env: env
   });
   
   if (!appId || !secret) {
     throw new Error('Cashfree credentials missing. Please set CASHFREE_APP_ID and CASHFREE_SECRET_KEY');
+  }
+  
+  // Environment validation
+  if (!env) {
+    console.warn('[CASHFREE] CASHFREE_ENV not set, defaulting to sandbox');
+  } else if (env !== 'sandbox' && env !== 'test' && env !== 'prod' && env !== 'production') {
+    console.warn('[CASHFREE] Invalid CASHFREE_ENV value:', env, '. Valid values: sandbox, test, prod, production');
+  }
+  
+  // Production safety check
+  const isProductionAPI = getBaseUrl().includes('api.cashfree.com');
+  const isProductionEnv = env === 'prod' || env === 'production';
+  
+  if (isProductionAPI && !isProductionEnv) {
+    throw new Error('Production API URL detected but CASHFREE_ENV is not set to production. This prevents accidental production usage.');
+  }
+  
+  if (!isProductionAPI && isProductionEnv) {
+    console.warn('[CASHFREE] CASHFREE_ENV is set to production but using sandbox API URL');
   }
   
   // Trim whitespace from credentials (common issue)
@@ -52,6 +78,15 @@ function getHeaders() {
 // Create a Cashfree order and return payment_session_id along with order_id
 async function createOrder({ amount, currency = 'INR', customer, orderMeta = {} }) {
   const base = getBaseUrl();
+  const env = process.env.CASHFREE_ENV;
+  
+  // Log environment configuration for debugging
+  console.log('[CASHFREE] Environment Configuration:', {
+    CASHFREE_ENV: env,
+    API_URL: base,
+    isProduction: base.includes('api.cashfree.com'),
+    NODE_ENV: process.env.NODE_ENV
+  });
   
   try {
     const headers = getHeaders();
