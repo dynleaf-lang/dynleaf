@@ -6,11 +6,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Environment variables
 .env
-.env.development
-.env.production 
+.env.*
+!.env.example
 .env.local
+.env.development
 .env.development.local
+.env.staging
+.env.production
+.env.production.local
 /.env
 
 node_modules

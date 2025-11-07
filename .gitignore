@@ -1,15 +1,28 @@
+# Dependencies
 node_modules/
-.env
-.DS_Store
 npm-debug.log
-/build
-/Docs
-/dist
 package-lock.json
+
+# Environment variables (all subprojects)
+.env
+.env.*
+!.env.example
+frontend/customer/.env*
+admin/.env*
+backend/.env*
+frontend/Kitchen/.env*
+frontend/POS/.env*
+
+# Build outputs
+/build
+/dist
+build/
+dist/
+
+# System files
+.DS_Store
 .eslintcache
 /temp_backup 
-*.md 
-frontend/customer/.env 
  
 .github/copilot-instructions.md
 TABLE_STATUS_CONSISTENCY_SOLUTION.md
