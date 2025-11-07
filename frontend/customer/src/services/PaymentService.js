@@ -20,9 +20,20 @@ export class PaymentService {
       MODE: import.meta.env.MODE,
       NODE_ENV: import.meta.env.NODE_ENV,
       PROD: import.meta.env.PROD,
+      DEV: import.meta.env.DEV,
       hostname: window.location.hostname,
-      detectedMode: this.cfMode
+      detectedMode: this.cfMode,
+      allEnvKeys: Object.keys(import.meta.env).filter(k => k.includes('CASHFREE') || k.includes('API')),
+      buildTimeCheck: typeof import.meta.env.VITE_CASHFREE_ENV !== 'undefined' ? 'FOUND' : 'NOT_FOUND',
+      rawCashfreeEnvValue: import.meta.env.VITE_CASHFREE_ENV
     });
+    
+    // Additional validation for production environments
+    if (this.cfMode === 'sandbox' && import.meta.env.PROD) {
+      console.warn('[PAYMENT SERVICE] ⚠️ Using sandbox mode in production build!');
+      console.warn('[PAYMENT SERVICE] This may cause payment_session_id errors.');
+      console.warn('[PAYMENT SERVICE] Set VITE_CASHFREE_ENV=production for production deployments.');
+    }
   }
 
   /**
@@ -32,33 +43,48 @@ export class PaymentService {
     const viteEnv = import.meta.env.VITE_CASHFREE_ENV;
     const isProductionEnvironment = window.location.hostname !== 'localhost' && 
                                    window.location.hostname !== '127.0.0.1';
+    const isBuildProduction = import.meta.env.PROD === true;
+    
+    console.log('[PAYMENT SERVICE] Environment Detection Details:', {
+      viteEnv,
+      isProductionEnvironment,
+      isBuildProduction,
+      hostname: window.location.hostname,
+      rawViteEnv: JSON.stringify(viteEnv)
+    });
     
     // Check if API URL issue exists and try to fix it
     this.checkAndFixApiUrl();
     
     // Priority logic:
     // 1. If VITE_CASHFREE_ENV is explicitly set to 'prod' or 'production', use production
-    // 2. If we're on a production domain (not localhost), use production
-    // 3. Otherwise use sandbox
+    // 2. If we're on a production domain AND it's a production build, use production
+    // 3. If explicitly set to sandbox/test, use sandbox
+    // 4. Otherwise use sandbox as safe default
     
     if (viteEnv === 'prod' || viteEnv === 'production') {
-      console.log('[PAYMENT SERVICE] Using production mode (explicit env var)');
-      return 'production';
-    }
-    
-    if (isProductionEnvironment && (!viteEnv || viteEnv === 'sandbox')) {
-      console.log('[PAYMENT SERVICE] Production environment detected, auto-switching to production mode');
-      console.warn('[PAYMENT SERVICE] Consider setting VITE_CASHFREE_ENV=production in your deployment');
+      console.log('[PAYMENT SERVICE] ✅ Using production mode (explicit env var)');
       return 'production';
     }
     
     if (viteEnv === 'sandbox' || viteEnv === 'test') {
-      console.log('[PAYMENT SERVICE] Using sandbox mode (explicit env var)');
+      console.log('[PAYMENT SERVICE] ✅ Using sandbox mode (explicit env var)');
       return 'sandbox';
     }
     
-    // Default fallback - prefer sandbox for development
-    console.log('[PAYMENT SERVICE] Using sandbox mode (default)');
+    // Auto-detection for production environments
+    if (isProductionEnvironment && isBuildProduction) {
+      console.log('[PAYMENT SERVICE] ⚡ Production environment detected, auto-switching to production mode');
+      console.warn('[PAYMENT SERVICE] 💡 Consider setting VITE_CASHFREE_ENV=production explicitly in your deployment for better control');
+      return 'production';
+    }
+    
+    // Safe default for all other cases
+    console.log('[PAYMENT SERVICE] 🔧 Using sandbox mode (safe default for development)');
+    if (isProductionEnvironment) {
+      console.warn('[PAYMENT SERVICE] ⚠️ Production domain detected but using sandbox mode. Set VITE_CASHFREE_ENV=production if this is a production deployment.');
+    }
+    
     return 'sandbox';
   }
 
@@ -66,19 +92,19 @@ export class PaymentService {
    * Check and fix API URL if needed
    */
   checkAndFixApiUrl() {
-    // Try multiple environment variable names
+    // Try multiple environment variable names in priority order
     const currentApiUrl = import.meta.env.VITE_API_URL || 
+                         import.meta.env.VITE_API_BASE_URL ||
                          import.meta.env.VITE_BACKEND_URL || 
                          import.meta.env.VITE_SERVER_URL;
-    const fallbackApiUrl = import.meta.env.VITE_API_BASE_URL;
     const isProductionEnvironment = window.location.hostname !== 'localhost' && 
                                    window.location.hostname !== '127.0.0.1';
     
     console.log('[PAYMENT SERVICE] Environment Variable Check:', {
       VITE_API_URL: import.meta.env.VITE_API_URL,
+      VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
       VITE_BACKEND_URL: import.meta.env.VITE_BACKEND_URL,
       VITE_SERVER_URL: import.meta.env.VITE_SERVER_URL,
-      VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
       resolvedApiUrl: currentApiUrl,
       isProduction: isProductionEnvironment
     });
@@ -86,17 +112,14 @@ export class PaymentService {
     if (isProductionEnvironment && currentApiUrl?.includes('localhost')) {
       console.warn('[PAYMENT SERVICE] Production environment detected but API URL points to localhost');
       console.warn('[PAYMENT SERVICE] Current API URL:', currentApiUrl);
-      
-      if (fallbackApiUrl && !fallbackApiUrl.includes('localhost')) {
-        console.log('[PAYMENT SERVICE] Using VITE_API_BASE_URL as fallback:', fallbackApiUrl);
-        // Try to update the API client if available
-        if (window.api && window.api._updateBaseUrl) {
-          window.api._updateBaseUrl(fallbackApiUrl);
-        }
-      } else {
-        console.warn('[PAYMENT SERVICE] No valid production URL found in environment variables');
-        console.warn('[PAYMENT SERVICE] Please verify VITE_API_URL is set correctly in deployment');
-      }
+      console.warn('[PAYMENT SERVICE] No valid production URL found in environment variables');
+      console.warn('[PAYMENT SERVICE] Please verify VITE_API_URL or VITE_API_BASE_URL is set correctly in deployment');
+    }
+    
+    // Store the resolved API URL for other parts of the application to use
+    if (currentApiUrl && window.api && typeof window.api.updateBaseUrl === 'function') {
+      console.log('[PAYMENT SERVICE] Updating API client with resolved URL:', currentApiUrl);
+      window.api.updateBaseUrl(currentApiUrl);
     }
   }
 

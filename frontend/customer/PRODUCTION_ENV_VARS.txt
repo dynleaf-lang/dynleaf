@@ -1,0 +1,26 @@
+# Environment Variables for Production Deployment
+
+# For Vercel/Netlify/Render.com or similar platforms:
+# Set these environment variables in your deployment platform's dashboard
+
+# Cashfree Environment - CRITICAL for production
+VITE_CASHFREE_ENV=production
+
+# API Base URL - Your backend URL
+VITE_API_BASE_URL=https://dynleaf.onrender.com
+
+# Alternative API URL variable (if needed by your setup)
+VITE_API_URL=https://dynleaf.onrender.com
+
+# Optional: Enable debug logging in production (set to false for production)
+VITE_ENABLE_DEBUG=false
+
+# Instructions:
+# 1. Copy these variables to your deployment platform (Vercel, Netlify, Render, etc.)
+# 2. Replace https://dynleaf.onrender.com with your actual backend URL
+# 3. Ensure your backend has CASHFREE_ENV=production set as well
+# 4. Deploy and test payments
+
+# For local development, use:
+# VITE_CASHFREE_ENV=sandbox
+# VITE_API_BASE_URL=http://localhost:5001
