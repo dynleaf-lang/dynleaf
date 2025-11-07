@@ -1,9 +1,20 @@
-/build
+# Dependencies
 /node_modules
 package-lock.json
+
+# Build outputs
 /build
-.eslintcache
+/dist
+
+# Environment variables
 .env
-.env.development
-.env.example
+.env.*
+!.env.example
+
+# Cache and logs
+.eslintcache
+logs/
+*.log
+
+# Documentation
 /Docs
