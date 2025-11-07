@@ -1674,7 +1674,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
         },
         orderMeta: {
           return_url: `${window.location.origin}/?payment_return=true&order_id={order_id}`,
-          notify_url: `${import.meta.env.VITE_API_URL}/api/payments/cashfree/webhook`,
+          notify_url: `${import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL}/api/payments/cashfree/webhook`,
           payment_methods: 'upi'
         }
       });
