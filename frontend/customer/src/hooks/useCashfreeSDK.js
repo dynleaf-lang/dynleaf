@@ -155,13 +155,34 @@ export const useCashfreeSDK = () => {
     }
   };
 
-  const initializeSDK = (mode = 'sandbox') => {
+  const initializeSDK = (mode) => {
     if (!window.Cashfree) {
       throw new Error('Cashfree SDK not loaded');
     }
 
+    // Auto-detect mode if not provided
+    if (!mode) {
+      const viteEnv = import.meta.env.VITE_CASHFREE_ENV;
+      const isProductionEnvironment = window.location.hostname !== 'localhost' && 
+                                     window.location.hostname !== '127.0.0.1';
+      
+      if (viteEnv === 'prod' || viteEnv === 'production') {
+        mode = 'production';
+      } else if (isProductionEnvironment && (!viteEnv || viteEnv === 'sandbox')) {
+        console.warn('[CASHFREE SDK] Production environment detected but no VITE_CASHFREE_ENV set, defaulting to production');
+        mode = 'production';
+      } else {
+        mode = 'sandbox';
+      }
+    }
+
     try {
       console.log('[CASHFREE SDK] Initializing with mode:', mode);
+      console.log('[CASHFREE SDK] Environment details:', {
+        VITE_CASHFREE_ENV: import.meta.env.VITE_CASHFREE_ENV,
+        hostname: window.location.hostname,
+        selectedMode: mode
+      });
       
       // Try different initialization methods
       let cashfree;

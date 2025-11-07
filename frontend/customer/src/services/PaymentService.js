@@ -52,12 +52,12 @@ export class PaymentService {
       return 'production';
     }
     
-    if (viteEnv === 'sandbox') {
+    if (viteEnv === 'sandbox' || viteEnv === 'test') {
       console.log('[PAYMENT SERVICE] Using sandbox mode (explicit env var)');
       return 'sandbox';
     }
     
-    // Default fallback
+    // Default fallback - prefer sandbox for development
     console.log('[PAYMENT SERVICE] Using sandbox mode (default)');
     return 'sandbox';
   }
