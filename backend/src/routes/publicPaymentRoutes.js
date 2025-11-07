@@ -65,9 +65,13 @@ router.post('/cashfree/order', async (req, res) => {
 
     // Log environment info for debugging
     console.log('[PAYMENTS] Environment check:', {
-      appId: process.env.CASHFREE_APP_ID ? 'Set' : 'Missing',
+      appId: process.env.CASHFREE_APP_ID ? `${process.env.CASHFREE_APP_ID.substring(0, 8)}...` : 'Missing',
       secretKey: process.env.CASHFREE_SECRET_KEY ? 'Set' : 'Missing',
       env: process.env.CASHFREE_ENV,
+      envType: typeof process.env.CASHFREE_ENV,
+      envLength: process.env.CASHFREE_ENV?.length,
+      normalizedEnv: (process.env.CASHFREE_ENV || 'test').toLowerCase(),
+      willUseProd: (process.env.CASHFREE_ENV || 'test').toLowerCase() === 'prod',
       webhookUrl: process.env.CASHFREE_WEBHOOK_URL,
       returnUrl: process.env.CASHFREE_RETURN_URL,
       nodeEnv: process.env.NODE_ENV
@@ -166,6 +170,37 @@ router.get('/cashfree/webhook', (req, res) => {
 });
 
 router.post('/cashfree/webhook', cashfreeWebhook);
+
+// Environment Debug Endpoint
+router.get('/cashfree/env-debug', (req, res) => {
+  const rawEnv = process.env.CASHFREE_ENV;
+  
+  return res.json({
+    debug: true,
+    timestamp: new Date().toISOString(),
+    environment: {
+      CASHFREE_ENV_raw: rawEnv,
+      CASHFREE_ENV_string: String(rawEnv),
+      CASHFREE_ENV_type: typeof rawEnv,
+      CASHFREE_ENV_length: rawEnv?.length,
+      CASHFREE_ENV_charCodes: rawEnv ? Array.from(rawEnv).map(c => c.charCodeAt(0)) : null,
+      isExactlyProd: rawEnv === 'prod',
+      isExactlyProduction: rawEnv === 'production',
+      toLowerCase: rawEnv?.toLowerCase(),
+      trim: rawEnv?.trim(),
+      NODE_ENV: process.env.NODE_ENV,
+      processEnvKeys: Object.keys(process.env).filter(k => k.includes('CASHFREE')),
+    },
+    baseUrlLogic: {
+      condition: `process.env.CASHFREE_ENV === 'prod'`,
+      result: process.env.CASHFREE_ENV === 'prod',
+      wouldUseProd: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production',
+      actualBaseUrl: (process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production')
+        ? 'https://api.cashfree.com/pg'
+        : 'https://sandbox.cashfree.com/pg'
+    }
+  });
+});
 
 // UPI Payment Test Endpoint (for debugging production issues)
 router.post('/cashfree/test-upi', async (req, res) => {
@@ -279,17 +314,34 @@ if (process.env.NODE_ENV !== 'production') {
 // Payment Configuration Diagnostic Endpoint
 router.get('/cashfree/config-check', async (req, res) => {
   try {
+    const rawEnv = process.env.CASHFREE_ENV;
+    const normalizedEnv = (rawEnv || 'test').toLowerCase();
+    
     const config = {
-      environment: process.env.CASHFREE_ENV || 'Not Set',
-      appId: process.env.CASHFREE_APP_ID ? 'Configured' : 'Missing',
-      secretKey: process.env.CASHFREE_SECRET_KEY ? 'Configured' : 'Missing',
+      environment: rawEnv || 'Not Set',
+      environmentRaw: JSON.stringify(rawEnv),
+      environmentType: typeof rawEnv,
+      environmentLength: rawEnv?.length,
+      normalizedEnv: normalizedEnv,
+      isProdCheck: rawEnv === 'prod',
+      isProductionCheck: rawEnv === 'production',
+      strictComparison: process.env.CASHFREE_ENV === 'prod',
+      appId: process.env.CASHFREE_APP_ID ? `${process.env.CASHFREE_APP_ID.substring(0, 8)}...` : 'Missing',
+      secretKey: process.env.CASHFREE_SECRET_KEY ? `${process.env.CASHFREE_SECRET_KEY.substring(0, 8)}...` : 'Missing',
       webhookUrl: process.env.CASHFREE_WEBHOOK_URL || 'Not Set',
       webhookSecret: process.env.CASHFREE_WEBHOOK_SECRET ? 'Configured' : 'Missing',
       returnUrl: process.env.CASHFREE_RETURN_URL || 'Not Set',
+      nodeEnv: process.env.NODE_ENV,
       apiVersion: '2023-08-01',
-      baseUrl: process.env.CASHFREE_ENV === 'prod' 
+      baseUrl: process.env.CASHFREE_ENV === 'prod' || process.env.CASHFREE_ENV === 'production'
         ? 'https://api.cashfree.com/pg'
-        : 'https://sandbox.cashfree.com/pg'
+        : 'https://sandbox.cashfree.com/pg',
+      allCashfreeEnvVars: Object.keys(process.env)
+        .filter(key => key.includes('CASHFREE'))
+        .reduce((acc, key) => {
+          acc[key] = process.env[key]?.substring(0, 10) + '...';
+          return acc;
+        }, {})
     };
     
     // Test basic connectivity to Cashfree
