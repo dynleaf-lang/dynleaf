@@ -653,8 +653,17 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       console.log('[CHECKOUT FORM] Payment status already finalized, skipping verification');
       return;
     }
+
+    // If payment was already cancelled or failed, don't check
+    if (paymentStatus === PaymentStatusMachine.CANCELLED || paymentStatus === PaymentStatusMachine.FAILED) {
+      console.log('[CHECKOUT FORM] Payment already cancelled/failed, skipping verification');
+      return;
+    }
     
-    if (!currentOrder?.cfOrderId) return;
+    if (!currentOrder?.cfOrderId) {
+      console.log('[CHECKOUT FORM] No currentOrder or cfOrderId available');
+      return;
+    }
 
     const startTime = Date.now();
 
@@ -688,8 +697,20 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           handlePaymentSuccess();
           break;
         case 'FAILED':
+          // Determine specific failure reason if available
+          const failureReason = response.data?.payment_message || response.data?.failure_reason || '';
+          if (failureReason.toLowerCase().includes('insufficient')) {
+            handlePaymentFailure('Payment declined due to insufficient funds in your account.', 'insufficient_funds');
+          } else if (failureReason.toLowerCase().includes('declined') || failureReason.toLowerCase().includes('reject')) {
+            handlePaymentFailure('Payment was declined by your bank. Please try a different payment method.', 'bank_decline');
+          } else if (failureReason.toLowerCase().includes('expired') || failureReason.toLowerCase().includes('timeout')) {
+            handlePaymentFailure('Payment session expired. Please try again.', 'expired');
+          } else {
+            handlePaymentFailure('Payment failed. Please try again or use a different payment method.', 'generic');
+          }
+          break;
         case 'CANCELLED':
-          handlePaymentFailure('Payment failed. Please try again.');
+          handlePaymentFailure('Payment was cancelled. No amount has been deducted from your account.', 'user_cancelled');
           break;
         case 'USER_DROPPED':
           handlePaymentCancellation();
@@ -700,13 +721,29 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           break;
         default:
           // Check if order status indicates failure
-          if (order_status === 'CANCELLED' || order_status === 'TERMINATED') {
-            handlePaymentFailure('Payment was not completed.');
+          if (order_status === 'CANCELLED') {
+            handlePaymentFailure('Payment order was cancelled. No amount has been deducted from your account.', 'expired');
+          } else if (order_status === 'TERMINATED') {
+            handlePaymentFailure('Payment session was terminated. Please try again.', 'technical_error');
+          } else if (order_status === 'ACTIVE' && payment_status === undefined) {
+            // This indicates user likely cancelled payment before completing
+            // ACTIVE order with no payment_status = payment attempt was cancelled/abandoned
+            console.log('[CHECKOUT FORM] Detected payment cancellation: ACTIVE order with no payment status');
+            handlePaymentCancellation();
+            return; // Stop further verification attempts
           } else {
+            // If status is unclear, check verification attempts before retrying
+            if (verificationAttempts >= maxVerificationAttempts) {
+              console.log('[CHECKOUT FORM] Max verification attempts reached, treating as cancellation');
+              handlePaymentCancellation();
+              return;
+            }
+            
             // If status is unclear, wait less time then check again (faster retry)
-            console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status });
-            // Only retry if payment status hasn't been finalized
-            if (!paymentStatusFinalized) {
+            console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status, attempts: verificationAttempts });
+            // Only retry if payment status hasn't been finalized and we haven't exceeded max attempts
+            if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+              setVerificationAttempts(verificationAttempts + 1);
               setTimeout(() => checkPaymentStatus(), 2000); // Reduced from 3000ms
             }
           }
@@ -732,18 +769,23 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           });
         } catch (_) {}
         
-        // Only retry for network issues if payment status hasn't been finalized
-        if (!paymentStatusFinalized) {
+        // Only retry for network issues if payment status hasn't been finalized and within attempt limits
+        if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+          setVerificationAttempts(verificationAttempts + 1);
           // Longer delay for network issues
           setTimeout(() => checkPaymentStatus(), 5000);
+        } else if (verificationAttempts >= maxVerificationAttempts) {
+          console.log('[CHECKOUT FORM] Max verification attempts reached during network error');
+          handlePaymentFailure('Unable to connect to payment servers after multiple attempts. Please check your internet connection and try again.', 'network');
         }
       } else {
-        // If we can't check status, assume payment failed after fewer retries (faster fail)
-        if (paymentRetryCount >= 2) { // Reduced from 3 to 2
-          handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
+        // If we can't check status, check verification attempts before retrying
+        if (verificationAttempts >= maxVerificationAttempts) {
+          handlePaymentFailure('Payment verification timed out after multiple attempts. If amount was deducted, please contact support with your transaction reference.', 'verification_timeout');
         } else {
-          // Only retry if payment status hasn't been finalized
-          if (!paymentStatusFinalized) {
+          // Only retry if payment status hasn't been finalized and within attempt limits
+          if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+            setVerificationAttempts(verificationAttempts + 1);
             // Retry after shorter delay
             setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
           }
@@ -881,36 +923,104 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }
   };
 
-  // Handle failed payment
-  const handlePaymentFailure = (message = 'Payment failed. Please try again.') => {
-    console.log('[CHECKOUT FORM] Payment failed:', message);
+  // Handle failed payment with enhanced messaging
+  const handlePaymentFailure = (message = 'Payment failed. Please try again.', failureType = 'generic') => {
+    console.log('[CHECKOUT FORM] Payment failed:', { message, failureType });
     
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
-    updatePaymentStatusSafely(PaymentStatusMachine.FAILED, 'payment failed');
+    // Generate professional failure message based on type
+    let professionalMessage = message;
+    let retryRecommended = true;
+    
+    switch (failureType) {
+      case 'network':
+        professionalMessage = 'Unable to connect to payment servers. Please check your internet connection and try again. No amount has been deducted.';
+        retryRecommended = true;
+        break;
+      case 'insufficient_funds':
+        professionalMessage = 'Payment declined due to insufficient funds. Please check your account balance or try a different payment method.';
+        retryRecommended = true;
+        break;
+      case 'bank_decline':
+        professionalMessage = 'Payment was declined by your bank. Please contact your bank or try a different payment method.';
+        retryRecommended = true;
+        break;
+      case 'expired':
+        professionalMessage = 'Payment session expired. Please start a new payment process. No amount has been deducted.';
+        retryRecommended = true;
+        break;
+      case 'verification_timeout':
+        professionalMessage = 'Payment verification timed out. If amount was deducted, please contact support with your transaction details.';
+        retryRecommended = false;
+        break;
+      case 'technical_error':
+        professionalMessage = 'Technical error occurred during payment processing. Please try again or contact support if the issue persists.';
+        retryRecommended = true;
+        break;
+      case 'api_error':
+        professionalMessage = 'Server communication error. Please try again. If amount was deducted, your order will be processed automatically.';
+        retryRecommended = true;
+        break;
+      default:
+        // Use provided message or default
+        professionalMessage = message || 'Payment could not be completed. Please try again or use a different payment method.';
+        retryRecommended = true;
+    }
+    
+    updatePaymentStatusSafely(PaymentStatusMachine.FAILED, 'payment failed', { 
+      failureType, 
+      retryRecommended 
+    });
     setPaymentInProgress(false);
-    setPaymentStatusMessage(message);
+    setPaymentStatusMessage(professionalMessage);
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
     setOrderCreationAttempted(false);
     
+    // Store failure context for retry logic
+    updatePaymentState({ 
+      failureType, 
+      retryRecommended,
+      lastFailureTime: Date.now()
+    });
+    
     // Increment retry count
     setPaymentRetryCount(prev => prev + 1);
+    
+    // Send analytics event for failure tracking
+    try {
+      trackAnalyticsEvent?.('payment_failed', {
+        failure_type: failureType,
+        retry_recommended: retryRecommended,
+        retry_count: paymentRetryCount + 1,
+        order_amount: totalAmount,
+        payment_method: 'upi'
+      });
+    } catch (_) {}
   };
 
   // Handle cancelled payment
   const handlePaymentCancellation = () => {
-    console.log('[CHECKOUT FORM] Payment cancelled by user');
+    console.log('[CHECKOUT FORM] Payment cancelled by user - stopping all verification');
     
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
     updatePaymentStatusSafely(PaymentStatusMachine.CANCELLED, 'payment cancelled');
     setPaymentInProgress(false);
-    setPaymentStatusMessage('Payment was cancelled. You can try again or choose a different payment method.');
+    setPaymentStatusMessage('Payment was cancelled. No amount has been deducted from your account. You can try again with the same or different payment method.');
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
+    setOrderCreationAttempted(false);
+    
+    // Clear current order session to allow fresh start
+    setCurrentOrder(null);
+    setLastPaymentAmount(null);
+    
+    // Clear any pending timeouts/intervals that might still be checking status
+    console.log('[CHECKOUT FORM] Payment cancellation processed - verification stopped');
   };
 
   // Handle pending payment
@@ -2849,7 +2959,280 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             marginBottom: theme.spacing.lg,
             flexWrap: 'wrap'
           }}>
+            {/* Left: UPI Payment Selection */}
+            <div 
+              data-upi-dropdown
+              style={{
+                flex: '1 1 45%',
+                minWidth: '240px',
+                position: 'relative'
+              }}
+            >
+              {/* Pay Using Dropdown */}
+              <div 
+                onClick={() => setShowUpiDropdown(!showUpiDropdown)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setShowUpiDropdown(!showUpiDropdown);
+                  }
+                  if (e.key === 'Escape') {
+                    setShowUpiDropdown(false);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-haspopup="listbox"
+                aria-expanded={showUpiDropdown}
+                aria-describedby="upi-dropdown-help"
+                aria-label="Select UPI payment app"
+                style={{
+                  backgroundColor: 'white',
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: theme.borderRadius.md,
+                  padding: theme.spacing.md,
+                  boxShadow: theme.shadows.sm,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <div style={{ 
+                    fontSize: theme.typography.sizes.sm, 
+                    color: theme.colors.text.secondary,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    fontWeight: 500
+                  }}>
+                    PAY USING
+                  </div> 
+                  {selectedUpiApp && (
+                    <div style={{
+                      width: '6px',
+                      height: '6px',
+                      backgroundColor: theme.colors.success,
+                      borderRadius: '50%',
+                      marginLeft: theme.spacing.xs
+                    }} />
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+                  <img 
+                    src={getSelectedUpiApp().icon} 
+                    alt={getSelectedUpiApp().label}
+                    style={{ 
+                      width: '24px', 
+                      height: '24px', 
+                      objectFit: 'contain',
+                      borderRadius: '4px'
+                    }} 
+                  />
+                  <span style={{ fontWeight: 600, fontSize: theme.typography.sizes.md }}>
+                    {getSelectedUpiApp().label}
+                  </span>
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: '20px', 
+                      color: theme.colors.text.secondary,
+                      transform: showUpiDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s ease'
+                    }}
+                  >
+                    expand_more
+                  </span>
+                </div>
+              </div>
+
+              {/* UPI Apps Dropdown */}
+              {showUpiDropdown && (
+                <div 
+                  role="listbox"
+                  aria-label="Select UPI payment app"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: `1px solid ${theme.colors.border}`,
+                    borderRadius: theme.borderRadius.md,
+                    boxShadow: theme.shadows.lg,
+                    zIndex: 1000,
+                    marginTop: '4px',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {/* Recommended Section */}
+                  <div style={{
+                    padding: `${theme.spacing.xs} ${theme.spacing.md}`,
+                    backgroundColor: '#f8f9fa',
+                    borderBottom: `1px solid ${theme.colors.border}`,
+                    fontSize: theme.typography.sizes.sm,
+                    color: theme.colors.text.secondary,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    fontWeight: 500
+                  }}>
+                    RECOMMENDED
+                  </div>
+                  
+                  {/* UPI Apps List */}
+                  {upiApps.map((app, index) => (
+                    <div
+                      key={app.key}
+                      role="option"
+                      aria-selected={selectedUpiApp === app.key}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
+                          setSelectedUpiApp(app.key);
+                          setShowUpiDropdown(false);
+                        }
+                        if (e.key === 'Escape') {
+                          setShowUpiDropdown(false);
+                        }
+                      }}
+                      onClick={() => {
+                        console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
+                        
+                        // Track analytics for UPI app selection
+                        const analytics = paymentService.getAnalytics();
+                        analytics.trackUpiAppSelected(app.key, app.label);
+                        
+                        setSelectedUpiApp(app.key);
+                        setShowUpiDropdown(false);
+                        
+                        // Clear any previous payment errors when user changes app
+                        if (paymentError) {
+                          setPaymentError('');
+                        }
+                      }}
+                      style={{
+                        padding: theme.spacing.md,
+                        borderBottom: `1px solid ${theme.colors.border}`,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: selectedUpiApp === app.key ? theme.colors.primary + '10' : 'white',
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (selectedUpiApp !== app.key) {
+                          e.target.style.backgroundColor = '#f8f9fa';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (selectedUpiApp !== app.key) {
+                          e.target.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
+                        <img 
+                          src={app.icon} 
+                          alt={app.label}
+                          style={{ 
+                            width: '32px', 
+                            height: '32px', 
+                            objectFit: 'contain',
+                            borderRadius: '6px'
+                          }} 
+                        />
+                        <span style={{ 
+                          fontWeight: 500, 
+                          fontSize: theme.typography.sizes.md,
+                          color: theme.colors.text.primary
+                        }}>
+                          {app.label}
+                        </span>
+                      </div>
+                      {selectedUpiApp === app.key && (
+                        <span className="material-icons" style={{ color: theme.colors.primary, fontSize: '20px' }}>
+                          check
+                        </span>
+                      )}
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          color: theme.colors.text.secondary, 
+                          fontSize: '18px' 
+                        }}
+                      >
+                        chevron_right
+                      </span>
+                    </div>
+                  ))}
+                  
+                  {/* Add new UPI ID option */}
+                  <div
+                    style={{
+                      padding: theme.spacing.md,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: 'white',
+                      color: theme.colors.primary
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#f8f9fa';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = 'white';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
+                      <img src={upiLogo} alt="UPI" style={{ width: 24, height: 24 }} />
+                      <span style={{ 
+                        fontWeight: 500, 
+                        fontSize: theme.typography.sizes.md 
+                      }}>
+                        Add new UPI ID
+                      </span>
+                    </div>
+                    <span className="material-icons" style={{ fontSize: '24px', color: theme.colors.primary }}>
+                      add
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              <p id="upi-dropdown-help" style={{ 
+                fontSize: theme.typography.sizes.xs,
+                color: theme.colors.text.secondary,
+                marginTop: theme.spacing.xs,
+                marginBottom: 0
+              }}>
+                Select your preferred UPI app for secure payment
+              </p>
+            </div>
             
+            {/* Payment instruction */}
+            {selectedUpiApp && (
+              <div style={{
+                backgroundColor: theme.colors.primary + '10',
+                padding: theme.spacing.sm,
+                borderRadius: theme.borderRadius.sm,
+                fontSize: theme.typography.sizes.sm,
+                color: theme.colors.primary,
+                textAlign: 'center',
+                marginTop: theme.spacing.sm,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: theme.spacing.xs
+              }}>
+                <span className="material-icons" style={{ fontSize: '16px' }}>info</span>
+                {getSelectedUpiApp().label} will open for payment when you place your order
+              </div>
+            )}
+
             {/* Right: Submit */}
             <motion.button
               type="submit"
@@ -2952,6 +3335,10 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           verificationStep={verificationStep}
           verificationAttempts={verificationAttempts}
           maxVerificationAttempts={maxVerificationAttempts}
+          failureType={paymentState.failureType}
+          retryRecommended={paymentState.retryRecommended}
+          retryCount={paymentRetryCount}
+          maxRetries={3}
         />
       )}
     </motion.div>
