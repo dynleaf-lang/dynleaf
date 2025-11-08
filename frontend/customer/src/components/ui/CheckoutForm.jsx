@@ -18,12 +18,6 @@ import OrderSuccessModal from './OrderSuccessModal';
 import OrderConfirmation from './OrderConfirmation';
 import PaymentSuccessToast from './PaymentSuccessToast';
 import PaymentStatusTracker from './PaymentStatusTracker';
-import amazonLogo from '../../assets/Payments-Icons/Amazon-Pay-icon.png';
-import googlePay from '../../assets/Payments-Icons/google-pay.png';
-import phonePe from '../../assets/Payments-Icons/phonepe-icon.png';
-import paytmLogo from '../../assets/Payments-Icons/paytm.png';
-import credLogo from '../../assets/Payments-Icons/credApp.jpg';
-import upiLogo from '../../assets/Payments-Icons/upi-ar21~bgwhite.svg';
 
 // Add CSS animation for spinner
 const spinnerStyles = `
@@ -158,7 +152,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   // Consolidated payment state for better organization
   const [paymentState, setPaymentState] = useState({
-    selectedUpiApp: 'gpay',
     inProgress: false,
     error: '',
     status: null, // null | 'pending' | 'success' | 'failed' | 'cancelled'
@@ -179,7 +172,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   // Consolidated UI state
   const [uiState, setUiState] = useState({
-    showUpiDropdown: false,
     showPaymentStatusModal: false,
     showSuccessToast: false,
     showSuccessModal: false,
@@ -204,10 +196,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   }, []);
   
   // Backward compatibility accessors (to maintain existing functionality)
-  const selectedUpiApp = paymentState.selectedUpiApp;
-  const setSelectedUpiApp = useCallback((value) => updatePaymentState({ selectedUpiApp: value }), [updatePaymentState]);
-  const showUpiDropdown = uiState.showUpiDropdown;
-  const setShowUpiDropdown = useCallback((value) => updateUIState({ showUpiDropdown: value }), [updateUIState]);
   const paymentInProgress = paymentState.inProgress;
   const setPaymentInProgress = useCallback((value) => updatePaymentState({ inProgress: value }), [updatePaymentState]);
   const paymentError = paymentState.error;
@@ -403,46 +391,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }, 300),
     []
   );
-
-  // Memoize UPI apps to prevent unnecessary re-renders
-  const memoizedUpiApps = useMemo(() => [
-    { 
-      key: 'gpay', 
-      label: 'Google Pay UPI',
-      icon: googlePay,
-      recommended: true
-    },
-    { 
-      key: 'phonepe', 
-      label: 'PhonePe UPI',
-      icon: phonePe
-    },
-    { 
-      key: 'paytm', 
-      label: 'Paytm UPI',
-      icon: paytmLogo
-    },
-    { 
-      key: 'cred', 
-      label: 'CRED UPI',
-      icon: credLogo
-    },
-    { 
-      key: 'amazonpay', 
-      label: 'Amazon Pay UPI',
-      icon: amazonLogo
-    }
-  ], []);
-
-  const getSelectedUpiApp = useCallback(() => 
-    memoizedUpiApps.find(app => app.key === selectedUpiApp) || memoizedUpiApps[0],
-    [memoizedUpiApps, selectedUpiApp]
-  );
-  
-  // Debug logging for UPI app selection
-  useEffect(() => {
-    console.log('[CHECKOUT FORM] Selected UPI App changed to:', selectedUpiApp);
-  }, [selectedUpiApp]);
 
   // WebSocket integration for instant payment confirmations
   useEffect(() => {
@@ -653,8 +601,17 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       console.log('[CHECKOUT FORM] Payment status already finalized, skipping verification');
       return;
     }
+
+    // If payment was already cancelled or failed, don't check
+    if (paymentStatus === PaymentStatusMachine.CANCELLED || paymentStatus === PaymentStatusMachine.FAILED) {
+      console.log('[CHECKOUT FORM] Payment already cancelled/failed, skipping verification');
+      return;
+    }
     
-    if (!currentOrder?.cfOrderId) return;
+    if (!currentOrder?.cfOrderId) {
+      console.log('[CHECKOUT FORM] No currentOrder or cfOrderId available');
+      return;
+    }
 
     const startTime = Date.now();
 
@@ -688,8 +645,20 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           handlePaymentSuccess();
           break;
         case 'FAILED':
+          // Determine specific failure reason if available
+          const failureReason = response.data?.payment_message || response.data?.failure_reason || '';
+          if (failureReason.toLowerCase().includes('insufficient')) {
+            handlePaymentFailure('Payment declined due to insufficient funds in your account.', 'insufficient_funds');
+          } else if (failureReason.toLowerCase().includes('declined') || failureReason.toLowerCase().includes('reject')) {
+            handlePaymentFailure('Payment was declined by your bank. Please try a different payment method.', 'bank_decline');
+          } else if (failureReason.toLowerCase().includes('expired') || failureReason.toLowerCase().includes('timeout')) {
+            handlePaymentFailure('Payment session expired. Please try again.', 'expired');
+          } else {
+            handlePaymentFailure('Payment failed. Please try again or use a different payment method.', 'generic');
+          }
+          break;
         case 'CANCELLED':
-          handlePaymentFailure('Payment failed. Please try again.');
+          handlePaymentFailure('Payment was cancelled. No amount has been deducted from your account.', 'user_cancelled');
           break;
         case 'USER_DROPPED':
           handlePaymentCancellation();
@@ -700,13 +669,29 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           break;
         default:
           // Check if order status indicates failure
-          if (order_status === 'CANCELLED' || order_status === 'TERMINATED') {
-            handlePaymentFailure('Payment was not completed.');
+          if (order_status === 'CANCELLED') {
+            handlePaymentFailure('Payment order was cancelled. No amount has been deducted from your account.', 'expired');
+          } else if (order_status === 'TERMINATED') {
+            handlePaymentFailure('Payment session was terminated. Please try again.', 'technical_error');
+          } else if (order_status === 'ACTIVE' && payment_status === undefined) {
+            // This indicates user likely cancelled payment before completing
+            // ACTIVE order with no payment_status = payment attempt was cancelled/abandoned
+            console.log('[CHECKOUT FORM] Detected payment cancellation: ACTIVE order with no payment status');
+            handlePaymentCancellation();
+            return; // Stop further verification attempts
           } else {
+            // If status is unclear, check verification attempts before retrying
+            if (verificationAttempts >= maxVerificationAttempts) {
+              console.log('[CHECKOUT FORM] Max verification attempts reached, treating as cancellation');
+              handlePaymentCancellation();
+              return;
+            }
+            
             // If status is unclear, wait less time then check again (faster retry)
-            console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status });
-            // Only retry if payment status hasn't been finalized
-            if (!paymentStatusFinalized) {
+            console.log('[CHECKOUT FORM] Payment status unclear, will retry in 2s...', { order_status, payment_status, attempts: verificationAttempts });
+            // Only retry if payment status hasn't been finalized and we haven't exceeded max attempts
+            if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+              setVerificationAttempts(verificationAttempts + 1);
               setTimeout(() => checkPaymentStatus(), 2000); // Reduced from 3000ms
             }
           }
@@ -732,18 +717,23 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           });
         } catch (_) {}
         
-        // Only retry for network issues if payment status hasn't been finalized
-        if (!paymentStatusFinalized) {
+        // Only retry for network issues if payment status hasn't been finalized and within attempt limits
+        if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+          setVerificationAttempts(verificationAttempts + 1);
           // Longer delay for network issues
           setTimeout(() => checkPaymentStatus(), 5000);
+        } else if (verificationAttempts >= maxVerificationAttempts) {
+          console.log('[CHECKOUT FORM] Max verification attempts reached during network error');
+          handlePaymentFailure('Unable to connect to payment servers after multiple attempts. Please check your internet connection and try again.', 'network');
         }
       } else {
-        // If we can't check status, assume payment failed after fewer retries (faster fail)
-        if (paymentRetryCount >= 2) { // Reduced from 3 to 2
-          handlePaymentFailure('Unable to verify payment status. Please contact support if payment was deducted.');
+        // If we can't check status, check verification attempts before retrying
+        if (verificationAttempts >= maxVerificationAttempts) {
+          handlePaymentFailure('Payment verification timed out after multiple attempts. If amount was deducted, please contact support with your transaction reference.', 'verification_timeout');
         } else {
-          // Only retry if payment status hasn't been finalized
-          if (!paymentStatusFinalized) {
+          // Only retry if payment status hasn't been finalized and within attempt limits
+          if (!paymentStatusFinalized && verificationAttempts < maxVerificationAttempts) {
+            setVerificationAttempts(verificationAttempts + 1);
             // Retry after shorter delay
             setTimeout(() => checkPaymentStatus(), 1500); // Reduced from 2000ms
           }
@@ -881,36 +871,104 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }
   };
 
-  // Handle failed payment
-  const handlePaymentFailure = (message = 'Payment failed. Please try again.') => {
-    console.log('[CHECKOUT FORM] Payment failed:', message);
+  // Handle failed payment with enhanced messaging
+  const handlePaymentFailure = (message = 'Payment failed. Please try again.', failureType = 'generic') => {
+    console.log('[CHECKOUT FORM] Payment failed:', { message, failureType });
     
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
-    updatePaymentStatusSafely(PaymentStatusMachine.FAILED, 'payment failed');
+    // Generate professional failure message based on type
+    let professionalMessage = message;
+    let retryRecommended = true;
+    
+    switch (failureType) {
+      case 'network':
+        professionalMessage = 'Unable to connect to payment servers. Please check your internet connection and try again. No amount has been deducted.';
+        retryRecommended = true;
+        break;
+      case 'insufficient_funds':
+        professionalMessage = 'Payment declined due to insufficient funds. Please check your account balance or try a different payment method.';
+        retryRecommended = true;
+        break;
+      case 'bank_decline':
+        professionalMessage = 'Payment was declined by your bank. Please contact your bank or try a different payment method.';
+        retryRecommended = true;
+        break;
+      case 'expired':
+        professionalMessage = 'Payment session expired. Please start a new payment process. No amount has been deducted.';
+        retryRecommended = true;
+        break;
+      case 'verification_timeout':
+        professionalMessage = 'Payment verification timed out. If amount was deducted, please contact support with your transaction details.';
+        retryRecommended = false;
+        break;
+      case 'technical_error':
+        professionalMessage = 'Technical error occurred during payment processing. Please try again or contact support if the issue persists.';
+        retryRecommended = true;
+        break;
+      case 'api_error':
+        professionalMessage = 'Server communication error. Please try again. If amount was deducted, your order will be processed automatically.';
+        retryRecommended = true;
+        break;
+      default:
+        // Use provided message or default
+        professionalMessage = message || 'Payment could not be completed. Please try again or use a different payment method.';
+        retryRecommended = true;
+    }
+    
+    updatePaymentStatusSafely(PaymentStatusMachine.FAILED, 'payment failed', { 
+      failureType, 
+      retryRecommended 
+    });
     setPaymentInProgress(false);
-    setPaymentStatusMessage(message);
+    setPaymentStatusMessage(professionalMessage);
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
     setOrderCreationAttempted(false);
     
+    // Store failure context for retry logic
+    updatePaymentState({ 
+      failureType, 
+      retryRecommended,
+      lastFailureTime: Date.now()
+    });
+    
     // Increment retry count
     setPaymentRetryCount(prev => prev + 1);
+    
+    // Send analytics event for failure tracking
+    try {
+      trackAnalyticsEvent?.('payment_failed', {
+        failure_type: failureType,
+        retry_recommended: retryRecommended,
+        retry_count: paymentRetryCount + 1,
+        order_amount: totalAmount,
+        payment_method: 'upi'
+      });
+    } catch (_) {}
   };
 
   // Handle cancelled payment
   const handlePaymentCancellation = () => {
-    console.log('[CHECKOUT FORM] Payment cancelled by user');
+    console.log('[CHECKOUT FORM] Payment cancelled by user - stopping all verification');
     
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
     updatePaymentStatusSafely(PaymentStatusMachine.CANCELLED, 'payment cancelled');
     setPaymentInProgress(false);
-    setPaymentStatusMessage('Payment was cancelled. You can try again or choose a different payment method.');
+    setPaymentStatusMessage('Payment was cancelled. No amount has been deducted from your account. You can try again with the same or different payment method.');
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
+    setOrderCreationAttempted(false);
+    
+    // Clear current order session to allow fresh start
+    setCurrentOrder(null);
+    setLastPaymentAmount(null);
+    
+    // Clear any pending timeouts/intervals that might still be checking status
+    console.log('[CHECKOUT FORM] Payment cancellation processed - verification stopped');
   };
 
   // Handle pending payment
@@ -1248,22 +1306,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       return null;
     }
   };
-  
-  
-  
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (showUpiDropdown && !event.target.closest('[data-upi-dropdown]')) {
-        setShowUpiDropdown(false);
-      }
-    };
-
-    if (showUpiDropdown) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [showUpiDropdown]);
   
   // Handle input changes and validation on blur
   const handleInputChange = (e) => {
@@ -2116,7 +2158,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   {paymentStatusMessage}
                   <br />
                   <span style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.tertiary }}>
-                    If amount was deducted from {getSelectedUpiApp().label}, refund will be processed within 2 hours
+                    If amount was deducted, refund will be processed within 2 hours
                   </span>
                 </>
               )}
@@ -2841,26 +2883,20 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             Back
           </motion.button> */}
         
-          {/* Pay using (left) + Place Order (right) */}
+          {/* Place Order Button */}
           <div style={{
-            display: 'flex',
-            gap: theme.spacing.md,
-            alignItems: 'stretch',
-            marginBottom: theme.spacing.lg,
-            flexWrap: 'wrap'
+            marginBottom: theme.spacing.lg
           }}>
-            
-            {/* Right: Submit */}
+            {/* Submit */}
             <motion.button
               type="submit"
               disabled={isSubmitting || registerClosed || paymentInProgress}
               aria-describedby="submit-button-help"
-              aria-label={`${registerClosed ? 'Ordering is currently paused' : `Pay and place order for ${orderSummary.total.toFixed(2)} rupees`}`}
+              aria-label={`${registerClosed ? 'Ordering is currently paused' : `Pay and place order for ${cartTotal + calculateTax(cartTotal)} rupees`}`}
               whileHover={!isSubmitting ? { scale: 1.01 } : {}}
               whileTap={!isSubmitting ? { scale: 0.98 } : {}}
               style={{
-                flex: '1 1 50%',
-                minWidth: '260px',
+                width: '100%',
                 backgroundColor: (isSubmitting || registerClosed) ? theme.colors.primary + 'aa' : theme.colors.primary,
                 color: theme.colors.text.light,
                 border: 'none',
@@ -2921,7 +2957,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             }}>
               {registerClosed 
                 ? 'We are currently not accepting new orders. Please try again later.'
-                : `${getSelectedUpiApp().label} will open for secure payment when you place your order`
+                : 'Secure payment gateway will open when you place your order'
               }
             </p>
           </div>
@@ -2952,6 +2988,10 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           verificationStep={verificationStep}
           verificationAttempts={verificationAttempts}
           maxVerificationAttempts={maxVerificationAttempts}
+          failureType={paymentState.failureType}
+          retryRecommended={paymentState.retryRecommended}
+          retryCount={paymentRetryCount}
+          maxRetries={3}
         />
       )}
     </motion.div>
