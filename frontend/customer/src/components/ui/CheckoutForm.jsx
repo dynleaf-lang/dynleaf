@@ -18,12 +18,6 @@ import OrderSuccessModal from './OrderSuccessModal';
 import OrderConfirmation from './OrderConfirmation';
 import PaymentSuccessToast from './PaymentSuccessToast';
 import PaymentStatusTracker from './PaymentStatusTracker';
-import amazonLogo from '../../assets/Payments-Icons/Amazon-Pay-icon.png';
-import googlePay from '../../assets/Payments-Icons/google-pay.png';
-import phonePe from '../../assets/Payments-Icons/phonepe-icon.png';
-import paytmLogo from '../../assets/Payments-Icons/paytm.png';
-import credLogo from '../../assets/Payments-Icons/credApp.jpg';
-import upiLogo from '../../assets/Payments-Icons/upi-ar21~bgwhite.svg';
 
 // Add CSS animation for spinner
 const spinnerStyles = `
@@ -158,7 +152,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   // Consolidated payment state for better organization
   const [paymentState, setPaymentState] = useState({
-    selectedUpiApp: 'gpay',
     inProgress: false,
     error: '',
     status: null, // null | 'pending' | 'success' | 'failed' | 'cancelled'
@@ -179,7 +172,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   
   // Consolidated UI state
   const [uiState, setUiState] = useState({
-    showUpiDropdown: false,
     showPaymentStatusModal: false,
     showSuccessToast: false,
     showSuccessModal: false,
@@ -204,10 +196,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   }, []);
   
   // Backward compatibility accessors (to maintain existing functionality)
-  const selectedUpiApp = paymentState.selectedUpiApp;
-  const setSelectedUpiApp = useCallback((value) => updatePaymentState({ selectedUpiApp: value }), [updatePaymentState]);
-  const showUpiDropdown = uiState.showUpiDropdown;
-  const setShowUpiDropdown = useCallback((value) => updateUIState({ showUpiDropdown: value }), [updateUIState]);
   const paymentInProgress = paymentState.inProgress;
   const setPaymentInProgress = useCallback((value) => updatePaymentState({ inProgress: value }), [updatePaymentState]);
   const paymentError = paymentState.error;
@@ -403,46 +391,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }, 300),
     []
   );
-
-  // Memoize UPI apps to prevent unnecessary re-renders
-  const memoizedUpiApps = useMemo(() => [
-    { 
-      key: 'gpay', 
-      label: 'Google Pay UPI',
-      icon: googlePay,
-      recommended: true
-    },
-    { 
-      key: 'phonepe', 
-      label: 'PhonePe UPI',
-      icon: phonePe
-    },
-    { 
-      key: 'paytm', 
-      label: 'Paytm UPI',
-      icon: paytmLogo
-    },
-    { 
-      key: 'cred', 
-      label: 'CRED UPI',
-      icon: credLogo
-    },
-    { 
-      key: 'amazonpay', 
-      label: 'Amazon Pay UPI',
-      icon: amazonLogo
-    }
-  ], []);
-
-  const getSelectedUpiApp = useCallback(() => 
-    memoizedUpiApps.find(app => app.key === selectedUpiApp) || memoizedUpiApps[0],
-    [memoizedUpiApps, selectedUpiApp]
-  );
-  
-  // Debug logging for UPI app selection
-  useEffect(() => {
-    console.log('[CHECKOUT FORM] Selected UPI App changed to:', selectedUpiApp);
-  }, [selectedUpiApp]);
 
   // WebSocket integration for instant payment confirmations
   useEffect(() => {
@@ -1359,22 +1307,6 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }
   };
   
-  
-  
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (showUpiDropdown && !event.target.closest('[data-upi-dropdown]')) {
-        setShowUpiDropdown(false);
-      }
-    };
-
-    if (showUpiDropdown) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [showUpiDropdown]);
-  
   // Handle input changes and validation on blur
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -2226,7 +2158,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
                   {paymentStatusMessage}
                   <br />
                   <span style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.tertiary }}>
-                    If amount was deducted from {getSelectedUpiApp().label}, refund will be processed within 2 hours
+                    If amount was deducted, refund will be processed within 2 hours
                   </span>
                 </>
               )}
@@ -2951,299 +2883,20 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             Back
           </motion.button> */}
         
-          {/* Pay using (left) + Place Order (right) */}
+          {/* Place Order Button */}
           <div style={{
-            display: 'flex',
-            gap: theme.spacing.md,
-            alignItems: 'stretch',
-            marginBottom: theme.spacing.lg,
-            flexWrap: 'wrap'
+            marginBottom: theme.spacing.lg
           }}>
-            {/* Left: UPI Payment Selection */}
-            <div 
-              data-upi-dropdown
-              style={{
-                flex: '1 1 45%',
-                minWidth: '240px',
-                position: 'relative'
-              }}
-            >
-              {/* Pay Using Dropdown */}
-              <div 
-                onClick={() => setShowUpiDropdown(!showUpiDropdown)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setShowUpiDropdown(!showUpiDropdown);
-                  }
-                  if (e.key === 'Escape') {
-                    setShowUpiDropdown(false);
-                  }
-                }}
-                tabIndex={0}
-                role="button"
-                aria-haspopup="listbox"
-                aria-expanded={showUpiDropdown}
-                aria-describedby="upi-dropdown-help"
-                aria-label="Select UPI payment app"
-                style={{
-                  backgroundColor: 'white',
-                  border: `1px solid ${theme.colors.border}`,
-                  borderRadius: theme.borderRadius.md,
-                  padding: theme.spacing.md,
-                  boxShadow: theme.shadows.sm,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                  <div style={{ 
-                    fontSize: theme.typography.sizes.sm, 
-                    color: theme.colors.text.secondary,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    fontWeight: 500
-                  }}>
-                    PAY USING
-                  </div> 
-                  {selectedUpiApp && (
-                    <div style={{
-                      width: '6px',
-                      height: '6px',
-                      backgroundColor: theme.colors.success,
-                      borderRadius: '50%',
-                      marginLeft: theme.spacing.xs
-                    }} />
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
-                  <img 
-                    src={getSelectedUpiApp().icon} 
-                    alt={getSelectedUpiApp().label}
-                    style={{ 
-                      width: '24px', 
-                      height: '24px', 
-                      objectFit: 'contain',
-                      borderRadius: '4px'
-                    }} 
-                  />
-                  <span style={{ fontWeight: 600, fontSize: theme.typography.sizes.md }}>
-                    {getSelectedUpiApp().label}
-                  </span>
-                  <span 
-                    className="material-icons" 
-                    style={{ 
-                      fontSize: '20px', 
-                      color: theme.colors.text.secondary,
-                      transform: showUpiDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
-                      transition: 'transform 0.2s ease'
-                    }}
-                  >
-                    expand_more
-                  </span>
-                </div>
-              </div>
-
-              {/* UPI Apps Dropdown */}
-              {showUpiDropdown && (
-                <div 
-                  role="listbox"
-                  aria-label="Select UPI payment app"
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'white',
-                    border: `1px solid ${theme.colors.border}`,
-                    borderRadius: theme.borderRadius.md,
-                    boxShadow: theme.shadows.lg,
-                    zIndex: 1000,
-                    marginTop: '4px',
-                    overflow: 'hidden'
-                  }}
-                >
-                  {/* Recommended Section */}
-                  <div style={{
-                    padding: `${theme.spacing.xs} ${theme.spacing.md}`,
-                    backgroundColor: '#f8f9fa',
-                    borderBottom: `1px solid ${theme.colors.border}`,
-                    fontSize: theme.typography.sizes.sm,
-                    color: theme.colors.text.secondary,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    fontWeight: 500
-                  }}>
-                    RECOMMENDED
-                  </div>
-                  
-                  {/* UPI Apps List */}
-                  {upiApps.map((app, index) => (
-                    <div
-                      key={app.key}
-                      role="option"
-                      aria-selected={selectedUpiApp === app.key}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
-                          setSelectedUpiApp(app.key);
-                          setShowUpiDropdown(false);
-                        }
-                        if (e.key === 'Escape') {
-                          setShowUpiDropdown(false);
-                        }
-                      }}
-                      onClick={() => {
-                        console.log('[CHECKOUT FORM] User selected UPI app:', app.key);
-                        
-                        // Track analytics for UPI app selection
-                        const analytics = paymentService.getAnalytics();
-                        analytics.trackUpiAppSelected(app.key, app.label);
-                        
-                        setSelectedUpiApp(app.key);
-                        setShowUpiDropdown(false);
-                        
-                        // Clear any previous payment errors when user changes app
-                        if (paymentError) {
-                          setPaymentError('');
-                        }
-                      }}
-                      style={{
-                        padding: theme.spacing.md,
-                        borderBottom: `1px solid ${theme.colors.border}`,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: selectedUpiApp === app.key ? theme.colors.primary + '10' : 'white',
-                        transition: 'background-color 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedUpiApp !== app.key) {
-                          e.target.style.backgroundColor = '#f8f9fa';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedUpiApp !== app.key) {
-                          e.target.style.backgroundColor = 'white';
-                        }
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
-                        <img 
-                          src={app.icon} 
-                          alt={app.label}
-                          style={{ 
-                            width: '32px', 
-                            height: '32px', 
-                            objectFit: 'contain',
-                            borderRadius: '6px'
-                          }} 
-                        />
-                        <span style={{ 
-                          fontWeight: 500, 
-                          fontSize: theme.typography.sizes.md,
-                          color: theme.colors.text.primary
-                        }}>
-                          {app.label}
-                        </span>
-                      </div>
-                      {selectedUpiApp === app.key && (
-                        <span className="material-icons" style={{ color: theme.colors.primary, fontSize: '20px' }}>
-                          check
-                        </span>
-                      )}
-                      <span 
-                        className="material-icons" 
-                        style={{ 
-                          color: theme.colors.text.secondary, 
-                          fontSize: '18px' 
-                        }}
-                      >
-                        chevron_right
-                      </span>
-                    </div>
-                  ))}
-                  
-                  {/* Add new UPI ID option */}
-                  <div
-                    style={{
-                      padding: theme.spacing.md,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      backgroundColor: 'white',
-                      color: theme.colors.primary
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#f8f9fa';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = 'white';
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.md }}>
-                      <img src={upiLogo} alt="UPI" style={{ width: 24, height: 24 }} />
-                      <span style={{ 
-                        fontWeight: 500, 
-                        fontSize: theme.typography.sizes.md 
-                      }}>
-                        Add new UPI ID
-                      </span>
-                    </div>
-                    <span className="material-icons" style={{ fontSize: '24px', color: theme.colors.primary }}>
-                      add
-                    </span>
-                  </div>
-                </div>
-              )}
-              
-              <p id="upi-dropdown-help" style={{ 
-                fontSize: theme.typography.sizes.xs,
-                color: theme.colors.text.secondary,
-                marginTop: theme.spacing.xs,
-                marginBottom: 0
-              }}>
-                Select your preferred UPI app for secure payment
-              </p>
-            </div>
-            
-            {/* Payment instruction */}
-            {selectedUpiApp && (
-              <div style={{
-                backgroundColor: theme.colors.primary + '10',
-                padding: theme.spacing.sm,
-                borderRadius: theme.borderRadius.sm,
-                fontSize: theme.typography.sizes.sm,
-                color: theme.colors.primary,
-                textAlign: 'center',
-                marginTop: theme.spacing.sm,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: theme.spacing.xs
-              }}>
-                <span className="material-icons" style={{ fontSize: '16px' }}>info</span>
-                {getSelectedUpiApp().label} will open for payment when you place your order
-              </div>
-            )}
-
-            {/* Right: Submit */}
+            {/* Submit */}
             <motion.button
               type="submit"
               disabled={isSubmitting || registerClosed || paymentInProgress}
               aria-describedby="submit-button-help"
-              aria-label={`${registerClosed ? 'Ordering is currently paused' : `Pay and place order for ${orderSummary.total.toFixed(2)} rupees`}`}
+              aria-label={`${registerClosed ? 'Ordering is currently paused' : `Pay and place order for ${cartTotal + calculateTax(cartTotal)} rupees`}`}
               whileHover={!isSubmitting ? { scale: 1.01 } : {}}
               whileTap={!isSubmitting ? { scale: 0.98 } : {}}
               style={{
-                flex: '1 1 50%',
-                minWidth: '260px',
+                width: '100%',
                 backgroundColor: (isSubmitting || registerClosed) ? theme.colors.primary + 'aa' : theme.colors.primary,
                 color: theme.colors.text.light,
                 border: 'none',
@@ -3304,7 +2957,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
             }}>
               {registerClosed 
                 ? 'We are currently not accepting new orders. Please try again later.'
-                : `${getSelectedUpiApp().label} will open for secure payment when you place your order`
+                : 'Secure payment gateway will open when you place your order'
               }
             </p>
           </div>
