@@ -6,8 +6,18 @@ import { PaymentAnalytics } from './PaymentAnalytics';
  */
 export class PaymentService {
   constructor() {
-    // Smart Cashfree mode detection
-    this.cfMode = this.detectCashfreeMode();
+    // TEMPORARY: Force production mode for Vercel deployment
+    // Remove this override once environment variables are working correctly
+    if (window.location.hostname.includes('dynleaf-customer.vercel.app') || 
+        window.location.hostname.includes('vercel.app')) {
+      this.cfMode = 'production';
+      console.log('[PAYMENT SERVICE] 🔧 TEMPORARY OVERRIDE: Forced production mode for Vercel');
+      console.log('[PAYMENT SERVICE] Remove this override once VITE_CASHFREE_ENV works correctly');
+    } else {
+      // Smart Cashfree mode detection
+      this.cfMode = this.detectCashfreeMode();
+    }
+    
     this.retryAttempts = 0;
     this.maxRetries = 2;
     this.paymentTimeout = 5 * 60 * 1000; // 5 minutes
@@ -30,9 +40,28 @@ export class PaymentService {
     
     // Additional validation for production environments
     if (this.cfMode === 'sandbox' && import.meta.env.PROD) {
-      console.warn('[PAYMENT SERVICE] ⚠️ Using sandbox mode in production build!');
-      console.warn('[PAYMENT SERVICE] This may cause payment_session_id errors.');
-      console.warn('[PAYMENT SERVICE] Set VITE_CASHFREE_ENV=production for production deployments.');
+      console.error('[PAYMENT SERVICE] 🚨 CRITICAL CONFIGURATION ERROR:');
+      console.error('[PAYMENT SERVICE] Using sandbox mode in production build!');
+      console.error('[PAYMENT SERVICE] This WILL cause payment_session_id errors.');
+      console.error('[PAYMENT SERVICE] 🔧 FIX: Set VITE_CASHFREE_ENV=production in Vercel environment variables');
+      console.error('[PAYMENT SERVICE] Current hostname:', window.location.hostname);
+      console.error('[PAYMENT SERVICE] Current VITE_CASHFREE_ENV:', import.meta.env.VITE_CASHFREE_ENV || 'NOT_SET');
+      
+      // Show user-friendly alert in production
+      if (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('netlify.app')) {
+        setTimeout(() => {
+          alert('⚠️ Payment Configuration Error\n\nThe payment system is misconfigured for production.\nPlease contact support or check the browser console for details.');
+        }, 3000);
+      }
+    }
+    
+    // Verify environment consistency
+    const isProductionDomain = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    if (isProductionDomain && this.cfMode === 'sandbox') {
+      console.error('[PAYMENT SERVICE] 🚨 Environment Mismatch Detected:');
+      console.error('[PAYMENT SERVICE] Production domain but using sandbox Cashfree mode');
+      console.error('[PAYMENT SERVICE] Domain:', window.location.hostname);
+      console.error('[PAYMENT SERVICE] Mode:', this.cfMode);
     }
   }
 
