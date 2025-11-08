@@ -162,17 +162,24 @@ export const useCashfreeSDK = () => {
 
     // Auto-detect mode if not provided
     if (!mode) {
-      const viteEnv = import.meta.env.VITE_CASHFREE_ENV;
-      const isProductionEnvironment = window.location.hostname !== 'localhost' && 
-                                     window.location.hostname !== '127.0.0.1';
-      
-      if (viteEnv === 'prod' || viteEnv === 'production') {
+      // TEMPORARY: Force production mode for Vercel deployment
+      if (window.location.hostname.includes('dynleaf-customer.vercel.app') || 
+          window.location.hostname.includes('vercel.app')) {
         mode = 'production';
-      } else if (isProductionEnvironment && (!viteEnv || viteEnv === 'sandbox')) {
-        console.warn('[CASHFREE SDK] Production environment detected but no VITE_CASHFREE_ENV set, defaulting to production');
-        mode = 'production';
+        console.log('[CASHFREE SDK] 🔧 TEMPORARY OVERRIDE: Forced production mode for Vercel');
       } else {
-        mode = 'sandbox';
+        const viteEnv = import.meta.env.VITE_CASHFREE_ENV;
+        const isProductionEnvironment = window.location.hostname !== 'localhost' && 
+                                       window.location.hostname !== '127.0.0.1';
+        
+        if (viteEnv === 'prod' || viteEnv === 'production') {
+          mode = 'production';
+        } else if (isProductionEnvironment && (!viteEnv || viteEnv === 'sandbox')) {
+          console.warn('[CASHFREE SDK] Production environment detected but no VITE_CASHFREE_ENV set, defaulting to production');
+          mode = 'production';
+        } else {
+          mode = 'sandbox';
+        }
       }
     }
 
