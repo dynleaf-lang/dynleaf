@@ -594,6 +594,18 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     return () => { cancelled = true; clearInterval(t); };
   }, [registerClosed, branch?._id]);
 
+  // Lock body scroll when payment status modal is shown (for the inline modal)
+  useEffect(() => {
+    if (showPaymentStatusModal) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      document.body.style.overflow = 'hidden';
+      
+      return () => {
+        document.body.style.overflow = originalStyle;
+      };
+    }
+  }, [showPaymentStatusModal]);
+
   // Enhanced payment status checking with connection error handling
   const checkPaymentStatus = async () => {
     // If payment status is already finalized, don't attempt further verification
@@ -958,6 +970,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     
     updatePaymentStatusSafely(PaymentStatusMachine.CANCELLED, 'payment cancelled');
     setPaymentInProgress(false);
+    setIsVerifyingPayment(false); // Stop verification process
     setPaymentStatusMessage('Payment was cancelled. No amount has been deducted from your account. You can try again with the same or different payment method.');
     setShowPaymentStatusModal(true);
     setIsSubmitting(false);
@@ -966,6 +979,11 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     // Clear current order session to allow fresh start
     setCurrentOrder(null);
     setLastPaymentAmount(null);
+    
+    // Reset verification progress
+    setVerificationProgress(0);
+    setVerificationAttempts(0);
+    setVerificationStep('');
     
     // Clear any pending timeouts/intervals that might still be checking status
     console.log('[CHECKOUT FORM] Payment cancellation processed - verification stopped');
@@ -1783,7 +1801,19 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
 
         console.log('[CHECKOUT FORM] Payment processing completed:', paymentResult);
 
-        if (paymentResult.success) {
+        // Check if payment result contains an error (e.g., payment_aborted)
+        if (paymentResult.error) {
+          console.log('[CHECKOUT FORM] Payment error detected:', paymentResult.error);
+          
+          // Handle specific error types
+          if (paymentResult.error.code === 'payment_aborted') {
+            console.log('[CHECKOUT FORM] Payment aborted by user');
+            handlePaymentCancellation();
+          } else {
+            console.log('[CHECKOUT FORM] Payment failed with error:', paymentResult.error.message);
+            handlePaymentFailure(paymentResult.error.message || 'Payment failed', 'technical_error');
+          }
+        } else if (paymentResult.success) {
           console.log('[CHECKOUT FORM] Payment successful, starting verification...');
           
           // Store payment IDs if available
@@ -1810,7 +1840,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           handlePaymentCancellation();
         } else {
           console.log('[CHECKOUT FORM] Payment failed:', paymentResult.message);
-          handlePaymentFailure(paymentResult.message || 'Payment failed');
+          handlePaymentFailure(paymentResult.message || 'Payment failed', 'generic');
         }
 
       } catch (paymentError) {
@@ -2029,7 +2059,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 9999,
-          padding: theme.spacing.md
+          padding: theme.spacing.md,
+          overflow: 'auto'
         }}>
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -2040,6 +2071,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
               padding: theme.spacing.xl,
               maxWidth: '400px',
               width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
               textAlign: 'center',
               boxShadow: theme.shadows.xl
             }}
