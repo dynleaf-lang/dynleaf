@@ -1015,43 +1015,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     }, 30000); // Reduced from 120000ms to 30000ms
   };
 
-  // Retry payment function
-  const retryPayment = () => {
-    setShowPaymentStatusModal(false);
-    setPaymentStatus(null);
-    setPaymentError('');
-    setPaymentStatusMessage('');
-    setOrderCreationAttempted(false);
-    
-    // Reset payment status finalized flag for retry
-    setPaymentStatusFinalized(false);
-    
-    // Re-trigger the form submission
-    setTimeout(() => {
-      const form = document.querySelector('form');
-      if (form) {
-        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-      }
-    }, 500);
-  };
 
-  // Try different payment method
-  const tryDifferentPaymentMethod = () => {
-    setShowPaymentStatusModal(false);
-    setPaymentStatus(null);
-    setPaymentError('');
-    setPaymentStatusMessage('');
-    setCurrentOrder(null);
-    setIsSubmitting(false);
-    setPaymentInProgress(false);
-    setOrderCreationAttempted(false);
-    
-    // Reset payment service for new attempt
-    paymentService.resetRetries();
-    
-    // Show UPI dropdown to let user select different app preference
-    setShowUpiDropdown(true);
-  };
 
   // Handle success modal actions
   const handleContinueShopping = () => {
@@ -1776,6 +1740,14 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       setLastPaymentAmount(roundedAmount); // Use validated amount
       setPaymentStatus('pending');
 
+      // Safety timeout - if payment is still processing after 120 seconds, treat as cancellation
+      const safetyTimeoutId = setTimeout(() => {
+        console.warn('[CHECKOUT FORM] Payment processing safety timeout reached - treating as cancellation');
+        if (paymentStatus === 'pending' || paymentStatus === 'processing') {
+          handlePaymentCancellation();
+        }
+      }, 120000); // 2 minutes safety timeout
+
       // Step 2: Process payment using enhanced PaymentService
       console.log('[CHECKOUT FORM] Processing payment with enhanced service...');
       
@@ -1786,7 +1758,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       paymentService.validateSessionData({ sessionId, amount: roundedAmount, cfOrderId: finalOrderId });
       
       try {
-        const paymentResult = await paymentService.processPayment(
+        // Add timeout to payment processing to prevent infinite hanging
+        const paymentPromise = paymentService.processPayment(
           {
             sessionId,
             amount: roundedAmount, // Use validated amount
@@ -1799,7 +1772,22 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           }
         );
 
+        // Create timeout promise
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Payment processing timeout')), 60000) // 60 second timeout
+        );
+
+        // Race between payment and timeout
+        const paymentResult = await Promise.race([paymentPromise, timeoutPromise]);
+
         console.log('[CHECKOUT FORM] Payment processing completed:', paymentResult);
+
+        // Handle case where paymentResult is null/undefined (payment was aborted/closed)
+        if (!paymentResult) {
+          console.log('[CHECKOUT FORM] Payment result is null - likely aborted by user');
+          handlePaymentCancellation();
+          return;
+        }
 
         // Check if payment result contains an error (e.g., payment_aborted)
         if (paymentResult.error) {
@@ -1843,9 +1831,23 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           handlePaymentFailure(paymentResult.message || 'Payment failed', 'generic');
         }
 
+        // Clear safety timeout since payment completed (success or failure)
+        clearTimeout(safetyTimeoutId);
+
       } catch (paymentError) {
         console.error('[CHECKOUT FORM] Payment processing error:', paymentError);
-        handlePaymentFailure(paymentError.message || 'Payment processing failed');
+        
+        // Handle specific timeout error
+        if (paymentError.message === 'Payment processing timeout') {
+          console.log('[CHECKOUT FORM] Payment processing timed out - treating as cancellation');
+          handlePaymentCancellation();
+        } else {
+          // Handle other payment errors
+          handlePaymentFailure(paymentError.message || 'Payment processing failed', 'technical_error');
+        }
+        
+        // Clear safety timeout
+        clearTimeout(safetyTimeoutId);
       }
 
     } catch (err) {
@@ -2046,284 +2048,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
         </motion.div>
       )}
       
-      {/* Payment Status Modal */}
-      {showPaymentStatusModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: theme.spacing.md,
-          overflow: 'auto'
-        }}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            style={{
-              backgroundColor: 'white',
-              borderRadius: theme.borderRadius.lg,
-              padding: theme.spacing.xl,
-              maxWidth: '400px',
-              width: '100%',
-              maxHeight: '90vh',
-              overflow: 'auto',
-              textAlign: 'center',
-              boxShadow: theme.shadows.xl
-            }}
-          >
-            {/* Status Icon */}
-            <div style={{ marginBottom: theme.spacing.lg }}>
-              {paymentStatus === 'success' && (
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  backgroundColor: theme.colors.success + '20',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <span className="material-icons" style={{ 
-                    fontSize: '40px', 
-                    color: theme.colors.success 
-                  }}>
-                    check_circle
-                  </span>
-                </div>
-              )}
-              
-              {paymentStatus === 'failed' && (
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  backgroundColor: theme.colors.danger + '20',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <span className="material-icons" style={{ 
-                    fontSize: '40px', 
-                    color: theme.colors.danger 
-                  }}>
-                    error
-                  </span>
-                </div>
-              )}
-              
-              {paymentStatus === 'cancelled' && (
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  backgroundColor: theme.colors.warning + '20',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <span className="material-icons" style={{ 
-                    fontSize: '40px', 
-                    color: theme.colors.warning 
-                  }}>
-                    cancel
-                  </span>
-                </div>
-              )}
-              
-              {paymentStatus === 'pending' && (
-                <div style={{
-                  width: '80px',
-                  height: '80px',
-                  backgroundColor: theme.colors.primary + '20',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    border: '3px solid rgba(0,0,0,0.1)',
-                    borderTopColor: theme.colors.primary,
-                    animation: 'spin 1s linear infinite'
-                  }} />
-                </div>
-              )}
-            </div>
 
-            {/* Status Title */}
-            <h3 style={{
-              margin: `0 0 ${theme.spacing.sm} 0`,
-              fontSize: theme.typography.sizes.lg,
-              fontWeight: theme.typography.fontWeights.bold,
-              color: theme.colors.text.primary
-            }}>
-              {paymentStatus === 'success' && 'Payment Successful!'}
-              {paymentStatus === 'failed' && `Payment of ₹${lastPaymentAmount.toFixed(2)} failed`}
-              {paymentStatus === 'cancelled' && 'Payment Cancelled'}
-              {paymentStatus === 'pending' && 'Processing Payment...'}
-            </h3>
-
-            {/* Status Message */}
-            <p style={{
-              margin: `0 0 ${theme.spacing.lg} 0`,
-              fontSize: theme.typography.sizes.md,
-              color: theme.colors.text.secondary,
-              lineHeight: 1.5
-            }}>
-              {paymentStatus === 'failed' && (
-                <>
-                  {paymentStatusMessage}
-                  <br />
-                  <span style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.text.tertiary }}>
-                    If amount was deducted, refund will be processed within 2 hours
-                  </span>
-                </>
-              )}
-              {paymentStatus !== 'failed' && paymentStatusMessage}
-            </p>
-
-            {/* Action Buttons */}
-            <div style={{
-              display: 'flex',
-              gap: theme.spacing.md,
-              flexDirection: paymentStatus === 'failed' ? 'column' : 'row',
-              justifyContent: 'center'
-            }}>
-              {paymentStatus === 'success' && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowPaymentStatusModal(false)}
-                  style={{
-                    padding: `${theme.spacing.md} ${theme.spacing.xl}`,
-                    backgroundColor: theme.colors.success,
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: theme.borderRadius.md,
-                    fontSize: theme.typography.sizes.md,
-                    fontWeight: theme.typography.fontWeights.semibold,
-                    cursor: 'pointer',
-                    minWidth: '120px'
-                  }}
-                >
-                  Continue
-                </motion.button>
-              )}
-
-              {paymentStatus === 'failed' && (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={retryPayment}
-                    style={{
-                      padding: `${theme.spacing.md} ${theme.spacing.xl}`,
-                      backgroundColor: theme.colors.danger,
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: theme.borderRadius.md,
-                      fontSize: theme.typography.sizes.md,
-                      fontWeight: theme.typography.fontWeights.semibold,
-                      cursor: 'pointer',
-                      width: '100%'
-                    }}
-                  >
-                    Retry payment
-                  </motion.button>
-                  
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={tryDifferentPaymentMethod}
-                    style={{
-                      padding: `${theme.spacing.md} ${theme.spacing.xl}`,
-                      backgroundColor: 'transparent',
-                      color: theme.colors.danger,
-                      border: 'none',
-                      borderRadius: theme.borderRadius.md,
-                      fontSize: theme.typography.sizes.md,
-                      fontWeight: theme.typography.fontWeights.medium,
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                      width: '100%'
-                    }}
-                  >
-                    Try another payment method
-                  </motion.button>
-                </>
-              )}
-
-              {paymentStatus === 'cancelled' && (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={retryPayment}
-                    style={{
-                      padding: `${theme.spacing.md} ${theme.spacing.xl}`,
-                      backgroundColor: theme.colors.primary,
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: theme.borderRadius.md,
-                      fontSize: theme.typography.sizes.md,
-                      fontWeight: theme.typography.fontWeights.semibold,
-                      cursor: 'pointer',
-                      minWidth: '120px'
-                    }}
-                  >
-                    Try Again
-                  </motion.button>
-                  
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={tryDifferentPaymentMethod}
-                    style={{
-                      padding: `${theme.spacing.md} ${theme.spacing.xl}`,
-                      backgroundColor: 'transparent',
-                      color: theme.colors.text.secondary,
-                      border: `1px solid ${theme.colors.border}`,
-                      borderRadius: theme.borderRadius.md,
-                      fontSize: theme.typography.sizes.md,
-                      fontWeight: theme.typography.fontWeights.medium,
-                      cursor: 'pointer',
-                      minWidth: '120px'
-                    }}
-                  >
-                    Change Method
-                  </motion.button>
-                </>
-              )}
-
-              {paymentStatus === 'pending' && (
-                <p style={{
-                  fontSize: theme.typography.sizes.sm,
-                  color: theme.colors.text.tertiary,
-                  fontStyle: 'italic'
-                }}>
-                  Please wait while we verify your payment...
-                </p>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      )}
       
       <form onSubmit={handleSubmit} noValidate>
         {/* Payment selection moved near the Place Order button; UPI apps only */}
