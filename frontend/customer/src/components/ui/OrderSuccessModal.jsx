@@ -24,6 +24,16 @@ export const OrderSuccessModal = ({
     return () => clearTimeout(timer);
   }, []);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
+
   // Auto transition to order confirmation after 8 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -97,8 +107,10 @@ export const OrderSuccessModal = ({
             maxWidth: '400px',
             width: '100%',
             maxHeight: '90vh',
-            overflow: 'hidden',
-            boxShadow: '0 20px 25px rgba(0,0,0,0.1), 0 8px 10px rgba(0,0,0,0.1)'
+            overflow: 'auto',
+            boxShadow: '0 20px 25px rgba(0,0,0,0.1), 0 8px 10px rgba(0,0,0,0.1)',
+            display: 'flex',
+            flexDirection: 'column'
           }}
         >
           {/* Header Section */}
