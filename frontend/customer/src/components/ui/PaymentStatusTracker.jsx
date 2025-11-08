@@ -38,6 +38,18 @@ export const PaymentStatusTracker = ({
     setDots('');
   }, [status]);
 
+  // Lock body scroll when modal is shown
+  useEffect(() => {
+    if (show) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      document.body.style.overflow = 'hidden';
+      
+      return () => {
+        document.body.style.overflow = originalStyle;
+      };
+    }
+  }, [show]);
+
   const getStatusConfig = () => {
     switch (status) {
       case 'pending':
@@ -179,6 +191,8 @@ export const PaymentStatusTracker = ({
               padding: theme.spacing.xl,
               maxWidth: '400px',
               width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
               textAlign: 'center',
               border: `2px solid ${config.borderColor}`,
               boxShadow: '0 25px 50px rgba(0,0,0,0.15)'
