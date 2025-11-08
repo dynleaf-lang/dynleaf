@@ -85,10 +85,10 @@ export const PaymentStatusTracker = ({
         };
       case 'cancelled':
         return {
-          icon: 'cancel',
-          color: theme.colors.text.secondary,
-          backgroundColor: theme.colors.text.secondary + '10',
-          borderColor: theme.colors.text.secondary + '30',
+          icon: 'info',
+          color: theme.colors.info || theme.colors.primary,
+          backgroundColor: (theme.colors.info || theme.colors.primary) + '10',
+          borderColor: (theme.colors.info || theme.colors.primary) + '30',
           title: 'Payment Cancelled',
           showProgress: false
         };
@@ -326,7 +326,7 @@ export const PaymentStatusTracker = ({
                   flexWrap: 'wrap'
                 }}
               >
-                {canRetry && retryCount < maxRetries && (
+                {canRetry && retryCount < maxRetries && onRetry && (
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -355,13 +355,13 @@ export const PaymentStatusTracker = ({
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={onCancel}
+                  onClick={onClose || onCancel}
                   style={{
                     padding: `${theme.spacing.md} ${theme.spacing.lg}`,
                     borderRadius: theme.borderRadius.lg,
-                    backgroundColor: 'transparent',
-                    color: theme.colors.text.secondary,
-                    border: `1px solid ${theme.colors.border}`,
+                    backgroundColor: status === 'cancelled' ? theme.colors.primary + '15' : 'transparent',
+                    color: status === 'cancelled' ? theme.colors.primary : theme.colors.text.secondary,
+                    border: `1px solid ${status === 'cancelled' ? theme.colors.primary : theme.colors.border}`,
                     fontSize: theme.typography.sizes.md,
                     fontWeight: theme.typography.fontWeights.medium,
                     cursor: 'pointer',
@@ -371,10 +371,51 @@ export const PaymentStatusTracker = ({
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '20px' }}>
-                    close
+                    {status === 'cancelled' ? 'check' : 'close'}
                   </span>
-                  Cancel
+                  {status === 'cancelled' ? 'Continue Shopping' : 'Close'}
                 </motion.button>
+              </motion.div>
+            )}
+
+            {/* Processing State - Don't Close Message */}
+            {(status === 'processing' || status === 'pending' || status === 'verifying') && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                style={{
+                  marginTop: theme.spacing.lg,
+                  padding: theme.spacing.md,
+                  backgroundColor: theme.colors.warning + '10',
+                  borderRadius: theme.borderRadius.lg,
+                  border: `1px solid ${theme.colors.warning}30`
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: theme.spacing.sm,
+                  justifyContent: 'center'
+                }}>
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: '18px', 
+                      color: theme.colors.warning 
+                    }}
+                  >
+                    warning
+                  </span>
+                  <p style={{
+                    fontSize: theme.typography.sizes.sm,
+                    color: theme.colors.text.secondary,
+                    margin: 0,
+                    fontWeight: theme.typography.fontWeights.medium
+                  }}>
+                    Please don't close this window or navigate away
+                  </p>
+                </div>
               </motion.div>
             )}
 
