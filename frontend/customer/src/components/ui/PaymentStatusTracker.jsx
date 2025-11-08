@@ -20,7 +20,10 @@ export const PaymentStatusTracker = ({
   verificationProgress = 0,
   verificationStep = '',
   verificationAttempts = 0,
-  maxVerificationAttempts = 6
+  maxVerificationAttempts = 6,
+  // New props for enhanced failure handling
+  failureType = null,
+  retryRecommended = true
 }) => {
   const [dots, setDots] = useState('');
 
@@ -75,12 +78,50 @@ export const PaymentStatusTracker = ({
           showProgress: false
         };
       case 'failed':
+        // Dynamic title based on failure type
+        let failureTitle = 'Payment Failed';
+        let failureIcon = 'error';
+        
+        switch (failureType) {
+          case 'network':
+            failureTitle = 'Connection Issue';
+            failureIcon = 'wifi_off';
+            break;
+          case 'insufficient_funds':
+            failureTitle = 'Insufficient Funds';
+            failureIcon = 'account_balance_wallet';
+            break;
+          case 'bank_decline':
+            failureTitle = 'Payment Declined';
+            failureIcon = 'block';
+            break;
+          case 'expired':
+            failureTitle = 'Session Expired';
+            failureIcon = 'schedule';
+            break;
+          case 'verification_timeout':
+            failureTitle = 'Verification Timeout';
+            failureIcon = 'timer_off';
+            break;
+          case 'technical_error':
+            failureTitle = 'Technical Error';
+            failureIcon = 'error_outline';
+            break;
+          case 'user_cancelled':
+            failureTitle = 'Payment Cancelled';
+            failureIcon = 'info';
+            break;
+          default:
+            failureTitle = 'Payment Failed';
+            failureIcon = 'error';
+        }
+        
         return {
-          icon: 'error',
+          icon: failureIcon,
           color: theme.colors.danger,
           backgroundColor: theme.colors.danger + '10',
           borderColor: theme.colors.danger + '30',
-          title: 'Payment Failed',
+          title: failureTitle,
           showProgress: false
         };
       case 'cancelled':
@@ -326,7 +367,8 @@ export const PaymentStatusTracker = ({
                   flexWrap: 'wrap'
                 }}
               >
-                {canRetry && retryCount < maxRetries && onRetry && (
+                {/* Retry button - only show if retry is recommended and within limits */}
+                {retryRecommended && canRetry && retryCount < maxRetries && onRetry && (
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -346,10 +388,38 @@ export const PaymentStatusTracker = ({
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '20px' }}>
-                      refresh
+                      {failureType === 'network' ? 'wifi' : 
+                       failureType === 'insufficient_funds' ? 'account_balance_wallet' :
+                       failureType === 'bank_decline' ? 'credit_card' : 'refresh'}
                     </span>
-                    Try Again
+                    {failureType === 'network' ? 'Retry Payment' : 
+                     failureType === 'insufficient_funds' ? 'Try Another Method' :
+                     failureType === 'bank_decline' ? 'Use Different Card' : 'Try Again'}
                   </motion.button>
+                )}
+
+                {/* Show support guidance for non-retryable failures */}
+                {!retryRecommended && failureType === 'verification_timeout' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    style={{
+                      width: '100%',
+                      padding: theme.spacing.md,
+                      backgroundColor: theme.colors.warning + '10',
+                      borderRadius: theme.borderRadius.md,
+                      border: `1px solid ${theme.colors.warning}40`
+                    }}
+                  >
+                    <p style={{
+                      margin: 0,
+                      fontSize: theme.typography.sizes.sm,
+                      color: theme.colors.text.secondary,
+                      textAlign: 'center'
+                    }}>
+                      💡 <strong>Need Help?</strong> Contact support with your transaction reference if amount was deducted.
+                    </p>
+                  </motion.div>
                 )}
 
                 <motion.button
