@@ -2086,7 +2086,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
               color: theme.colors.text.primary,
               display: 'flex',
               alignItems: 'center',
-              gap: theme.spacing.sm
+              gap: theme.spacing.sm,
+              textTransform: 'capitalize'
             }}>
               <span className="material-icons" style={{ fontSize: '20px', color: theme.colors.success }}>
                 account_circle

@@ -407,7 +407,7 @@ Generated on: ${new Date().toLocaleString()}
         margin: '0 auto',
         backgroundColor: 'white',
         borderRadius: '16px',
-        overflow: 'hidden',
+        overflow: 'auto',
         boxShadow: '0 20px 25px rgba(0,0,0,0.1), 0 8px 10px rgba(0,0,0,0.1)'
       }}
     >
@@ -597,9 +597,7 @@ Generated on: ${new Date().toLocaleString()}
         style={{
           backgroundColor: 'white',
           padding: '24px',
-          borderRadius: '0 0 16px 16px',
-          marginBottom: '20px',
-          boxShadow: '0 20px 25px rgba(0,0,0,0.1), 0 8px 10px rgba(0,0,0,0.1)',
+          borderRadius: '0 0 16px 16px', 
           className: "receipt"
         }}
       >
@@ -686,7 +684,7 @@ Generated on: ${new Date().toLocaleString()}
         </div>
         
         {/* Order items summary with show/hide details */}
-        <div style={{ marginBottom: '20px' }}>
+        <div >
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
