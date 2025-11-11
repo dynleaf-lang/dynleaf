@@ -962,19 +962,51 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
   };
 
   // Handle cancelled payment
-  const handlePaymentCancellation = () => {
-    console.log('[CHECKOUT FORM] Payment cancelled by user - stopping all verification');
+  const handlePaymentCancellation = (reason = 'user_action') => {
+    console.log('[CHECKOUT FORM] Payment cancelled - reason:', reason);
     
     // Set payment status as finalized to prevent further verification attempts
     setPaymentStatusFinalized(true);
     
+    // Determine the appropriate message based on cancellation reason
+    let cancellationMessage = '';
+    let failureType = 'user_cancelled';
+    
+    switch (reason) {
+      case 'modal_closed':
+        cancellationMessage = 'Payment window was closed without completing payment. No amount has been deducted from your account.';
+        failureType = 'user_cancelled';
+        break;
+      case 'user_cancelled':
+        cancellationMessage = 'Payment was cancelled. No amount has been deducted from your account.';
+        failureType = 'user_cancelled';
+        break;
+      case 'timeout':
+        cancellationMessage = 'Payment session timed out. No amount has been deducted. Please try again.';
+        failureType = 'expired';
+        break;
+      default:
+        cancellationMessage = 'Payment was not completed. No amount has been deducted from your account. You can try again with the same or different payment method.';
+        failureType = 'user_cancelled';
+    }
+    
+    // Update both payment state machine AND the paymentStatus state
     updatePaymentStatusSafely(PaymentStatusMachine.CANCELLED, 'payment cancelled');
+    setPaymentStatus('cancelled'); // Update the status used by the modal
     setPaymentInProgress(false);
     setIsVerifyingPayment(false); // Stop verification process
-    setPaymentStatusMessage('Payment was cancelled. No amount has been deducted from your account. You can try again with the same or different payment method.');
-    setShowPaymentStatusModal(true);
+    setPaymentStatusMessage(cancellationMessage);
+    setShowPaymentStatusModal(true); // Show the modal with cancellation status
     setIsSubmitting(false);
     setOrderCreationAttempted(false);
+    
+    // Store failure type for UI display
+    updatePaymentState({ 
+      failureType,
+      retryRecommended: true, // Allow retry for cancellations
+      lastCancellationTime: Date.now(),
+      cancellationReason: reason
+    });
     
     // Clear current order session to allow fresh start
     setCurrentOrder(null);
@@ -986,7 +1018,16 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
     setVerificationStep('');
     
     // Clear any pending timeouts/intervals that might still be checking status
-    console.log('[CHECKOUT FORM] Payment cancellation processed - verification stopped');
+    console.log('[CHECKOUT FORM] Payment cancellation processed - showing cancellation modal');
+    
+    // Track analytics
+    try {
+      trackAnalyticsEvent?.('payment_cancelled', {
+        reason,
+        failure_type: failureType,
+        order_amount: totalAmount
+      });
+    } catch (_) {}
   };
 
   // Handle pending payment
@@ -1739,12 +1780,13 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
       setOrderCreationAttempted(false); // Not created yet
       setLastPaymentAmount(roundedAmount); // Use validated amount
       setPaymentStatus('pending');
+      // Don't show modal yet - wait for Cashfree interaction to complete
 
       // Safety timeout - if payment is still processing after 120 seconds, treat as cancellation
       const safetyTimeoutId = setTimeout(() => {
         console.warn('[CHECKOUT FORM] Payment processing safety timeout reached - treating as cancellation');
         if (paymentStatus === 'pending' || paymentStatus === 'processing') {
-          handlePaymentCancellation();
+          handlePaymentCancellation('timeout');
         }
       }, 120000); // 2 minutes safety timeout
 
@@ -1780,29 +1822,49 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
         // Race between payment and timeout
         const paymentResult = await Promise.race([paymentPromise, timeoutPromise]);
 
-        console.log('[CHECKOUT FORM] Payment processing completed:', paymentResult);
+        console.log('[CHECKOUT FORM] Payment processing completed with result:', {
+          paymentResult,
+          hasResult: !!paymentResult,
+          cancelled: paymentResult?.cancelled,
+          success: paymentResult?.success,
+          error: paymentResult?.error
+        });
 
         // Handle case where paymentResult is null/undefined (payment was aborted/closed)
         if (!paymentResult) {
-          console.log('[CHECKOUT FORM] Payment result is null - likely aborted by user');
-          handlePaymentCancellation();
+          console.log('[CHECKOUT FORM] Payment result is null - user closed modal');
+          clearTimeout(safetyTimeoutId);
+          handlePaymentCancellation('modal_closed');
+          return;
+        }
+
+        // Check if payment result indicates cancellation
+        if (paymentResult.cancelled) {
+          console.log('[CHECKOUT FORM] Payment cancelled - reason:', paymentResult.reason || 'user_action');
+          clearTimeout(safetyTimeoutId);
+          handlePaymentCancellation(paymentResult.reason || 'user_cancelled');
           return;
         }
 
         // Check if payment result contains an error (e.g., payment_aborted)
         if (paymentResult.error) {
           console.log('[CHECKOUT FORM] Payment error detected:', paymentResult.error);
+          clearTimeout(safetyTimeoutId);
           
           // Handle specific error types
           if (paymentResult.error.code === 'payment_aborted') {
             console.log('[CHECKOUT FORM] Payment aborted by user');
-            handlePaymentCancellation();
+            handlePaymentCancellation('user_cancelled');
           } else {
             console.log('[CHECKOUT FORM] Payment failed with error:', paymentResult.error.message);
             handlePaymentFailure(paymentResult.error.message || 'Payment failed', 'technical_error');
           }
-        } else if (paymentResult.success) {
+          return;
+        }
+        
+        if (paymentResult.success) {
           console.log('[CHECKOUT FORM] Payment successful, starting verification...');
+          clearTimeout(safetyTimeoutId);
           
           // Store payment IDs if available
           if (paymentResult.orderId || paymentResult.paymentId) {
@@ -1823,31 +1885,24 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           
           // Start verification with progress tracking
           setTimeout(() => startVerificationProcess(), 1000);
-        } else if (paymentResult.cancelled) {
-          console.log('[CHECKOUT FORM] Payment cancelled by user');
-          handlePaymentCancellation();
         } else {
-          console.log('[CHECKOUT FORM] Payment failed:', paymentResult.message);
-          handlePaymentFailure(paymentResult.message || 'Payment failed', 'generic');
+          console.log('[CHECKOUT FORM] Payment failed - no success flag:', paymentResult.message);
+          clearTimeout(safetyTimeoutId);
+          handlePaymentFailure(paymentResult.message || 'Payment could not be completed', 'generic');
         }
-
-        // Clear safety timeout since payment completed (success or failure)
-        clearTimeout(safetyTimeoutId);
 
       } catch (paymentError) {
         console.error('[CHECKOUT FORM] Payment processing error:', paymentError);
+        clearTimeout(safetyTimeoutId);
         
         // Handle specific timeout error
         if (paymentError.message === 'Payment processing timeout') {
           console.log('[CHECKOUT FORM] Payment processing timed out - treating as cancellation');
-          handlePaymentCancellation();
+          handlePaymentCancellation('timeout');
         } else {
           // Handle other payment errors
           handlePaymentFailure(paymentError.message || 'Payment processing failed', 'technical_error');
         }
-        
-        // Clear safety timeout
-        clearTimeout(safetyTimeoutId);
       }
 
     } catch (err) {
@@ -2086,7 +2141,8 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
               color: theme.colors.text.primary,
               display: 'flex',
               alignItems: 'center',
-              gap: theme.spacing.sm
+              gap: theme.spacing.sm,
+              textTransform: 'capitalize'
             }}>
               <span className="material-icons" style={{ fontSize: '20px', color: theme.colors.success }}>
                 account_circle
@@ -2742,6 +2798,7 @@ const CheckoutForm = memo(({ checkoutStep, setCheckoutStep }) => {
           show={showPaymentStatusModal}
           onRetry={handlePaymentRetry}
           onClose={() => setShowPaymentStatusModal(false)}
+          canRetry={true}
           verificationProgress={verificationProgress}
           verificationStep={verificationStep}
           verificationAttempts={verificationAttempts}
