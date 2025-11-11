@@ -216,12 +216,24 @@ export class PaymentService {
       console.log('[PAYMENT SERVICE] Starting checkout with options:', checkoutOptions);
       this.analytics.trackModalInteraction('opened', { options: checkoutOptions });
 
-      // Launch checkout modal
+      // Launch checkout modal - this will block until user completes or cancels
+      console.log('[PAYMENT SERVICE] Opening Cashfree modal - waiting for user interaction...');
       const result = await cashfree.checkout(checkoutOptions);
       
+      console.log('[PAYMENT SERVICE] Cashfree modal closed - processing result');
+      console.log('[PAYMENT SERVICE] Raw result:', result);
+      console.log('[PAYMENT SERVICE] Result type:', typeof result);
+      console.log('[PAYMENT SERVICE] Result is null/undefined:', result == null);
       console.log('[PAYMENT SERVICE] Checkout completed, full result structure:', JSON.stringify(result, null, 2));
 
       const finalResult = this.handleCheckoutResult(result, cfOrderId);
+      
+      console.log('[PAYMENT SERVICE] Final processed result:', {
+        success: finalResult.success,
+        cancelled: finalResult.cancelled,
+        reason: finalResult.reason,
+        message: finalResult.message
+      });
       
       // Track final result
       if (finalResult.success) {
@@ -257,22 +269,41 @@ export class PaymentService {
    * Handle and normalize checkout results
    */
   handleCheckoutResult(result, cfOrderId) {
+    // Case 1: Result is null or undefined - user closed modal without completing payment
     if (!result) {
+      console.log('[PAYMENT SERVICE] Payment result is null - user closed modal without payment');
+      this.analytics.trackPaymentCancelled('modal_closed_null_result');
       return {
         success: false,
         cancelled: true,
-        message: 'Payment cancelled by user',
+        message: 'Payment window was closed',
+        reason: 'user_closed_modal',
         cfOrderId: cfOrderId
       };
     }
 
-    // Handle error results
+    // Case 2: Explicit error in result
     if (result.error) {
       console.error('[PAYMENT SERVICE] Payment error:', result.error);
+      
+      // Check if it's a user cancellation error
+      const errorMsg = (result.error.message || '').toLowerCase();
+      if (errorMsg.includes('cancel') || errorMsg.includes('abort') || errorMsg.includes('closed')) {
+        console.log('[PAYMENT SERVICE] User cancelled payment via error');
+        this.analytics.trackPaymentCancelled('error_cancellation');
+        return {
+          success: false,
+          cancelled: true,
+          message: 'Payment was cancelled',
+          reason: 'user_cancelled',
+          cfOrderId: cfOrderId
+        };
+      }
+      
       throw new Error(result.error.message || 'Payment failed');
     }
 
-    // Handle successful payment
+    // Case 3: Successful payment with payment details
     if (result.paymentDetails) {
       console.log('[PAYMENT SERVICE] Payment successful, full result structure:', JSON.stringify(result, null, 2));
       console.log('[PAYMENT SERVICE] PaymentDetails structure:', JSON.stringify(result.paymentDetails, null, 2));
@@ -320,11 +351,29 @@ export class PaymentService {
       };
     }
 
-    // Handle modal closure without payment
+    // Case 4: Result exists but no payment details - likely user closed modal or cancelled
+    console.log('[PAYMENT SERVICE] Payment result has no paymentDetails - treating as cancellation');
+    console.log('[PAYMENT SERVICE] Full result:', JSON.stringify(result, null, 2));
+    
+    // Check for any indicators of cancellation in the result object
+    const resultStr = JSON.stringify(result).toLowerCase();
+    const isCancellation = resultStr.includes('cancel') || 
+                          resultStr.includes('abort') || 
+                          resultStr.includes('close') ||
+                          result.cancelled === true ||
+                          result.status === 'cancelled';
+    
+    if (isCancellation) {
+      this.analytics.trackPaymentCancelled('explicit_cancellation');
+    } else {
+      this.analytics.trackPaymentCancelled('modal_closed_no_details');
+    }
+    
     return {
       success: false,
       cancelled: true,
-      message: 'Payment cancelled by user',
+      message: isCancellation ? 'Payment was cancelled' : 'Payment window was closed',
+      reason: isCancellation ? 'user_cancelled' : 'modal_closed',
       cfOrderId: cfOrderId
     };
   }
