@@ -138,7 +138,7 @@ export const PaymentStatusTracker = ({
         };
       case 'cancelled':
         return {
-          icon: 'info',
+          icon: 'cancel',
           color: theme.colors.info || theme.colors.primary,
           backgroundColor: (theme.colors.info || theme.colors.primary) + '10',
           borderColor: (theme.colors.info || theme.colors.primary) + '30',
@@ -376,16 +376,16 @@ export const PaymentStatusTracker = ({
                 transition={{ delay: 0.4 }}
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   gap: theme.spacing.md,
-                  justifyContent: 'center',
-                  flexWrap: 'wrap'
+                  width: '100%'
                 }}
               >
-                {/* Retry button - only show if retry is recommended and within limits */}
-                {retryRecommended && canRetry && retryCount < maxRetries && onRetry && (
+                {/* Retry button - show for cancellations and retryable failures */}
+                {((status === 'cancelled') || (retryRecommended && canRetry && retryCount < maxRetries)) && onRetry && (
                   <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={onRetry}
                     style={{
                       padding: `${theme.spacing.md} ${theme.spacing.lg}`,
@@ -398,22 +398,69 @@ export const PaymentStatusTracker = ({
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: theme.spacing.sm
+                      justifyContent: 'center',
+                      gap: theme.spacing.sm,
+                      width: '100%'
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '20px' }}>
-                      {failureType === 'network' ? 'wifi' : 
+                      {status === 'cancelled' ? 'refresh' : 
+                       failureType === 'network' ? 'wifi' : 
                        failureType === 'insufficient_funds' ? 'account_balance_wallet' :
                        failureType === 'bank_decline' ? 'credit_card' : 'refresh'}
                     </span>
-                    {failureType === 'network' ? 'Retry Payment' : 
+                    {status === 'cancelled' ? 'Try Payment Again' :
+                     failureType === 'network' ? 'Retry Payment' : 
                      failureType === 'insufficient_funds' ? 'Try Another Method' :
                      failureType === 'bank_decline' ? 'Use Different Card' : 'Try Again'}
                   </motion.button>
                 )}
 
+                {/* Informational message for cancellations */}
+                {status === 'cancelled' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                    style={{
+                      padding: theme.spacing.md,
+                      backgroundColor: theme.colors.success + '10',
+                      borderRadius: theme.borderRadius.md,
+                      border: `1px solid ${theme.colors.success}40`,
+                      textAlign: 'center'
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: theme.spacing.sm,
+                      marginBottom: theme.spacing.xs
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '18px', color: theme.colors.success }}>
+                        check_circle
+                      </span>
+                      <p style={{
+                        margin: 0,
+                        fontSize: theme.typography.sizes.sm,
+                        fontWeight: theme.typography.fontWeights.semibold,
+                        color: theme.colors.success
+                      }}>
+                        No Amount Deducted
+                      </p>
+                    </div>
+                    <p style={{
+                      margin: 0,
+                      fontSize: theme.typography.sizes.xs,
+                      color: theme.colors.text.secondary
+                    }}>
+                      Your account is safe. You can try again or choose a different payment method.
+                    </p>
+                  </motion.div>
+                )}
+
                 {/* Show support guidance for non-retryable failures */}
-                {!retryRecommended && failureType === 'verification_timeout' && (
+                {status === 'failed' && !retryRecommended && failureType === 'verification_timeout' && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -436,26 +483,29 @@ export const PaymentStatusTracker = ({
                   </motion.div>
                 )}
 
+                {/* Close/Continue button */}
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={onClose || onCancel}
                   style={{
                     padding: `${theme.spacing.md} ${theme.spacing.lg}`,
                     borderRadius: theme.borderRadius.lg,
-                    backgroundColor: status === 'cancelled' ? theme.colors.primary + '15' : 'transparent',
-                    color: status === 'cancelled' ? theme.colors.primary : theme.colors.text.secondary,
-                    border: `1px solid ${status === 'cancelled' ? theme.colors.primary : theme.colors.border}`,
+                    backgroundColor: 'transparent',
+                    color: theme.colors.text.secondary,
+                    border: `1px solid ${theme.colors.border}`,
                     fontSize: theme.typography.sizes.md,
                     fontWeight: theme.typography.fontWeights.medium,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: theme.spacing.sm
+                    justifyContent: 'center',
+                    gap: theme.spacing.sm,
+                    width: '100%'
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '20px' }}>
-                    {status === 'cancelled' ? 'check' : 'close'}
+                    {status === 'cancelled' ? 'shopping_cart' : 'close'}
                   </span>
                   {status === 'cancelled' ? 'Continue Shopping' : 'Close'}
                 </motion.button>

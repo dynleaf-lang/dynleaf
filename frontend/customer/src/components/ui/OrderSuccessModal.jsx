@@ -322,7 +322,7 @@ export const OrderSuccessModal = ({
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    style={{ overflow: 'hidden' }}
+                    style={{ overflow: 'auto' }}
                   >
                     {/* Items List */}
                     <div style={{
@@ -417,104 +417,7 @@ export const OrderSuccessModal = ({
             </motion.div>
 
             {/* Action Buttons */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.7 }}
-              style={{
-                display: 'flex',
-                gap: '12px',
-                flexDirection: 'column'
-              }}
-            >
-              {/* Primary Action */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleUserInteraction(onContinueShopping)}
-                style={{
-                  padding: '16px 24px',
-                  borderRadius: '8px',
-                  backgroundColor: '#dc3545',
-                  color: 'white',
-                  fontWeight: '600',
-                  fontSize: '16px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <span className="material-icons">clear</span>
-                Continue Shopping
-              </motion.button>
-
-              {/* Secondary Actions */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '8px'
-              }}>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleUserInteraction(onViewOrderHistory)}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: '6px',
-                    backgroundColor: 'transparent',
-                    color: '#dc3545',
-                    fontWeight: '500',
-                    fontSize: '14px',
-                    border: '1px solid #dc3545',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>receipt_long</span>
-                  View Details {autoTransitionTimer > 0 && `(${autoTransitionTimer})`}
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    handleUserInteraction();
-                    // Share order details
-                    if (navigator.share) {
-                      navigator.share({
-                        title: 'Order Confirmation',
-                        text: `Order #${order?.orderId || order?.order_id || order?.cfOrderId || order?.id || 'N/A'} confirmed - Total: ₹${total}`,
-                        url: window.location.href
-                      });
-                    }
-                  }}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: '6px',
-                    backgroundColor: 'transparent',
-                    color: '#666',
-                    fontWeight: '500',
-                    fontSize: '14px',
-                    border: '1px solid #dee2e6',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>share</span>
-                  Share
-                </motion.button>
-              </div>
-            </motion.div>
+            
           </div>
 
           {/* Footer */}
